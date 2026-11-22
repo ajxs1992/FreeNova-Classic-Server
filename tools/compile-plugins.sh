@@ -2,9 +2,14 @@
 # Compile every AMX Mod X plugin in the snapshot and report per-plugin PASS/FAIL.
 #
 # Run from anywhere:  tools/compile-plugins.sh
+#                     tools/compile-plugins.sh --only freenova_clutch [--only ...]
 # Output:             tools/build/plugins/<name>.amxx   (gitignored)
 #                     tools/build/plugins/logs/<name>.sma.log
-# Exit:               0 only if every .sma compiled.
+# Exit:               0 only if every compiled .sma built (or is allowlisted).
+#
+# --only NAME     compile just NAME.sma (repeatable); the default is every .sma
+#                 in the tree, unchanged. Used to build one plugin alone for a
+#                 deploy record: same runner, same output layout, same report.
 #
 # The bundled compiler (game-server/.../scripting/amxxpc) is a 32-bit i386 ELF and
 # needs an i386 runtime. Two runners are supported, tried in this order:
@@ -29,6 +34,28 @@ OUT=${OUT:-$ROOT/tools/build/plugins}
 IMAGE=${AMXX_IMAGE:-i386/debian:bookworm-slim}
 LOGS="$OUT/logs"
 
+# ---- arguments -------------------------------------------------------------
+ONLY=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --only|--only=*)
+      if [ "$1" = "--only" ]; then
+        [ $# -ge 2 ] || { echo "FATAL: --only needs a source name" >&2; exit 2; }
+        shift
+        name=$1
+      else
+        name=${1#--only=}
+      fi
+      name=$(basename "$name")
+      name=${name%.sma}
+      ONLY="${ONLY:+$ONLY }$name.sma"
+      ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    *) echo "FATAL: unknown argument: $1 (try --help)" >&2; exit 2 ;;
+  esac
+  shift
+done
+
 if [ ! -x "$SRC/amxxpc" ]; then
   echo "FATAL: compiler not found or not executable: $SRC/amxxpc" >&2
   exit 2
@@ -38,8 +65,20 @@ if [ ! -d "$SRC/include" ]; then
   exit 2
 fi
 
+for name in $ONLY; do
+  if [ ! -f "$SRC/$name" ]; then
+    echo "FATAL: no such source: $SRC/$name" >&2
+    exit 2
+  fi
+done
+
 rm -rf "$OUT"
 mkdir -p "$OUT" "$LOGS"
+
+# The runner loop reads its work list from .subset; absent, it globs *.sma.
+if [ -n "$ONLY" ]; then
+  printf '%s\n' $ONLY > "$OUT/.subset"
+fi
 
 # ---- pick a runner ---------------------------------------------------------
 MODE=none
@@ -84,10 +123,12 @@ if [ "$MODE" = native ]; then
   WORK=$(mktemp -d)
   trap 'rm -rf "$WORK"' EXIT
   cp -a "$SRC"/*.sma "$SRC"/include "$SRC"/amxxpc "$SRC"/amxxpc32.so "$WORK"/ 2>/dev/null
-  ( cd "$WORK" && for f in *.sma; do
-      ./amxxpc "$f" -i"$WORK/include" -o"$OUT/${f%.sma}" >"$LOGS/$f.log" 2>&1
+  ( cd "$WORK"
+    if [ -f "$OUT/.subset" ]; then cp "$OUT/.subset" .subset; else ls *.sma > .subset; fi
+    while read -r f; do
+      ./amxxpc "$f" -i"$WORK/include" -o"$OUT/${f%.sma}" >"$LOGS/$f.log" 2>&1 </dev/null
       echo "$? $f"
-    done ) > "$OUT/.status"
+    done < .subset ) > "$OUT/.status"
 else
   # One container for all plugins: the image has an i386 userland and its own
   # seccomp context, so amxxpc actually executes.
@@ -101,10 +142,11 @@ else
       cp -a /amx/scripting/amxxpc /amx/scripting/amxxpc32.so /work/ || exit 9
       chmod +x ./amxxpc
       : > /out/.status
-      for f in *.sma; do
-        ./amxxpc "$f" -i/work/include -o/out/"${f%.sma}" >/out/logs/"$f".log 2>&1
+      if [ -f /out/.subset ]; then cp /out/.subset .subset; else ls *.sma > .subset; fi
+      while read -r f; do
+        ./amxxpc "$f" -i/work/include -o/out/"${f%.sma}" >/out/logs/"$f".log 2>&1 </dev/null
         echo "$? $f" >> /out/.status
-      done
+      done < .subset
     ' || { echo "FATAL: container runner failed" >&2; exit 4; }
 fi
 
@@ -142,7 +184,7 @@ while read -r rc name; do
     [ -n "$mi" ] && printf '     missing include(s): %s\n' "$mi"
   fi
 done < "$OUT/.status"
-rm -f "$OUT/.status"
+rm -f "$OUT/.status" "$OUT/.subset"
 
 echo
 echo "compiled: $pass   failed: $fail   allowed-failures: $allowed   output: $OUT"

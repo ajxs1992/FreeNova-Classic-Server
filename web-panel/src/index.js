@@ -80,7 +80,10 @@ export default {
         if (minted) url.searchParams.set("steamid", minted)
         url.pathname = SHORT[code] || "/profile"
       } else {
-        motdPath = path.match(/^\/u\/(STEAM_[0-9]-[0-9]-\d+)(?:\/([a-z0-9_-]+))?(?:\/k\/([a-fA-F0-9]{16,64}))?$/i)
+        // Dashes (packed, what /m/ uses) and colons (the documented long form)
+        // are both accepted: the authid is re-packed below anyway, so a link
+        // written as /u/STEAM_0:0:1 used to 404 while /u/STEAM_0-0-1 worked.
+        motdPath = path.match(/^\/u\/(STEAM_[0-9][-:][0-9][-:]\d+)(?:\/([a-z0-9_-]+))?(?:\/k\/([a-fA-F0-9]{16,64}))?$/i)
         if (motdPath) {
           const minted = "STEAM_" + motdPath[1].slice(6).replace(/-/g, ":")
           url.searchParams.set("steamid", minted)

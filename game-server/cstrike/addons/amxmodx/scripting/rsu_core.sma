@@ -735,8 +735,11 @@ public plugin_end()
         ArrayDestroy(g_aRanks);
     if (g_aSkills != Invalid_Array)
         ArrayDestroy(g_aSkills);
-    if (g_hSqlTuple != Empty_Handle)
-        SQL_FreeHandle(g_hSqlTuple);
+    // g_hSqlTuple is intentionally NOT freed: ForceFlushAllDirty() above has
+    // just queued threaded saves that still reference the tuple, so SQL_FreeHandle
+    // here pulls the connection out from under them and the last batch of player
+    // XP/stats is never written (REVIEW.md §5.2). AMXX reclaims plugin-owned
+    // handles at unload - same reasoning as freenova_competitive.sma:185-189.
 }
 
 // ============================================================================

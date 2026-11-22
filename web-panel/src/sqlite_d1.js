@@ -149,9 +149,23 @@ export function openLocalD1(file) {
       return new D1Statement(raw, sql)
     },
     async batch(stmts) {
-      for (const s of stmts) {
-        if (s && typeof s.run === "function") await s.run()
+      // D1's batch is all-or-nothing and sync.js relies on it: a per-player
+      // skins update deletes every row and then re-inserts the truth, so a
+      // failure between the two used to leave a player with no inventory.
+      // DatabaseSync is synchronous, so a plain transaction is exact here.
+      if (!Array.isArray(stmts) || stmts.length === 0) return []
+      const out = []
+      raw.exec("BEGIN IMMEDIATE")
+      try {
+        for (const s of stmts) {
+          if (s && typeof s.run === "function") out.push(await s.run())
+        }
+        raw.exec("COMMIT")
+      } catch (e) {
+        try { raw.exec("ROLLBACK") } catch {}
+        throw e
       }
+      return out
     }
   }
 }

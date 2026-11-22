@@ -567,7 +567,15 @@ PgFailQueue(fail, const err[])
 {
 	copy(g_last_err, charsmax(g_last_err), err);
 	g_failstate = fail;
-	while( g_q_count > 0 )
+
+	// Fail exactly the queries that were queued when the connection died.
+	// REVIEW.md §5.5: this used to loop `while (g_q_count > 0)`, but a handler
+	// that re-queues on failure (the retry pattern advanced_bans uses) grows
+	// g_q_count from inside the loop, so a dead database could spin here for
+	// ever inside one server frame. Anything queued from here on waits in the
+	// queue and is sent after the next successful connect.
+	new pending = g_q_count;
+	for( new n = 0; n < pending && g_q_count > 0; n++ )
 	{
 		g_active = g_q_head;
 		g_nrows = 0;

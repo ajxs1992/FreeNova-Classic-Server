@@ -154,3 +154,115 @@ Ship `configs/freenova/missions.ini` and the rebuilt `freenova_missions.amxx`
 together, then change the map. To go back: delete or rename the ini — the
 plugin falls back to its compiled-in copy of the shipped table, which is the
 1.1.0 behaviour.
+
+---
+
+## 2. Events: dice and scheduled windows
+
+### What it does today
+
+`freenova_randevent.amxx` boosts one `battlepass_core`/`freenova_sync`/panel cvar
+for a while, then puts it back. It is the *fallback* event driver: it never
+overrides an event somebody else (the panel, `freenova_progression`'s happy
+hour) already started.
+
+| Cvar | Owner | Effect |
+|---|---|---|
+| `fn_event_xp_mult` | `freenova_sync` | XP multiplier, 1.0 = off |
+| `fn_event_coins_mult` | `freenova_sync` | coin multiplier, 1.0 = off |
+| `fn_double_xp` | `freenova_panel` | 0/1 flag, panel contract |
+| `fn_happy_hour` | `freenova_progression` | happy-hour multiplier, 1.0 = off |
+
+Today the plugin picks one of the four channels at random every
+`fn_re_min`..`fn_re_max` minutes (20..45), rolls a magnitude (1.5..3.0 for the
+multiplier channels, 1 for double, 2.0 for happy hour), announces in chat and
+HUD, and reverts after `fn_re_duration` minutes (10). `fn_re_enabled 0` stops
+all of it.
+
+Only **one** channel is boosted at a time. That is deliberate: `freenova_sync`
+multiplies the xp and coin multipliers into what players earn, so two events at
+once would multiply the multipliers. The skip-when-active check exists for
+exactly that.
+
+### The new config: `configs/freenova/events.ini`
+
+Optional. **Missing or unreadable = the 1.1.0 behaviour above**, so the file can
+be deleted with no service impact.
+
+```
+[settings]
+mode = random            ; random | schedule | both
+
+[flavor]
+;      name   | weight | min | max          (these are the 1.1.0 values)
+xp     | 25 | 1.5 | 3.0
+coins  | 25 | 1.5 | 3.0
+double | 25 | 1.0 | 1.0
+happy  | 25 | 2.0 | 2.0
+
+[window]
+;      id            | days      | start | end   | flavor | multiplier
+midweek_xp           | wed       | 20:00 | 22:00 | xp     | 2.0
+weekend_coins        | sat,sun   | 14:00 | 18:00 | coins  | 1.5
+
+[map]
+;      map        | multiplier
+; de_dust2           | 1.25
+```
+
+* **`mode`** — `random` (default: dice only, as today), `schedule` (only the
+  windows run), `both` (windows run, dice fills the gaps).
+* **`[flavor]`** — the weighted pool used by the dice driver and by any window
+  whose flavour is `-`. `weight 0` disables a channel everywhere. `min`/`max` is
+  the rolled magnitude in 0.1 steps, clamped to 1.0..5.0 (`freenova_sync`'s
+  accepted range). For `double`/`happy` set `min = max`.
+* **`[window]`** — a fixed event window: which weekdays (`sun..sat`,
+  `weekday`, `weekend`, or `0..6` with 0 = Sunday), the local start and end clock
+  time, the flavour (`-` = roll from the pool) and a fixed magnitude (empty/0 =
+  roll `min`..`max`). A window must end after it starts on the same day; a
+  window that crosses midnight is rejected with a log line, split it into two
+  rows.
+* **`[map]`** — a magnitude multiplier for one map, applied to every event
+  opened there (dice and windows), after the flavour/window value and before the
+  1.0..5.0 clamp. `double` is a 0/1 flag and is never scaled. Shipping the file
+  with no `[map]` row means every map is 1.0 — the shipped file has the two
+  example rows commented out on purpose, so adding the file changes nothing.
+
+Validation is the same shape as missions: a bad row is skipped with one
+`[FreeNova][RandEvent] events.ini:<line> …` log line and the rest still applies.
+If `mode` is `schedule`/`both` and no window validated, the plugin logs it and
+stays on dice.
+
+### Windows across a map change (the part that must not regress)
+
+`REVIEW.md` §5.2 was: an event that fired just before a map change left its cvar
+boosted for ever — everything after it skipped as "already active". Round one
+fixed that by reverting on unload. Windows make it harder, because a window is
+supposed to *continue* across the map change, so "revert and forget" is not
+enough.
+
+The plugin therefore keeps one record in its own nVault (`freenova_events`, key
+`state`): the window, its end time, the flavour, the value it wrote, **the value
+that was there before**, and whether a revert is still owed. On every map start:
+
+1. if a previous map left a channel boosted, the **recorded prior** is written
+   back (and only if that channel still holds the value the plugin wrote, so a
+   panel-driven event that took over is never clobbered);
+2. if the window is still inside its time range, it is re-opened for the time
+   that is left, using the recorded prior — so the multiplier is applied to the
+   real baseline, never on top of its own boost;
+3. if the window's end has passed, nothing is re-opened and the record stays as
+   the "already handled today" marker for that occurrence, so a window cannot
+   fire twice in the same day.
+
+Limitation, stated plainly: the end time is compared with the **local wall
+clock** at second-to-minute granularity, so a DST jump during a window ends it
+up to an hour early or late. Nothing else about it is time-sensitive.
+
+### Turning it on
+
+Ship `configs/freenova/events.ini` and the rebuilt `freenova_randevent.amxx`,
+then change the map. To run a fixed window: copy one of the `[window]` rows into
+place and set `mode = schedule` (windows only) or `mode = both` (windows plus
+dice). To keep the current random behaviour: leave `mode = random`, or delete
+the file.

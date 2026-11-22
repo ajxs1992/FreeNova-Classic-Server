@@ -587,13 +587,24 @@ async function handleSync(request, env) {
   await tickEventScheduler(env, nowSec)
 
   // ---- dispatch pending actions to the game (max 8 per push) ----
+  // Claim, then advertise only what this request actually won. The UPDATE is the
+  // claim and its changed-row count decides ownership: the previous code read a
+  // batch of pending rows and then flipped all of them, so two overlapping pushes
+  // (the normal case while the game retries after a relay timeout) both returned
+  // the same ids and the game applied each action twice - double coins for
+  // claim_bp and srv_event_reward.
   const { results: pending } = await env.DB.prepare(
     `SELECT id, steamid, type, arg, attempts FROM actions
      WHERE status = 'pending' ORDER BY created_at ASC LIMIT 8`).all()
+  const dispatched = []
   for (const a of pending) {
-    await env.DB.prepare(
+    const claim = await env.DB.prepare(
       `UPDATE actions SET status='sent', attempts=attempts+1 WHERE id=?1 AND status='pending'`)
       .bind(a.id).run()
+    // meta.changes is 1 for the winner of the race. A shim that returns no meta
+    // keeps the pre-fix behaviour instead of silently dropping every action.
+    const won = claim && claim.meta ? Number(claim.meta.changes || 0) : 1
+    if (won === 1) dispatched.push(a)
   }
   // expire actions the game never picked up
   await env.DB.prepare(
@@ -627,7 +638,7 @@ async function handleSync(request, env) {
     stored: payload.players.filter(p => validSteamid(p.steamid)).length,
     server_time: nowSec,
     events: evOut,
-    actions: pending.map(a => ({ id: a.id, steamid: a.steamid, type: a.type, arg: a.arg, attempts: a.attempts }))
+    actions: dispatched.map(a => ({ id: a.id, steamid: a.steamid, type: a.type, arg: a.arg, attempts: a.attempts }))
   })
 }
 

@@ -14,13 +14,13 @@ name: plugins
 # empty plugin set. (On the snapshot host itself the native path is unavailable —
 # seccomp kills i386 processes — which is why the docker fallback exists at all.)
 #
-# ALLOW_FAIL: those three sources `#include` third-party `.inc` files
-# (bypass_guard's IP/country API headers, the ab_bypass bridge, and the HTTP
-# probe's client library) that are NOT part of this snapshot, so they cannot
-# compile from the tree we have. They are reported as
-# `FAIL ... known-unbuildable (allowed:...)` and do not fail the run, which is
-# the point: CI stays green for the 85 that must build and turns red the moment
-# one of those breaks — or a new source starts failing.
+# ALLOW_FAIL is empty by default now: the three sources that used to need a
+# third-party-header exemption (bypass_guard, the ab_bypass bridge, the HTTP
+# probe) build again because those 21 `.inc` files were recovered into
+# scripting/include/ (SOURCES.md §7). The mechanism is still there for a source
+# that genuinely cannot build from the tree — add it to KNOWN_UNBUILDABLE in the
+# script and say why in SOURCES.md — but CI is expected to stay at
+# `compiled: N  failed: 0  allowed-failures: 0`.
 #
 # Output goes to tools/build/plugins (gitignored); nothing is written into the
 # live game-server tree.

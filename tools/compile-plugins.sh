@@ -157,7 +157,15 @@ fi
 # is the same list CI uses, so `tools/compile-plugins.sh` behaves identically on
 # a laptop and on a runner. Set ALLOW_FAIL="" to see every raw failure, e.g.
 #   ALLOW_FAIL="" ./tools/compile-plugins.sh
-KNOWN_UNBUILDABLE="bypass_guard.sma ab_bypass_bridge.sma freenova_http_probe.sma"
+#
+# The list is empty on purpose. The three sources that used to be here
+# (bypass_guard, ab_bypass_bridge, freenova_http_probe) were only ever failing
+# because their third-party headers were missing from the snapshot; those 21
+# includes are now in scripting/include/ and all three build (SOURCES.md §7).
+# A non-empty default would hide a real regression in them, which is the exact
+# opposite of what an allowlist is for. When the next source genuinely cannot
+# build from the tree, add it here *and* record why in SOURCES.md.
+KNOWN_UNBUILDABLE=""
 ALLOW_FAIL=${ALLOW_FAIL-$KNOWN_UNBUILDABLE}
 allowed=0
 is_allowed() { case " $ALLOW_FAIL " in *" $1 "*) return 0 ;; esac; return 1; }

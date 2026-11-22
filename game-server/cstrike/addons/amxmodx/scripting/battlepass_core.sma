@@ -2504,8 +2504,10 @@ public Cmd_CoinsGive(id)
             return PLUGIN_HANDLED
         }
 
-        g_iCoins[target] += amount
-        SaveCoins(target)
+        // BpCreditCoins applies the same 2e9 wallet cap as native_add_coins
+        // (:4653): a raw += past the cap wraps negative and the target can
+        // then never buy anything. (REVIEW.md §5.2)
+        BpCreditCoins(target, amount)
 
         new name[32], adminName[32]
         get_user_name(target, name, charsmax(name))
@@ -2694,8 +2696,7 @@ public CoinAmountHandler(id, menu, item)
 
     if(g_iCoinAdminAction[id] == COIN_ACTION_GIVE)
     {
-        g_iCoins[target] += amount
-        SaveCoins(target)
+        BpCreditCoins(target, amount)
         client_printcolor(id, "!g[FreeNova] !n Gave %d coins to %s.", amount, name)
         client_printcolor(target, "!g[FreeNova] !n Admin %s gave you %d coins!", adminName, amount)
     }

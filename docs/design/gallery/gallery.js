@@ -91,8 +91,9 @@
           el("span", { "class": "route", text: ref.route })
         ]);
         var meta = el("div", { "class": "meta", text:
-          ref.width + " \u00d7 " + ref.height + " \u00b7 " + bytes(ref.bytes) +
-          " \u00b7 " + ref.element_count + " elements" });
+          ref.width + " \u00d7 " + ref.height + " \u00b7 " + bytes(ref.bytes) + " \u00b7 " +
+          (ref.duplicate_of ? "identical file, no separate inventory"
+                            : ref.element_count + " inventoried elements") });
         var link = el("a", {
           "class": "tile",
           href: "viewer.html?ref=" + encodeURIComponent(ref.id),

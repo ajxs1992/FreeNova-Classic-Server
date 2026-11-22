@@ -31,6 +31,10 @@ public plugin_init()
 
 public plugin_cfg() 
 {
+	// Reset per-map state: a leaked "amx_knife_round_active 1" makes every XP
+	// owner refuse to award XP for the whole map (REVIEW.md §5.5).
+	set_cvar_num("amx_knife_round_active", 0)
+
 	mp_freezetime = get_cvar_pointer("mp_freezetime")
 	
 	// Capture now, then again after server.cfg. Never keep a 0 snapshot:
@@ -80,14 +84,35 @@ public message_TextMsg(const MsgId, const MsgDest, const MsgEntity)
 	}
 }
 
+// Undoes the two server-wide cvars the warm-up overrides. They outlive the map
+// and only restart() ever put them back, so a map change mid-warm-up left
+// amx_knife_round_active 1 (every XP owner gates on it, i.e. nobody earns XP on
+// the next map) and mp_freezetime pinned at 0 (so the next map's snapshot reads
+// 0 and falls back to DEFAULT_FREEZETIME). REVIEW.md §5.5.
+stock RestoreWarmupCvars()
+{
+	set_pcvar_num(mp_freezetime, (value > 0) ? value : DEFAULT_FREEZETIME)
+	set_cvar_num("amx_knife_round_active", 0)
+}
+
+public plugin_end()
+{
+	// Only when a warm-up is actually in flight - otherwise restart() already
+	// restored these and there is nothing to undo.
+	if(task_exists(TASKID))
+	{
+		remove_task(TASKID)
+		RestoreWarmupCvars()
+	}
+}
+
 public restart()
 {			
 	if(hudtimer <= 0)
 	{
 		remove_task(TASKID)
 		set_cvar_num("sv_restartround", 1)
-		set_pcvar_num(mp_freezetime, (value > 0) ? value : DEFAULT_FREEZETIME)
-		set_cvar_num("amx_knife_round_active", 0)
+		RestoreWarmupCvars()
 	} 
 	else 
 	{

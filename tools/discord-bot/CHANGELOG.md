@@ -95,3 +95,34 @@ One line per change, with the verification that was actually run. Newest last.
   bot restarted clean. Offline checks: parse of 7 mixed entries (running,
   upcoming, undated, junk, missing title), `fmt_delta` for 0 s…3 d 4 h, empty
   schedule text, and ended-event filtering (24 h window).
+
+- **Automatic, rate-limited posts: daily digest + up/down notices** (`bot.py`):
+  the presence loop became `monitor_loop` - one A2S probe per cycle now feeds
+  the presence, a sample log (`~/.local/share/freenova-bot/samples.jsonl`, one
+  JSONL line per probe, pruned to 7 days) and an up/down latch
+  (`alert_transition()`, pure): two consecutive misses before "went down", one
+  answer to say "is back". The digest runs at `digest.hour` (default 21:00
+  local) with peak players + time, average, probe coverage, map of the day and
+  the leaderboard leader; it postpones itself (5 min retry) if there are no
+  samples yet, and posts once a day (`digest.last_day` in the state file).
+  **Duplicate-alert judgement:** `tools/watch-server.py` (`freenova-watch`)
+  already posts down/up + a 9:00 status digest through its own webhook. The bot
+  therefore defaults to `alerts.updown: "auto"`, which suppresses its up/down
+  notices when the watcher is *on duty* - detected as: its config exists with a
+  non-empty webhook **and** its state file was written in the last 5 minutes
+  (it rewrites it every interval). The digest is deliberately kept (`21:00`,
+  player-focused, complementary to the watcher's uptime digest) and its hour is
+  configurable. `alerts.updown: "on"|"off"` overrides the detection.
+  *Verified live:* digest posted with real numbers (`Peak players 9/32 at …,
+  Average 9.0/32, Probes 1 up / 1, Map of the day de_train, Leaderboard leader
+  ajxs · 24,889 XP`) and its body read back through the REST API; a dead port
+  with `updown: on, down_after: 1` produced `Server went down` (red) then
+  `Server is back (de_train, 9/32)` (mint) - both read back; with
+  `updown: auto` on the same host the journal shows `server down: notice
+  suppressed (freenova-watch posts its own)` and no message; offline presence
+  confirmed live (`presence: for the server to come back (offline)`). Offline
+  checks: `digest_stats`/`digest_embed` on a fabricated 30-probe day, sample
+  loading with a corrupt line, `prune_samples`, `watcher_on_duty` for
+  fresh/stale/no-webhook/missing files, `updown_enabled` for all modes, and
+  `alert_transition` over down→down→up→down→down including `down_after=1`.
+  All test messages were deleted and the config/state restored afterwards.

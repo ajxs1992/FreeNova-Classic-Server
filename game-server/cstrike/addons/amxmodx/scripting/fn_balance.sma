@@ -220,7 +220,7 @@ ApplyMove()
 ApplyScramble()
 {
 	new players[32], num, id;
-	get_players(players, num, "ch");
+	get_players(players, num, "h");
 
 	// Shuffle in place (Fisher-Yates), bots included only when allowed.
 	new pool[32], n;
@@ -276,7 +276,7 @@ ApplyScramble()
 PickMoveCandidate(CsTeams:fromTeam)
 {
 	new players[32], num, id;
-	get_players(players, num, "ch");
+	get_players(players, num, "h");
 
 	new bool:allowBots = get_pcvar_num(g_pBots) ? true : false;
 
@@ -337,8 +337,12 @@ CountHumans()
 
 CountTeam(CsTeams:team)
 {
+	// "h" = everyone connected except HLTV proxies (bots included).
+	// NOTE: "c" means "do not include bots" in this AMXX version, so "ch" is
+	// humans-only - using it here silently counted 0 players on a bot-filled
+	// server and the scramble found nobody to move.
 	new players[32], num, n;
-	get_players(players, num, "ch");
+	get_players(players, num, "h");
 	for (new i = 0; i < num; i++)
 	{
 		if (cs_get_user_team(players[i]) == team)

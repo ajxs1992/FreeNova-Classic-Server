@@ -212,3 +212,12 @@ One line per change, with the verification that was actually run. Newest last.
   (`DEFAULT_CONFIG`, `STRINGS`, `SAMPLE_PATH`, `WATCH_CONFIG`, `PERIOD_DATA_AVAILABLE`)
   and from the live config; the journal messages quoted are the ones observed in
   this session.
+
+- **Sample log pruning** (`bot.py`): `prune_samples()` existed but nothing called
+  it, so `samples.jsonl` would have grown forever (one line per probe).
+  `maybe_prune_samples()` now runs on the first monitor cycle and then at most
+  once a day (7-day window), and the loop logs how many rows survived.
+  *Verified:* `py_compile`; new test `test_maybe_prune_samples_runs_once_a_day`
+  (first cycle prunes, a second call inside the interval is skipped, the next
+  day prunes again) → **55/55 tests pass**; restart → journal shows
+  `sample log pruned: 20 row(s) kept` right after the first probe.

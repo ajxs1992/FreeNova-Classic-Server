@@ -656,6 +656,23 @@ def test_samples_roundtrip_and_prune():
         assert all(row["t"] >= NOW.timestamp() - 86400 for row in bot.load_samples(path))
 
 
+def test_maybe_prune_samples_runs_once_a_day():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "samples.jsonl")
+        bot.append_sample(path, NOW, {"players": 1, "map": "de_dust2", "max": 32})
+        old = {"t": int(NOW.timestamp()) - 10 * 86400, "p": 2, "m": "old", "max": 32}
+        with open(path, "a") as fh:
+            fh.write(json.dumps(old) + "\n")
+        state: dict = {}
+        first = bot.maybe_prune_samples(state, path, NOW.timestamp())
+        assert first == 1, "the first cycle prunes old rows"
+        assert bot.maybe_prune_samples(state, path, NOW.timestamp() + 60) is None
+        again = bot.maybe_prune_samples(state, path, NOW.timestamp() + 86401)
+        assert again == 1, "and then it prunes at most once a day"
+
+
 def test_digest_stats_and_embed():
     samples = []
     for index in range(10):

@@ -283,7 +283,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "server": {"name": "CS 1.6 Classic", "host": "127.0.0.1", "port": 27015},
     "mapcycle": None,
     "leaderboard": "https://leaderboard.fn-gaming.net",
-    "hourly_status_channel": None,
     "presence_refresh": 60,
     "samples_path": None,
     "alerts": {"updown": "auto", "down_after": 2},
@@ -1131,6 +1130,20 @@ def prune_samples(path: str, keep: int = SAMPLE_KEEP, now: float | None = None) 
     return len(rows)
 
 
+def maybe_prune_samples(state: dict, path: str, now: float, keep: int = SAMPLE_KEEP,
+                        interval: int = 86400) -> int | None:
+    """Prune at most once per `interval` - returns survivors, or None when skipped.
+
+    The sample log only ever grows otherwise (one line per probe), so the bot
+    prunes it on its first cycle and then once a day.
+    """
+    last = float(state.get("pruned_at") or 0)
+    if now - last < interval:
+        return None
+    state["pruned_at"] = now
+    return prune_samples(path, keep, now)
+
+
 def digest_stats(samples: list[dict], now: datetime, window: int = 86400) -> dict[str, Any]:
     """Peak players, average, map of the day and coverage for the last `window`."""
     since = now.timestamp() - window
@@ -1649,6 +1662,7 @@ def build_bot(cfg: dict) -> commands.Bot:
 
     # ---------------------------------------------------------------- presence
     presence_state: dict[str, Any] = {"last": None, "cycle": 0}
+    sample_state: dict[str, Any] = {}
     event_cache: dict[str, Any] = {"mtime": object(), "list": []}
     store = StateStore()
     alerts_cfg = cfg.get("alerts") or {}
@@ -1759,6 +1773,10 @@ def build_bot(cfg: dict) -> commands.Bot:
         info = await get_info(server)
         try:
             await asyncio.to_thread(append_sample, samples_path, now, info)
+            kept = await asyncio.to_thread(maybe_prune_samples, sample_state, samples_path,
+                                           now.timestamp())
+            if kept is not None:
+                log.info("sample log pruned: %d row(s) kept", kept)
         except Exception:                      # noqa: BLE001
             log.warning("could not record a sample", exc_info=True)
         await apply_presence(info, now)

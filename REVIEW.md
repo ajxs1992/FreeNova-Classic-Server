@@ -977,6 +977,84 @@ npm audit                                       found 0 vulnerabilities
     together.** The plugin pays by its cvar, the panel displays by the catalog
     row it reads; changing one alone makes `/bp` and the panel disagree.
 
+## 9e. Applied in round three, workstream B — sources, precache, and three quality wins
+
+Four jobs: recover the sources of every deployed plugin, document the bypass
+guard chain, measure and cut the 512-item precache budget, and three small
+visible wins. Every number below was measured on this host against the local
+ReHLDS harness (`cs16-linux-base`, `--profile freenova`).
+
+The tree was shared with two other workstreams while this was written, so
+nothing here was staged with a wildcard and every commit names its own files.
+`git status` was clean except for another workstream's in-flight
+`tools/discord-bot/bot.py` at each commit.
+
+Compile, start to finish: **88 sources: 85 pass + 3 allowlisted failures** at
+`c7276ad` → **137 sources: 137 pass, 0 failures, 0 allowlisted** at
+`752a288`, exit 0, **no warning in any of the 137 logs**. Boot, start to finish:
+`all 67 plugins running`, `all 12 modules correct`, `no runtime errors` both
+before (`c7276ad`) and after (`752a288`) on `de_dust2`, with the same single
+error-class line in the AMXX log before and after (`freenova_sync`'s
+`fnweb_secret is empty`, which the test profile causes deliberately).
+
+| Finding | File | Commit | Evidence |
+|---|---|---|---|
+| 51 of 134 deployed `.amxx` had no source in the tree, so they could not be read, fixed or audited | 50 sources + 21 includes in `scripting/`, `SOURCES.md` | `08ea506` | `compiled: 137 failed: 0 allowed-failures: 0`, exit 0, 0 warnings. Provenance proved, not guessed: every deployed binary embeds `…\FreeNova-Unified\src\<dir>\<name>.sma` and the committed file `cmp`s clean against that archive file (50/50). `admin_sql` reconstructed from `admin.sma` + `USING_SQL` because its debug path is `/home/builds/amxmodx/linux-1.10/build/plugins/admin.sma` |
+| `bypass_guard` / `ab_bypass_bridge` / `freenova_http_probe` "could not build" and nothing said how the chain would ever be turned on | `docs/RUNBOOK.md` §6, `docs/DEPLOY-plugins.md` | `40ccd9a` | all three build now; `KNOWN_UNBUILDABLE` is empty so a regression in them fails CI. §6 records what the source says: only the **geoip** provider can run here (no `grip_amxx_i386.so`, no `curl_amxx_i386.so`, `iphubclient` is a Windows `.dll` only), `allowed_countries.ini`/`banned_countries.ini` carry a live RU/BY/UA whitelist and EG/GR blacklist, and a provider outage **fails open** (`FwdError()` logs and the player joins) unless `bypass_guard_kick_if_cant_check` is set |
+| the 512-item precache ceiling was attributed to one retired map; nobody knew who spent the budget | `tools/precache-report.py`, `docs/PRECACHE-BUDGET.md`, `weapon_models.sma` | `e48e06f` | measured both sides: the stack spends 130 distinct resources and `weapon_models` is 97 of them (81 distinct `.mdl` from `skins_menu.cfg`); map side `de_torn` 320, `de_piranesi` 261, `cs_havana` 245, `de_dust2` 43. Boot matrix: `cap 0` → `cs_havana` fatal `*239`, `de_piranesi` fatal `*231`, `de_torn` fatal `*236`; `cap 8` → the first two green, `de_torn` still fatal `*279`; `cap 1` → `de_torn` green. `weapon_models.sma` 43565 → 44359 B |
+| one missing config file silently turned every advert off | `freenova_ads.sma` | `8af801f` | boot with `ads.ini` moved aside logs `config missing - using 9 built-in ads instead` and the rotation keeps running; with the file present it logs `loaded 9 ads from …` as before. `freenova_ads.amxx` rebuilt, no warnings |
+| `fn_audit`'s case journal had no retention: every case since install, for the life of the host | `fn_audit.sma` | `d7bf3be` | `PruneJournal()` on boot + daily, `<file>.prune` then rename, undatable rows kept. `fn_audit.amxx` rebuilt, no warnings |
+| `tools/compile-plugins.sh` aborted with `out: unbound variable` instead of printing the reason a plugin failed | `tools/compile-plugins.sh` | `c308a67` | before: `out: unbound variable` and an empty reason; after: the compiler's own `fn_audit.sma(229) : error 088` line |
+| a plugin that never reached `plugin_init` was indistinguishable from one that loaded | `include/fn_common.inc` + 65 `fn_*`/`freenova_*` sources and binaries | `752a288` | 25 `[FreeNova <name>] ready (build 3, <k> features)` lines in the boot console, one per loaded member of the family; the only loaded ones without one are `freenova_hud` and `freenova_sync` (another workstream owns them this round) and `fn_bans` (the test profile deletes it from `plugins.ini`). 137/137 compile, 0 warnings |
+
+### What this round measured, and what it changes
+
+* **The cache of "unbuildable" was stale, not the code.** 51 working plugins had
+  no source; the three that "could not compile" only lacked third-party headers.
+  Both were bookkeeping failures, and both are now impossible to repeat without
+  CI going red.
+* **`cs_havana` was not the problem map.** `de_torn` (320 map items) and
+  `de_piranesi` (261) are heavier, are in the live 24-map `mapcycle.txt`, and
+  both die of the same overflow on the deployed stack today. `cs_havana` (245)
+  was the third heaviest and got retired.
+* **The margin is two models.** On `cs_havana`, 78 precached skin models boots
+  and 80 is fatal. `de_torn` needs the skin table almost entirely gone (`cap 1`),
+  which is why the knob does not fix it and §10 says so.
+* **Nothing was deployed.** No recovered source's binary was installed over a
+  live one; `SOURCES.md` §6 lists the seven to look at first. The 68 binaries
+  this round did rebuild (the 65 banners plus `weapon_models`, `freenova_ads`
+  and `fn_audit`) keep the deployed behaviour: the banner is one console line,
+  and `weapon_models`' knob is off by default until an operator turns it on.
+
+### New operator decisions this round created
+
+20. **`de_torn` must come out of `mapcycle.txt`, or the crash stays.** It is the
+    heaviest map in the tree (320 items), it is live, and no sane
+    `fn_skins_precache_max` value saves it — `cap 1` does, which is the same as
+    turning weapon skins off. `de_piranesi` is fixed by `cap 8`.
+21. **Decide the shipped `fn_skins_precache_max`.** `8` fixes `cs_havana` and
+    `de_piranesi` and costs 61 of 81 skin models; `0` keeps today's behaviour and
+    keeps the two live maps fatal. It belongs in
+    `configs/plugins/weapon_models.cfg`, not `amxx.cfg` — a value that arrives
+    after precaching only caps what players may wear.
+22. **Whether `cs_havana` comes back.** It boots green at `cap 8`. Content
+    decision, and nothing in this round depends on it.
+23. **Whether to install any of the 50 recovered sources' binaries.**
+    `SOURCES.md` §6 lists the seven to review first: the three that build more
+    than 15 % away from the deployed binary (`fn_settings` +17.6 %,
+    `amx_profiles` +15.8 %, `fn_ban_range` +15.4 %), the three where the archive
+    held two genuinely different variants (`amx_chattags`, `amx_ghostchat`,
+    `amx_rtv`), and `admin_sql`. Nothing forces it: the point of the recovery is
+    that the tree can be rebuilt.
+24. **A real bypass-guard rollout needs i386 builds of `grip`/`curl`/
+    `iphubclient`,** plus a decision on the country policy (the files carry
+    someone else's RU/BY/UA whitelist). Until then "enable `bypass_guard`" means
+    "enable a country check", and RUNBOOK §6.3 is the week-one config.
+25. **`MANIFEST-game-server.sha256` needs one refresh after the whole round
+    merges.** Refreshing it from a working tree with three workstreams in flight
+    would bake half-finished files into the manifest; the `integrity` job reports
+    the drift in the meantime.
+
 ## 10. Unverified / could not confirm
 
 1. **`hash_string` hex case — resolved by inference, not by source.**

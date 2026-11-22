@@ -114,7 +114,8 @@ STRINGS: dict[str, dict[str, str]] = {
                               "resets are agreed; as soon as the board serves them this command "
                               "returns them."),
         "board.period_footer": "Weekly and monthly boards are not live yet - all-time is.",
-        "board.unreachable": "I couldn't reach {url} just now.",
+        "board.unreachable": ("I couldn't get the leaderboard from {url} just now - it may be "
+                              "down, or answering with a challenge page instead of the board."),
         "board.unreachable_title": "The leaderboard at {url} didn't answer in time.",
         "board.empty": "The board is reachable but has no ranked players yet.",
         "board.title": "Top {n} · {period}",
@@ -136,6 +137,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "profile.no_snapshot": ("There's no snapshot for `{steamid}` yet - the board records a "
                                 "player after a few minutes on the server. Play a round and try "
                                 "again."),
+        "profile.unexpected": ("The board answered with something I can't read for `{steamid}` - "
+                               "it may be a challenge page. Try again in a moment."),
         "profile.title": "{name} ({country})",
         "profile.headline_level": "Level {level}",
         "profile.headline_rank": "{rank}",
@@ -773,6 +776,9 @@ def _fetch_rows(base: str, period: str) -> list[LeaderRow] | None:
     body = _http_get(f"{base}/top15")
     if body is None:
         return None
+    if "class='board'" not in body and "class='champ'" not in body:
+        log.warning("the leaderboard page had no board markup (challenge or error page?)")
+        return None
     return parse_top_html(body)
 
 
@@ -999,8 +1005,12 @@ def lookup_profile(base: str, query: str) -> Lookup:
                       note_kind="unreachable")
     profile = parse_profile_html(body, url)
     if profile is None:
+        if "class='panel msg'" in body:          # the board's own "no snapshot" page
+            return Lookup(query=query, url=url,
+                          note=t("profile.no_snapshot", steamid=steamid), note_kind="not-found")
+        log.warning("profile page for %s had no recognisable markup", steamid)
         return Lookup(query=query, url=url,
-                      note=t("profile.no_snapshot", steamid=steamid), note_kind="not-found")
+                      note=t("profile.unexpected", steamid=steamid), note_kind="unreachable")
     if not profile.steamid:
         profile.steamid = steamid
     return Lookup(profile=profile, query=query, url=url, others=others)

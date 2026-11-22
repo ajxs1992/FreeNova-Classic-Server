@@ -401,6 +401,20 @@ def test_fetch_leaderboard_unreachable():
     assert not board.ok and board.note_kind == "unavailable"
 
 
+def test_fetch_leaderboard_challenge_page():
+    """A Cloudflare challenge is not "no players" - it is "I could not read the board"."""
+    challenge = ("<html><body><div id='cf-challenge'>Checking your browser…</div>"
+                 "<script>window.__CF$cv$params={}</script></body></html>")
+    with stub_http({"example.invalid/top15": challenge}):
+        board = bot.fetch_leaderboard("https://example.invalid", "all")
+    assert not board.ok and board.note_kind == "unavailable"
+    assert "challenge" in board.note
+    # an empty but genuine board is still reported as empty, not as a failure
+    with stub_http({"example.invalid/top15": "<table class='board'><tbody></tbody></table>"}):
+        empty = bot.fetch_leaderboard("https://example.invalid", "all")
+    assert empty.note_kind == "empty"
+
+
 # --------------------------------------------------------------------- profile
 def test_is_steamid():
     assert bot.is_steamid("STEAM_0:1:12345")
@@ -500,6 +514,15 @@ def test_lookup_profile_unreachable():
     with stub_http({"top15?q=": None}):
         result = bot.lookup_profile("https://x", "ajxs")
     assert not result.ok and result.note_kind == "unreachable"
+
+
+def test_lookup_profile_unexpected_page():
+    """A challenge page is reported as "can't read it", not as "no such player"."""
+    page = "<html><body><div id='cf'>Checking your browser…</div></body></html>"
+    with stub_http({"top15?q=": SEARCH_HTML, "/profile?": page}):
+        result = bot.lookup_profile("https://x", "STEAM_0:0:683671116")
+    assert not result.ok and result.note_kind == "unreachable"
+    assert "can't read" in result.note
 
 
 # ---------------------------------------------------------------------- events

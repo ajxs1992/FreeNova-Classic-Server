@@ -245,3 +245,17 @@ One line per change, with the verification that was actually run. Newest last.
   (no samples → no field; two samples → `**21/32**`) → **58/58 tests pass**;
   the real callback prints `Peak (24 h): **9/32** at <t:…>` for the live
   server, and a restart shows login, `synced 7 command(s)`, presence.
+
+- **Honest failures from the leaderboard** (`bot.py`): the board sits behind
+  Cloudflare, so a challenge or error page used to be parsed into zero rows and
+  reported as "the board has no ranked players yet". Now `_fetch_rows()` checks
+  the page actually contains the board markup (challenge/error page → `None`),
+  `fetch_leaderboard()` says "I couldn't get the leaderboard … it may be down,
+  or answering with a challenge page", and a profile page without the expected
+  markup is reported as "something I can't read for `STEAM_…`" instead of
+  "no snapshot". A genuinely empty board still reports `empty`.
+  *Verified:* `py_compile`; two new tests - a fake Cloudflare challenge body →
+  `note_kind="unavailable"` while a real-but-empty board → `"empty"`, and an
+  unreadable profile page → `note_kind="unreachable"` with "can't read" in the
+  note → **60/60 tests pass**; restart clean (login, `synced 7 command(s)`,
+  presence) and `/top all` + `/profile ajxs` still render live data.

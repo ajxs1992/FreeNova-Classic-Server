@@ -30,7 +30,7 @@
 #define TQUERY_QUERY_FAILED	-1
 #define TQUERY_SUCCESS		0
 
-new g_pHost, g_pUser, g_pPass, g_pDb;
+new g_pHost, g_pUser, g_pPass, g_pDb, g_pTimeout;
 new g_sock = -1;
 new g_state = ST_IDLE;
 new g_in[PG_BUF];
@@ -81,6 +81,9 @@ public plugin_init()
 	g_pUser = register_cvar("ab_sql_user", "", FCVAR_PROTECTED);
 	g_pPass = register_cvar("ab_sql_pass", "", FCVAR_PROTECTED);
 	g_pDb = register_cvar("ab_sql_db", "bans", FCVAR_PROTECTED);
+	// Seconds a single query may stay unanswered before the connection is
+	// dropped and the queue failed (REVIEW.md 5.5: there was no limit at all).
+	g_pTimeout = register_cvar("ab_sql_timeout", "20");
 }
 
 public plugin_cfg()
@@ -225,6 +228,24 @@ stock PgThinkBody()
 	{
 		PgDie("auth timeout (no server reply)");
 		return;
+	}
+
+	// REVIEW.md 5.5: a stalled backend used to wedge the engine for ever - the
+	// state stayed ST_BUSY, no reply ever arrived, so no query completed, no
+	// queued query was sent and every caller waited for a callback that never
+	// fired (then "queue full, dropping query" for ever, i.e. no bans at all).
+	// g_q_start[] has been recorded since the first version and was never read.
+	// On timeout the connection is dropped and the queue failed, and the retry
+	// chain reconnects.
+	if( g_state == ST_BUSY && g_active >= 0 )
+	{
+		new Float:qlimit = float(get_pcvar_num(g_pTimeout));
+		if( qlimit < 5.0 ) qlimit = 5.0;
+		if( get_gametime() - g_q_start[g_active] > qlimit )
+		{
+			PgDie("query timeout (no reply from backend)");
+			return;
+		}
 	}
 
 	if( socket_is_readable(g_sock, 0) )

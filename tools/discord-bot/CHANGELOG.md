@@ -304,3 +304,27 @@ One line per change, with the verification that was actually run. Newest last.
   [],next:null},updated:1795376555}`; the real `/status` callback rendered
   `Map de_dust2 · Players 0/32 · Next map de_inferno · Peak (24 h) 10/32`,
   footer `panel API · game push 7s ago`; tests 71 → 72.
+
+- **`/top` is the JSON board now; the HTML parser is gone** (`bot.py`):
+  `fetch_leaderboard()` is async and reads `/api/public/top?period=&metric=&limit=`
+  (always `limit=15` so one cache entry serves every `count`), and
+  `leaderboard_from_api()` builds the internal `Leaderboard` from
+  `rows`/`window`/`coverage`/`total`/`updated`. `parse_top_html`, `_fetch_rows`
+  and `PERIOD_DATA_AVAILABLE` are deleted; `LeaderRow` now carries
+  `rank/name/steamid/value/metric` (`13 kills`, `1 kill` - plural handled).
+  `/top` gained a `metric` option (XP / Kills) and the title carries the real
+  window: `Top 10 · Week 47 · 2026`, `Top 3 kills · Lifetime`. `coverage` is
+  never hidden: a partial week footers `Week 47 · 2026 · tracked since <date> ·
+  15 players observed`, and an empty week says `No finished week yet - the
+  board started tracking <date> (Week 47 · 2026) ... Lifetime numbers are on
+  /top all` instead of "no data". 429 says the panel is rate-limiting the bot;
+  the digest's leader line uses the same row shape (`· 24,889 XP`).
+  *Verified against production:* observed `GET /api/public/top?period=all`
+  `200` with `rows[{rank,steamid,name,value,metric,period}]`, `window.label
+  "Lifetime"`, `coverage.complete:true`; `period=week` `200` with `rows: []`,
+  `key "2026-W47"`, `window.label "Week 47 · 2026"`, `coverage
+  {observed_players:16,first_seen:1795376533,complete:false}`; `metric=kills`
+  `200` with `NPC_Leaders value 12`; the real callbacks rendered
+  `Leaderboard · Week 47 · 2026` (dim, "No finished week yet - the board
+  started tracking <date>"), `Top 10 · Lifetime` (gold, real XP rows) and
+  `Top 3 kills · Lifetime` (`**1.** NPC_Leaders - 12 kills`). Tests 72 → 78.

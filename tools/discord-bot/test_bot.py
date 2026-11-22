@@ -266,6 +266,7 @@ def call_command(name: str, *args, api: dict[str, object] | None = None,
     """Drive one real command callback with the API stubbed (unreachable by default)."""
     instance = bot.build_bot(cfg or sample_cfg())
     interaction = FakeInteraction()
+    bot.COOLDOWN_BUCKETS.clear()          # every test starts with a clean cooldown window
     with stub_api(api or {}):
         asyncio.run(instance.tree.get_command(name).callback(interaction, *args))
     return interaction
@@ -522,63 +523,125 @@ def test_map_kind():
 
 
 # ---------------------------------------------------------------- leaderboard
-def test_parse_top_html():
-    rows = bot.parse_top_html(TOP_HTML)
-    assert [r.rank for r in rows] == [1, 2, 4, 5]
-    champion = rows[0]
-    assert champion.name == "ajxs" and champion.xp == 24889
-    assert champion.rank_name == "Supreme Master First Class" and champion.level == 18
-    assert champion.steamid == "STEAM_0:0:683671116"
-    runner = rows[1]
-    assert runner.name == "NPC_Leaders" and runner.xp == 12463
-    assert "76 wins" in runner.extra
-    board = rows[2]
-    assert board.name == "npc_known" and board.xp == 82 and board.level == 1
-    assert board.extra == "seen 27d"
-    assert "<Warrior>" not in " ".join(r.name for r in rows)
-    assert rows[3].line().startswith("**5.** Ying - 14 XP")
+def test_leaderboard_from_api_rows():
+    board = bot.leaderboard_from_api(API_TOP_ALL, "all", "xp", 10, "https://x/top15")
+    assert board.ok and board.period == "all" and board.metric == "xp"
+    assert [row.rank for row in board.rows] == [1, 2, 3]
+    assert board.rows[0].name == "ajxs" and board.rows[0].value == 24889
+    assert board.rows[0].steamid == "STEAM_0:0:683671116"
+    assert board.rows[0].line() == "**1.** ajxs - 24,889 XP"
+    assert board.subtitle() == "Lifetime" and board.complete and board.total == 12
+    assert board.coverage_note() == "Lifetime", "a complete board has no caveat"
 
 
-def test_parse_top_html_empty_and_junk():
-    assert bot.parse_top_html("") == []
-    assert bot.parse_top_html("<html><body>maintenance</body></html>") == []
-    assert bot.parse_top_html("<table class='board'><tbody></tbody></table>") == []
+def test_leaderboard_week_carries_partial_coverage():
+    board = bot.leaderboard_from_api(API_TOP_WEEK, "week", "xp", 10, "https://x/top/week")
+    assert board.ok and board.subtitle() == "Week 47 · 2026" and not board.complete
+    assert board.rows[0].line() == "**1.** zerbou3I - 950 XP"
+    assert board.key == "2026-W47" and board.total == 2
+    note = board.coverage_note()
+    assert "Week 47 · 2026" in note and "tracked since" in note
+    assert "15 players observed" in note
 
 
-def test_fetch_leaderboard_unavailable_period():
-    board = asyncio.run(asyncio.to_thread(bot.fetch_leaderboard, "https://example.invalid", "week"))
-    assert board.period == "week" and not board.ok
-    assert board.note_kind == "period"
-    assert "weekly" in board.note and "invent" in board.note
+def test_leaderboard_kills_metric():
+    payload = json.loads(json.dumps(API_TOP_WEEK))
+    payload["metric"] = "kills"
+    for row in payload["rows"]:
+        row["metric"] = "kills"
+        row["value"] = 120
+    board = bot.leaderboard_from_api(payload, "week", "kills")
+    assert board.metric == "kills"
+    assert board.rows[0].line() == "**1.** zerbou3I - 120 kills"
+    assert board.rows[0].value_text() == "120 kills"
+    single = bot.LeaderRow(rank=3, name="One", value=1, metric="kills")
+    assert single.value_text() == "1 kill", "one kill is not '1 kills'"
+    assert bot.LeaderRow(rank=1, name="X").value_text() == ""
 
 
-def test_fetch_leaderboard_parses_stubbed_page():
-    with stub_http({"example.invalid/top15": TOP_HTML}) as http:
-        board = bot.fetch_leaderboard("https://example.invalid", "all", 3)
-    assert board.ok and len(board.rows) == 3
-    assert board.rows[0].name == "ajxs"
-    assert board.url == "https://example.invalid/top15"
-    assert http.calls == ["https://example.invalid/top15"]
+def test_leaderboard_empty_week_says_when_tracking_started():
+    board = bot.leaderboard_from_api(API_TOP_EMPTY_WEEK, "week", "xp")
+    assert not board.ok and board.note_kind == "not_started"
+    assert "No finished week yet" in board.note
+    assert f"<t:{NOW_TS - 120}:D>" in board.note, "the date the board started tracking"
+    assert "Week 47 · 2026" in board.note
 
 
-def test_fetch_leaderboard_unreachable():
-    with stub_http({"example.invalid/top15": None}):
-        board = bot.fetch_leaderboard("https://example.invalid", "all")
+def test_leaderboard_empty_without_baseline():
+    payload = json.loads(json.dumps(API_TOP_EMPTY_WEEK))
+    payload["coverage"] = {"observed_players": 0, "first_seen": 0, "complete": False}
+    board = bot.leaderboard_from_api(payload, "week", "xp")
+    assert not board.ok and board.note_kind == "empty"
+    assert board.note == "Nothing on the Week 47 · 2026 board yet."
+
+
+def test_leaderboard_tolerates_junk():
+    board = bot.leaderboard_from_api(None, "week", "xp")
     assert not board.ok and board.note_kind == "unavailable"
+    weird = bot.leaderboard_from_api({"rows": [{"rank": "x"}, "junk", {"name": "   "}],
+                                      "coverage": "nope", "window": 5}, "week", "xp")
+    assert weird.rows == () and weird.note_kind == "empty"
 
 
-def test_fetch_leaderboard_challenge_page():
-    """A Cloudflare challenge is not "no players" - it is "I could not read the board"."""
-    challenge = ("<html><body><div id='cf-challenge'>Checking your browser…</div>"
-                 "<script>window.__CF$cv$params={}</script></body></html>")
-    with stub_http({"example.invalid/top15": challenge}):
-        board = bot.fetch_leaderboard("https://example.invalid", "all")
+def test_fetch_leaderboard_asks_the_api_for_week():
+    with stub_api({"/top?limit=15&metric=xp&period=week": (200, API_TOP_WEEK)}) as api:
+        board = asyncio.run(bot.fetch_leaderboard("https://example.invalid", "week", 1))
+    assert board.ok and len(board.rows) == 1, "the count is sliced locally"
+    assert api.calls == ["/top?limit=15&metric=xp&period=week"]
+    assert board.url == "https://example.invalid/top/week"
+
+
+def test_fetch_leaderboard_unreachable_and_rate_limited():
+    board = asyncio.run(bot.fetch_leaderboard("https://example.invalid", "all", 10))
     assert not board.ok and board.note_kind == "unavailable"
-    assert "challenge" in board.note
-    # an empty but genuine board is still reported as empty, not as a failure
-    with stub_http({"example.invalid/top15": "<table class='board'><tbody></tbody></table>"}):
-        empty = bot.fetch_leaderboard("https://example.invalid", "all")
-    assert empty.note_kind == "empty"
+    limited = asyncio.run(bot.fetch_leaderboard("https://example.invalid", "all", 10)) \
+        if False else None
+    with stub_api({"/top?limit=15&metric=xp&period=all": (429, API_RATE_LIMITED)}):
+        limited = asyncio.run(bot.fetch_leaderboard("https://example.invalid", "all", 10))
+    assert limited.note_kind == "rate_limited" and "120" in limited.note
+
+
+def test_top_command_renders_the_api_board():
+    interaction = call_command("top", "week", 10, None,
+                               api={"/top?limit=15&metric=xp&period=week": (200, API_TOP_WEEK)})
+    embed = interaction.answer["embeds"][0]
+    assert embed.title == "Top 2 · Week 47 · 2026"
+    assert embed.colour.value == bot.COLOUR_BP
+    assert embed.description.splitlines()[0] == "**1.** zerbou3I - 950 XP"
+    assert "tracked since" in embed.footer.text
+    assert "panel API · board built" in embed.footer.text
+
+
+def test_top_command_empty_week_is_dim_and_honest():
+    interaction = call_command("top", "week", 10, None,
+                               api={"/top?limit=15&metric=xp&period=week":
+                                    (200, API_TOP_EMPTY_WEEK)})
+    embed = interaction.answer["embeds"][0]
+    assert embed.title == "Leaderboard · Week 47 · 2026"
+    assert embed.colour.value == bot.COLOUR_DIM
+    assert "No finished week yet" in embed.description
+
+
+def test_top_command_kills():
+    payload = json.loads(json.dumps(API_TOP_WEEK))
+    payload["metric"] = "kills"
+    for row in payload["rows"]:
+        row["metric"] = "kills"
+        row["value"] = 120
+    interaction = call_command("top", "week", 10, "kills",
+                               api={"/top?limit=15&metric=kills&period=week": (200, payload)})
+    embed = interaction.answer["embeds"][0]
+    assert embed.title == "Top 2 kills · Week 47 · 2026"
+    assert "120 kills" in embed.description
+
+
+def test_top_command_rate_limited():
+    interaction = call_command("top", "all", 10, None,
+                               api={"/top?limit=15&metric=xp&period=all":
+                                    (429, API_RATE_LIMITED)})
+    embed = interaction.answer["embeds"][0]
+    assert embed.colour.value == bot.COLOUR_WARN
+    assert "rate-limiting" in embed.description
 
 
 # --------------------------------------------------------------------- profile
@@ -1013,7 +1076,7 @@ def test_registered_command_table():
     names = sorted(command.name for command in instance.tree.get_commands())
     assert names == ["events", "help", "map", "players", "profile", "status", "top"]
     top = instance.tree.get_command("top")
-    assert [parameter.name for parameter in top.parameters] == ["period", "count"]
+    assert [parameter.name for parameter in top.parameters] == ["period", "count", "metric"]
     assert top.parameters[1].required is False
     profile = instance.tree.get_command("profile")
     assert profile.parameters[0].name == "player" and profile.parameters[0].required is True

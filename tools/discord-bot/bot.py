@@ -47,7 +47,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -105,26 +105,31 @@ STRINGS: dict[str, dict[str, str]] = {
         "period.all": "all time",
         "period.week": "this week",
         "period.month": "this month",
+        "period.noun.all": "lifetime",
+        "period.noun.week": "week",
+        "period.noun.month": "month",
         "period.adj.all": "all-time",
         "period.adj.week": "weekly",
         "period.adj.month": "monthly",
         # leaderboard
-        "board.period_note": ("The board doesn't publish a {adj} ranking yet - it only carries "
-                              "the season table, so I won't invent numbers. Weekly and monthly "
-                              "resets are agreed; as soon as the board serves them this command "
-                              "returns them."),
-        "board.period_footer": "Weekly and monthly boards are not live yet - all-time is.",
-        "board.unreachable": ("I couldn't get the leaderboard from {url} just now - it may be "
-                              "down, or answering with a challenge page instead of the board."),
-        "board.unreachable_title": "The leaderboard at {url} didn't answer in time.",
-        "board.empty": "The board is reachable but has no ranked players yet.",
+        "board.unavailable": "The panel API didn't answer for this board - try again in a moment.",
+        "board.rate_limited": "The panel is rate-limiting me (120 requests a minute) - try again shortly.",
+        "board.empty": "Nothing on the {label} board yet.",
+        "board.not_started": ("No finished {period} yet - the board started tracking {started} "
+                              "({label}), so there is nothing to rank. Lifetime numbers are on "
+                              "`/top all`."),
         "board.title": "Top {n} · {period}",
+        "board.title_metric": "Top {n} {metric} · {period}",
         "board.title_plain": "Leaderboard · {period}",
-        "board.source": "Source: {host}",
+        "board.source": "panel API · board built <t:{updated}:t>",
         "board.row": "**{rank}.** {name}",
-        "board.row_detail": "**{rank}.** {name} - {detail}",
-        "board.xp": "{xp:,} XP",
-        "board.seen": "seen {seen}",
+        "board.row_value": "**{rank}.** {name} - {value}",
+        "board.value.xp": "{value:,} XP",
+        "board.value.kills": "{value:,} kill{s}",
+        "board.metric.xp": "XP",
+        "board.metric.kills": "kills",
+        "board.partial": "tracked since {since} · {observed} players observed",
+        "board.total": "{total} ranked",
         # profile
         "profile.need_query": "Give me a player name or a STEAM_0:x:y:z id.",
         "profile.unreachable": "I couldn't reach the leaderboard at {base} just now.",
@@ -202,7 +207,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "digest.map": "Map of the day",
         "digest.map_value": "`{map}` · {share:.0%} of probes",
         "digest.leader": "Leaderboard leader",
-        "digest.leader_value": "**{name}**{xp}",
+        "digest.leader_value": "**{name}**{value}",
         "digest.footer": "{server} · last 24 h · A2S + public leaderboard",
         # commands
         "cmd.status.desc": "Live status of the FreeNova Classic server",
@@ -243,9 +248,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "cmd.top.desc": "The leaderboard - all time, or by week/month",
         "cmd.top.period": "Which board to show",
         "cmd.top.count": "How many players (default 10, max 15)",
+        "cmd.top.metric": "Rank by XP or by kills",
         "cmd.top.choice.all": "All time",
         "cmd.top.choice.week": "This week",
         "cmd.top.choice.month": "This month",
+        "cmd.top.choice.xp": "XP",
+        "cmd.top.choice.kills": "Kills",
         "cmd.profile.desc": "A player's rank, XP, battle pass and playtime",
         "cmd.profile.player": "Player name as used in game, or a STEAM_0:0:12345 id",
         "cmd.events.desc": "The event schedule, with countdowns",
@@ -806,7 +814,9 @@ def server_state_from_api(payload: Any, now: datetime | None = None) -> ServerSt
 # still used for one thing the API does not do: resolving a player *name* to a
 # steamid (see `_search_candidates`).
 PERIODS = ("all", "week", "month")
+METRICS = ("xp", "kills")
 PERIOD_LABEL = {"all": "period.all", "week": "period.week", "month": "period.month"}
+BOARD_PAGES = {"all": "/top15", "week": "/top/week", "month": "/top/month"}
 
 
 def period_label(period: str) -> str:
@@ -814,14 +824,20 @@ def period_label(period: str) -> str:
     return t(PERIOD_LABEL.get(period, "period.all"))
 
 
-# The HTML board page only carries the lifetime table - these flags are for the
-# legacy `fetch_leaderboard` path and disappear when /top moves to /api/public/top.
-PERIOD_DATA_AVAILABLE = {"all": True, "week": False, "month": False}
+def metric_label(metric: str) -> str:
+    """`XP` / `kills`, translated."""
+    return t(f"board.metric.{metric}" if metric in METRICS else "board.metric.xp")
+
+
+def period_noun(period: str) -> str:
+    """`week` / `month` / `lifetime`, for sentences like "no finished week yet"."""
+    return t(f"period.noun.{period}" if period in PERIODS else "period.noun.all")
 
 
 def _http_get(url: str, timeout: float = HTTP_TIMEOUT) -> str | None:
+    """Plain GET for the one page the API does not replace (the name search)."""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "FreeNovaBot/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": API_UA})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8", "replace")
     except (urllib.error.URLError, OSError, ValueError) as exc:
@@ -858,125 +874,137 @@ class LeaderRow:
     rank: int
     name: str
     steamid: str | None = None
-    xp: int | None = None
-    rank_name: str | None = None
-    level: int | None = None
-    extra: str = ""
+    value: int | None = None
+    metric: str = "xp"
+
+    def value_text(self) -> str:
+        """`24,889 XP` / `12 kills` - the counter with its unit, honest about 1."""
+        if self.value is None:
+            return ""
+        if self.metric == "kills":
+            return t("board.value.kills", value=self.value,
+                     s="" if abs(self.value) == 1 else "s")
+        return t("board.value.xp", value=self.value)
 
     def line(self) -> str:
-        detail = " · ".join(part for part in (
-            t("board.xp", xp=self.xp) if self.xp is not None else "",
-            self.rank_name or "",
-            f"L{self.level}" if self.level else "",
-            self.extra or "",
-        ) if part)
-        if not detail:
+        if self.value is None:
             return t("board.row", rank=self.rank, name=self.name)
-        return t("board.row_detail", rank=self.rank, name=self.name, detail=detail)
+        return t("board.row_value", rank=self.rank, name=self.name, value=self.value_text())
 
 
 @dataclass(frozen=True)
 class Leaderboard:
+    """One board, ready to render - the internal shape, whatever the source."""
+
     period: str
+    metric: str = "xp"
     rows: tuple[LeaderRow, ...] = ()
-    url: str = ""
+    url: str = ""                  # the human page on the site
     note: str = ""
-    note_kind: str = ""            # "" | "unavailable" | "period" | "empty"
+    note_kind: str = ""            # "" | "unavailable" | "rate_limited" | "empty" | "not_started"
+    key: str = ""                  # `2026-W47`, `2026-11`, `all`
+    window_label: str = ""         # `Week 47 · 2026`, `November 2026`, `Lifetime`
+    window_start: int | None = None
+    window_end: int | None = None
+    total: int = 0
+    coverage: dict[str, Any] = field(default_factory=dict)
+    updated: int | None = None
 
     @property
     def ok(self) -> bool:
         return bool(self.rows)
 
+    @property
+    def complete(self) -> bool:
+        return bool(self.coverage.get("complete"))
 
-def parse_top_html(body: str) -> list[LeaderRow]:
-    """Parse <base>/top15 into rows ordered by rank.
+    @property
+    def first_seen(self) -> int:
+        return int(self.coverage.get("first_seen") or 0)
 
-    Selectors used (stable class names, no positional assumptions):
-    `table.champ` + `td.cxp` for the champion, `td.r2`/`td.r3` for ranks 2-3,
-    `tr.row` + `td.idx` + `a.pname` + `span.xp` + `img.crest` for ranks 4+.
-    """
+    @property
+    def observed(self) -> int:
+        return int(self.coverage.get("observed_players") or 0)
+
+    def subtitle(self) -> str:
+        """`Week 47 · 2026` when the API says, else `this week`."""
+        return self.window_label or period_label(self.period)
+
+    def coverage_note(self) -> str:
+        """The honest footnote: which window, and whether it is under-counted."""
+        parts = [self.subtitle()]
+        if not self.complete and self.first_seen:
+            parts.append(t("board.partial", since=f"<t:{self.first_seen}:D>",
+                           observed=self.observed))
+        return " · ".join(part for part in parts if part)
+
+
+def leaderboard_from_api(payload: Any, period: str = "all", metric: str = "xp",
+                         limit: int = 10, url: str = "") -> Leaderboard:
+    """Parse `/api/public/top` into `Leaderboard`. Never invents rows."""
+    if not isinstance(payload, dict):
+        return Leaderboard(period, metric, url=url, note=t("board.unavailable"),
+                           note_kind="unavailable")
+    window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+    coverage = payload.get("coverage") if isinstance(payload.get("coverage"), dict) else {}
     rows: list[LeaderRow] = []
-    if not body:
-        return rows
-
-    champion = re.search(r"<table class='champ'.*?</table>", body, re.S)
-    if champion:
-        block = champion.group(0)
-        name = _text_of(block, r"<a href='/profile\?steamid=[^']*'[^>]*>(.*?)</a>")
-        if name:
-            rows.append(LeaderRow(
-                rank=_int_of(block, r"class='cplace'>\s*(\d+)") or 1,
-                name=name,
-                steamid=_steamid_of(block),
-                xp=_int_of(block, r"class='cxp'>\s*<b>([\d,]+)</b>"),
-                rank_name=_text_of(block, r"<img src='/ranks/rank_\d+\.png'[^>]*alt='([^']*)'"),
-                level=_int_of(block, r"Level\s*(\d+)"),
-            ))
-
-    for match in re.finditer(r"<td class='r([23])'>(.*?)</td>", body, re.S):
-        block = match.group(2)
-        name = _text_of(block, r"<a href='/profile\?steamid=[^']*'[^>]*>(.*?)</a>")
-        if not name:
+    for item in payload.get("rows") or []:
+        if not isinstance(item, dict) or not str(item.get("name") or "").strip():
             continue
         rows.append(LeaderRow(
-            rank=_int_of(block, r"class='rplace'>\s*(\d+)") or int(match.group(1)),
-            name=name,
-            steamid=_steamid_of(block),
-            xp=_int_of(block, r"class='rxp'>\s*([\d,]+)"),
-            rank_name=_text_of(block, r"<img class='rcrest'[^>]*title='([^']*)'"),
-            extra=_text_of(block, r"class='rmeta'>([^<]*)"),
+            rank=_opt_int(item.get("rank")) or (len(rows) + 1),
+            name=str(item["name"]).strip(),
+            steamid=str(item["steamid"]) if item.get("steamid") else None,
+            value=_opt_int(item.get("value")),
+            metric=str(item.get("metric") or metric),
         ))
-
-    for match in re.finditer(r"<tr class='row'[^>]*>(.*?)</tr>", body, re.S):
-        block = match.group(1)
-        name = _text_of(block, r"class='pname'[^>]*>(.*?)</a>")
-        if not name:
-            continue
-        crest = re.search(r"<img class='crest'[^>]*title='([^']*)'", block)
-        seen = re.search(r"seen ([0-9a-z]+)", block)
-        rows.append(LeaderRow(
-            rank=_int_of(block, r"class='idx'>\s*(\d+)") or (len(rows) + 1),
-            name=name,
-            steamid=_steamid_of(block),
-            xp=_int_of(block, r"class='metric'>\s*<span class='xp'>([\d,]+)</span>"),
-            rank_name=_strip_tags(crest.group(1)) if crest else None,
-            level=_int_of(block, r">\s*L(\d+)\b"),
-            extra=t("board.seen", seen=seen.group(1)) if seen else "",
-        ))
-
-    rows.sort(key=lambda row: row.rank)
-    return rows
-
-
-def _fetch_rows(base: str, period: str) -> list[LeaderRow] | None:
-    """Raw rows for one period - the single function a JSON endpoint replaces."""
-    body = _http_get(f"{base}/top15")
-    if body is None:
-        return None
-    if "class='board'" not in body and "class='champ'" not in body:
-        log.warning("the leaderboard page had no board markup (challenge or error page?)")
-        return None
-    return parse_top_html(body)
+    label = str(window.get("label") or "") or period_label(period)
+    total = _opt_int(payload.get("total"))
+    board = Leaderboard(
+        period=str(payload.get("period") or period),
+        metric=str(payload.get("metric") or metric),
+        rows=tuple(rows[:max(1, limit)]),
+        url=url,
+        key=str(payload.get("key") or ""),
+        window_label=label,
+        window_start=_opt_int(window.get("start")),
+        window_end=_opt_int(window.get("end")),
+        total=total if total is not None else len(rows),
+        coverage={
+            "complete": bool(coverage.get("complete")),
+            "first_seen": _opt_int(coverage.get("first_seen")) or 0,
+            "observed_players": _opt_int(coverage.get("observed_players")) or 0,
+        },
+        updated=_opt_int(payload.get("updated")),
+    )
+    if board.rows:
+        return board
+    if board.first_seen:
+        note = t("board.not_started", period=period_noun(period), label=label,
+                 started=f"<t:{board.first_seen}:D>")
+        return replace(board, note=note, note_kind="not_started")
+    return replace(board, note=t("board.empty", label=label), note_kind="empty")
 
 
-def fetch_leaderboard(base: str, period: str = "all", limit: int = 10) -> Leaderboard:
-    """The leaderboard for one period, ready to render. Never raises."""
+async def fetch_leaderboard(base: str, period: str = "all", limit: int = 10,
+                            metric: str = "xp") -> Leaderboard:
+    """The board for one period + counter, from the panel API. Never raises.
+
+    Always asks for the largest `limit` `/top` can show so one cache entry
+    serves every `/top count` the players pick.
+    """
     period = period if period in PERIODS else "all"
-    url = f"{base}/top15"
-    if not PERIOD_DATA_AVAILABLE.get(period, False):
-        return Leaderboard(
-            period=period,
-            url=url,
-            note=t("board.period_note", adj=t(f"period.adj.{period}")),
-            note_kind="period",
-        )
-    rows = _fetch_rows(base, period)
-    if rows is None:
-        return Leaderboard(period=period, url=url,
-                           note=t("board.unreachable", url=url), note_kind="unavailable")
-    if not rows:
-        return Leaderboard(period=period, url=url, note=t("board.empty"), note_kind="empty")
-    return Leaderboard(period=period, rows=tuple(rows[:max(1, limit)]), url=url)
+    metric = metric if metric in METRICS else "xp"
+    url = f"{base}{BOARD_PAGES.get(period, '/top15')}"
+    api = await get_api(base, "/top", {"period": period, "metric": metric, "limit": 15},
+                        ttl=TOP_TTL)
+    if api.rate_limited:
+        return Leaderboard(period, metric, url=url, note=t("board.rate_limited"),
+                           note_kind="rate_limited")
+    if not api.ok:
+        return Leaderboard(period, metric, url=url, note=t("board.unavailable"),
+                           note_kind="unavailable")
+    return leaderboard_from_api(api.data, period, metric, limit, url)
 
 
 # --------------------------------------------------------------------- profile
@@ -1401,9 +1429,10 @@ def digest_embed(stats: dict[str, Any], server: dict, leader: Any = None,
                         value=t("digest.map_value", map=stats["map"], share=stats["map_share"]),
                         inline=True)
     if leader is not None:
-        xp = f" · {leader.xp:,} XP" if getattr(leader, "xp", None) else ""
+        value = (f" · {leader.value:,} {metric_label(leader.metric)}"
+                 if getattr(leader, "value", None) is not None else "")
         embed.add_field(name=t("digest.leader"),
-                        value=t("digest.leader_value", name=leader.name, xp=xp), inline=True)
+                        value=t("digest.leader_value", name=leader.name, value=value), inline=True)
     embed.set_footer(text=t("digest.footer", server=server["name"]))
     return embed
 
@@ -2154,8 +2183,8 @@ def build_bot(cfg: dict) -> commands.Bot:
         if stats.get("peak") is None:
             log.info("digest for %s postponed: no samples in the window yet", today)
             return
-        board = await _in_thread(fetch_leaderboard, base, "all", 1, budget=HTTP_TIMEOUT + 1)
-        leader = board.rows[0] if board and board.ok else None
+        board = await fetch_leaderboard(base, "all", 1)
+        leader = board.rows[0] if board.ok else None
         embed = digest_embed(stats, server, leader)
         channel_name = str(digest_cfg.get("channel") or "leaderboard")
         posted = await post(channel_name, embed=embed)
@@ -2244,36 +2273,47 @@ def build_bot(cfg: dict) -> commands.Bot:
 
     @bot.tree.command(name="top", description=t("cmd.top.desc"))
     @command_guard(rate=3, per=30.0)
-    @app_commands.describe(period=t("cmd.top.period"), count=t("cmd.top.count"))
+    @app_commands.describe(period=t("cmd.top.period"), count=t("cmd.top.count"),
+                           metric=t("cmd.top.metric"))
     @app_commands.choices(period=[
         app_commands.Choice(name=t("cmd.top.choice.all"), value="all"),
         app_commands.Choice(name=t("cmd.top.choice.week"), value="week"),
         app_commands.Choice(name=t("cmd.top.choice.month"), value="month"),
+    ], metric=[
+        app_commands.Choice(name=t("cmd.top.choice.xp"), value="xp"),
+        app_commands.Choice(name=t("cmd.top.choice.kills"), value="kills"),
     ])
     async def top_cmd(interaction: discord.Interaction,
                       period: app_commands.Choice[str] | None = None,
-                      count: app_commands.Range[int, 1, 15] = 10) -> None:
+                      count: app_commands.Range[int, 1, 15] = 10,
+                      metric: app_commands.Choice[str] | None = None) -> None:
         chosen = period.value if isinstance(period, app_commands.Choice) else period
         if chosen not in PERIODS:
             chosen = "all"
-        board = await _in_thread(fetch_leaderboard, base, chosen, count, budget=HTTP_TIMEOUT + 1)
-        if board is None:                      # budget blown: answer anyway
-            board = Leaderboard(chosen, url=f"{base}/top15",
-                                note=t("board.unreachable_title", url=f"{base}/top15"),
-                                note_kind="unavailable")
-        label = period_label(chosen)
-        title = (t("board.title", n=len(board.rows), period=label) if board.ok
-                 else t("board.title_plain", period=label))
+        counter = metric.value if isinstance(metric, app_commands.Choice) else metric
+        if counter not in METRICS:
+            counter = "xp"
+        board = await fetch_leaderboard(base, chosen, count, counter)
+        subtitle = board.subtitle()
+        if board.ok:
+            title = (t("board.title", n=len(board.rows), period=subtitle) if board.metric == "xp"
+                     else t("board.title_metric", n=len(board.rows),
+                            metric=metric_label(board.metric), period=subtitle))
+        else:
+            title = t("board.title_plain", period=subtitle)
         colour = COLOUR_BP if board.ok else (
-            COLOUR_DIM if board.note_kind == "period" else COLOUR_WARN)
-        embed = discord.Embed(title=title, url=board.url, colour=colour)
+            COLOUR_DIM if board.note_kind in ("not_started", "empty") else COLOUR_WARN)
+        embed = discord.Embed(title=title, url=board.url or None, colour=colour)
         if board.ok:
             embed.description = "\n".join(row.line() for row in board.rows)
-            embed.set_footer(text=t("board.source", host=board.url.replace("https://", "")))
+            notes = [note for note in (board.coverage_note(),
+                                      t("board.source", updated=int(board.updated))
+                                      if board.updated else "") if note]
+            embed.set_footer(text=" · ".join(notes))
         else:
             embed.description = board.note
-            if board.note_kind == "period":
-                embed.set_footer(text=t("board.period_footer"))
+            if board.ok is False and board.total:
+                embed.set_footer(text=t("board.total", total=board.total))
         await _reply(interaction, embed=embed)
 
     @bot.tree.command(name="profile", description=t("cmd.profile.desc"))

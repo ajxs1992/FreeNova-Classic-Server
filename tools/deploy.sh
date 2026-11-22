@@ -55,6 +55,29 @@ esac
 # never ship anything from these, wherever they appear
 EXCLUDES='(^|/)(node_modules|\.npm|\.git|__pycache__)(/|$)|\.(pyc|sq3-wal|sq3-shm)$|(^|/)relay\.env$|(^|/)relay\.log$'
 
+# Refuse to deploy a tree with uncommitted changes in the paths we ship: that is
+# how half-finished work reaches production (it happened once - an agent's WIP
+# went out with an unrelated ads change). --allow-dirty overrides, on purpose.
+if [ "$DRY" != "--allow-dirty" ]; then
+  dirty=""
+  for pair in "${PAIRS[@]}"; do
+    local_path=${pair%%|*}
+    relpath=${local_path#"$ROOT/"}
+    if [ -d "$local_path" ]; then
+      d=$(cd "$ROOT" && git status --porcelain -- "$relpath" 2>/dev/null)
+    else
+      d=$(cd "$ROOT" && git status --porcelain -- "$relpath" 2>/dev/null)
+    fi
+    [ -n "$d" ] && dirty="$dirty$d"$'\n'
+  done
+  if [ -n "$dirty" ]; then
+    echo "FATAL: uncommitted changes in the deploy paths - commit or stash first:" >&2
+    printf '%s' "$dirty" | sed 's/^/   /' >&2
+    echo "   (tools/deploy.sh $TARGET --allow-dirty to ship them anyway)" >&2
+    exit 3
+  fi
+fi
+
 [ -r "$PASS" ] || { echo "FATAL: missing $PASS" >&2; exit 1; }
 ASKPASS="$CFG/askpass.sh"
 [ -x "$ASKPASS" ] || { echo "FATAL: missing $ASKPASS" >&2; exit 1; }

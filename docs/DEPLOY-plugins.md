@@ -304,7 +304,7 @@ binary.
 
 # Round two — the Medium/Low findings and the panel gaps
 
-Commits `354280e..fef2c45` (`REVIEW.md` §9c). Round one's 16 files are already
+Commits `354280e..ae0144e` (`REVIEW.md` §9c). Round one's 16 files are already
 live; nothing here repeats them, and no `plugins.ini`, `amxx.cfg` or credential
 changes - so **no load-order step and no rotation** this time.
 
@@ -359,7 +359,7 @@ had, and the ordering fix lives in `plugins.ini` (already live from round one).
 
 ## 11. What to deploy (panel)
 
-The panel changes are one commit (`fef2c45`) in `web-panel/`. Files:
+The panel changes are two commits (`fef2c45`, `ae0144e`) in `web-panel/`. Files:
 `server_local.mjs`, `src/{sync,index,admin,pages,competitive,events,profile,register,bp_track}.js`,
 `src/top15/page.js`, `test_harness.mjs`.
 

@@ -723,7 +723,7 @@ above:
 The Medium/Low findings §5 and §5.5 left, plus the panel gaps in §8, applied
 after round one went live. Round one's own changes are untouched, and three
 tracked binaries turned out to be **stale relative to their sources** (see the
-notes at the end). Twenty-two commits, `354280e..fef2c45`.
+notes at the end). Twenty-four commits, `354280e..ae0144e`.
 
 Plugin tree: `tools/compile-plugins.sh` before and after this round is
 identical - `compiled: 85   failed: 3   allowed-failures: 3`, exit 0, and no
@@ -756,12 +756,13 @@ from `tools/build/plugins/logs/<name>.sma.log`.
 | §7 two `.bak` files identical to their source | `scripting/*.bak` | `cbd85bf` | deleted `freenova_missions.sma.20261025-bpfix2.bak`, `freenova_randevent.sma.bak-evtest-20261119`; 18 other revisions kept |
 | §4.1 H1 stale snapshot rolls counters back (plugin half) | `freenova_sync.sma` | `96e9895` | PASS; H4928 C86056 D178040 S262144; `freenova_sync.amxx` 39008 → 39058 (adds `last_seen` per player) |
 
-Panel: one commit, `fef2c45`, because `src/sync.js` carries four of the six
-fixes in one region of the file. Verification for the whole commit:
+Panel: `fef2c45` plus one follow-up (`ae0144e`, the lockout header order),
+because `src/sync.js` carries four of the six fixes in one region of the file.
+Verification for the pair:
 
 ```
 cd web-panel && node test_harness.mjs
-  PASS panel test suite (73 checks)          exit 0    (was 23 checks)
+  PASS panel test suite (74 checks)          exit 0    (was 23 checks)
 node --check over all 73 tracked JS files    0 failures
 npm audit                                    found 0 vulnerabilities
 ```
@@ -772,7 +773,7 @@ npm audit                                    found 0 vulnerabilities
 | §4.1 H1 stale push (panel half) | `src/sync.js` | "stale push did not lower xp/coins", "newer push applied" |
 | §4.2 M5 a `sent` action is never re-dispatched | `src/sync.js` | "a lost reply is re-dispatched once", "no third dispatch", "receipt closes a re-dispatched action", "dispatches stay inside the attempts budget", "sent row with attempts left is not expired" |
 | §4.1 H2/§8.7 admin password in a GET parameter | `src/top15/page.js`, `src/index.js` | "GET admin key refused", "GET admin key changed nothing", "POST with header key accepted", "POST with body key accepted", "wrong key refused" |
-| §4.2 M2 lockout keyed on `x-forwarded-for` | `src/admin.js`, `server_local.mjs` | "lockout survives a rotated x-forwarded-for", "expired login_fail counters are pruned" |
+| §4.2 M2 lockout keyed on `x-forwarded-for` | `src/admin.js`, `server_local.mjs` | "lockout survives a rotated x-forwarded-for", "client cannot choose its lockout bucket", "expired login_fail counters are pruned" |
 | §4.2 M3 token URLs without a referrer policy | `src/index.js` | "token URL sends no-referrer", "plain page sends no referrer policy" |
 | §4.2 M8 `premiumExtraCoins` returned 0 for 57/60 tiers; §4.3 profile hard-coded 1000 | `src/bp_track.js`, `src/profile.js` | "premium table covers most tiers", "premiumExtraCoins(1)/(50)/(4)", "xpPerTier follows the track" |
 | §4.1 H3 unbounded body before the HMAC check (Worker path) | `src/sync.js`, `src/register.js` | "oversize push refused with 413", "runner body cap refuses 3 MB" |

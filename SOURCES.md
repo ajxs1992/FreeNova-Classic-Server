@@ -15,7 +15,7 @@ clean.
 | deployed plugins **with** a source | 83 | **134** |
 | deployed plugins **without** a source | 51 | **0** |
 | `.sma` in `scripting/` | 86 | 137 |
-| `.inc` in `scripting/include/` | 100 | 121 |
+| `.inc` in `scripting/include/` | 110 | 131 |
 | `tools/compile-plugins.sh` | 85 pass, 3 allowlisted, 0 real | **137 pass, 0 failed, 0 allowlisted** |
 
 Of the 51: **50 were copied verbatim from the project source archive** at

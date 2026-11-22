@@ -37,8 +37,22 @@ new g_iAchLifetimeRevives[MAX_PLAYERS + 1]
 new g_iAchStreakBest[MAX_PLAYERS + 1]
 new g_iLifeStreak[MAX_PLAYERS + 1]
 new g_iAchPending[MAX_PLAYERS + 1]
+// Legacy aggregate of unpaid coins (pre-1.1.1 marker, an amount with no
+// achievement id). Never incremented by this build; only drained.
 new g_iAchPendingCoins[MAX_PLAYERS + 1]
+// Bitmask of achievements whose coin reward could not be banked yet. Retried
+// one by one with the same once-only award id the unlock used.
+new g_iAchUnpaid[MAX_PLAYERS + 1]
 new g_iAchXpPending[MAX_PLAYERS + 1]
+
+// Coin reward per achievement - the single source of truth for both the unlock
+// payment and the retry, so a retried reward can never differ from the one that
+// was promised.
+new const g_iAchReward[ACH_COUNT] = {
+	ACH_COIN_REWARD, ACH_COIN_REWARD, 500, ACH_COIN_REWARD, 500,
+	ACH_COIN_REWARD, ACH_COIN_REWARD, ACH_COIN_REWARD, ACH_COIN_REWARD, 1000,
+	ACH_COIN_REWARD, 500, ACH_COIN_REWARD, 500
+}
 
 public plugin_natives()
 {
@@ -156,6 +170,7 @@ ResetClient(id)
 	g_iLifeStreak[id] = 0
 	g_iAchPending[id] = 0
 	g_iAchPendingCoins[id] = 0
+	g_iAchUnpaid[id] = 0
 	g_iAchXpPending[id] = 0
 }
 
@@ -190,6 +205,7 @@ LoadAchievements(id)
 		g_iAchLifetimeRevives[id] = 0
 		g_iAchStreakBest[id] = 0
 		g_iAchPendingCoins[id] = 0
+		g_iAchUnpaid[id] = 0
 		g_iAchXpPending[id] = 0
 		if (LibraryExists("rsu_core", LibType_Library))
 		{
@@ -226,12 +242,25 @@ LoadAchievements(id)
 	// read for format compatibility but deliberately discarded (BP XP is
 	// missions-only in this build, so legacy bits must never be paid).
 	g_iAchPendingCoins[id] = 0
+	g_iAchUnpaid[id] = 0
 	g_iAchXpPending[id] = 0
 	if (left[0])
 	{
 		strtok(left, part, charsmax(part), left, charsmax(left), ' ')
 		g_iAchPendingCoins[id] = str_to_num(part)
-		// 10th token ignored: no achievement XP payout path exists anymore.
+		// 10th token is a legacy XP bitmask: read for format compatibility and
+		// deliberately never paid (BP XP is missions-only).
+		if (left[0])
+		{
+			strtok(left, part, charsmax(part), left, charsmax(left), ' ')
+			g_iAchXpPending[id] = str_to_num(part)
+			// 11th token: per-achievement unpaid coin markers (this build).
+			if (left[0])
+			{
+				strtok(left, part, charsmax(part), left, charsmax(left), ' ')
+				g_iAchUnpaid[id] = str_to_num(part)
+			}
+		}
 	}
 
 	g_bAchLoaded[id] = true
@@ -244,21 +273,25 @@ SaveAchievements(id)
 		return
 	new key[64], value[128]
 	GetVaultKey(id, key, charsmax(key))
-	formatex(value, charsmax(value), "%d %d %d %d %d %d %d %d %d %d",
+	formatex(value, charsmax(value), "%d %d %d %d %d %d %d %d %d %d %d",
 		g_iAchUnlocked[id], g_iAchLifetimeKills[id], g_iAchLifetimeHS[id],
 		g_iAchLifetimePlants[id], g_iAchLifetimeDefuses[id],
 		g_iAchLifetimeWins[id], g_iAchLifetimeRevives[id],
 		g_iAchStreakBest[id], g_iAchPendingCoins[id],
-		g_iAchXpPending[id])
+		g_iAchXpPending[id], g_iAchUnpaid[id])
 	nvault_set(g_VaultBP, key, value)
 }
 
-GiveAchievement(id, iAch, const szName[], iReward = ACH_COIN_REWARD)
+GiveAchievement(id, iAch, const szName[])
 {
 	if (g_bPaused || !g_bAchLoaded[id])
 		return
+	if (iAch < 0 || iAch >= ACH_COUNT)
+		return
 	if (g_iAchUnlocked[id] & (1 << iAch))
 		return
+
+	new iReward = g_iAchReward[iAch]
 
 	// Pay before persisting. The unlock bit is one-shot, so writing it first
 	// meant a crash between the write and the deposit (or a deposit refused
@@ -284,11 +317,12 @@ GiveAchievement(id, iAch, const szName[], iReward = ACH_COIN_REWARD)
 			log_amx("[FreeNova] Achievement %d coin reward NOT paid to id %d (%d coins): wallet not ready or native refused", iAch, id, iReward)
 	}
 
-	// One vault write for the unlock bit and any unpaid remainder, so the two
-	// can never disagree after a crash.
+	// One vault write for the unlock bit and the unpaid marker, so the two can
+	// never disagree after a crash. The marker is per achievement, not an
+	// amount: the retry below pays each one with its own once-only award id.
 	g_iAchUnlocked[id] |= (1 << iAch)
 	if (iReward > 0 && !bPaid)
-		g_iAchPendingCoins[id] += iReward
+		g_iAchUnpaid[id] |= (1 << iAch)
 	SaveAchievements(id)
 
 	// Achievements pay coins only. BattlePass XP is missions-only:
@@ -308,36 +342,91 @@ GiveAchievement(id, iAch, const szName[], iReward = ACH_COIN_REWARD)
 	}
 	if (iReward > 0 && !bPaid)
 	{
-		// MEDIUM-2: the unpaid reward is the vault-persisted pending marker
-		// written above, retried once the wallet reports ready. The unlock bit
-		// stays one-shot — only the coin payment retries. The "+N Coins" line
-		// above only shows when the deposit succeeded.
+		// The unpaid reward is the vault-persisted bit written above, retried
+		// once the wallet reports ready. The unlock bit stays one-shot — only
+		// the coin payment retries. The "+N Coins" line above only shows when
+		// the deposit succeeded.
 		EnsureCoinFlush(id)
 	}
 }
 
-// Pays the pending-achievement-coins marker once the wallet is ready.
+// Total achievement coins still owed to this player (legacy amount + per-ach
+// markers). 0 = nothing pending.
+PendingCoinsTotal(id)
+{
+	new iTotal = g_iAchPendingCoins[id]
+	for (new iAch; iAch < ACH_COUNT; iAch++)
+	{
+		if (g_iAchUnpaid[id] & (1 << iAch))
+			iTotal += g_iAchReward[iAch]
+	}
+	return iTotal
+}
+
+// Pays every achievement reward that could not be banked when it unlocked.
+// Each one is retried with the SAME once-only award id the unlock used, so a
+// retry can never pay twice and a crash between the deposit and the marker
+// write cannot lose it either. The pre-1.1.1 aggregate marker (an amount with no
+// achievement id) is paid last, with a plain deposit, because it cannot be made
+// idempotent.
 // Returns the amount still owed after the attempt (0 = nothing pending).
 FlushPendingCoins(id)
 {
-	if (!g_bAchLoaded[id] || g_iAchPendingCoins[id] <= 0)
+	if (!g_bAchLoaded[id])
+		return 0
+	if (g_iAchUnpaid[id] == 0 && g_iAchPendingCoins[id] <= 0)
 		return 0
 	if (!LibraryExists("menabp", LibType_Library))
-		return g_iAchPendingCoins[id]
+		return PendingCoinsTotal(id)
 	if (!menabp_is_ready(id))
-		return g_iAchPendingCoins[id]
-	new iAmount = g_iAchPendingCoins[id]
-	if (menabp_add_coins(id, iAmount) == 0)
+		return PendingCoinsTotal(id)
+
+	if (g_iAchUnpaid[id] != 0)
 	{
-		// Wallet claims ready but refused the deposit — keep the marker and
-		// let the retry task try again (logged once per attempt, not per kill).
-		log_amx("[FreeNova] Pending achievement coins NOT paid to id %d (%d coins): menabp_add_coins refused", id, iAmount)
-		return iAmount
+		new iPaid
+		for (new iAch; iAch < ACH_COUNT; iAch++)
+		{
+			if (!(g_iAchUnpaid[id] & (1 << iAch)))
+				continue
+			new iReward = g_iAchReward[iAch]
+			if (iReward <= 0)
+			{
+				g_iAchUnpaid[id] &= ~(1 << iAch)
+				continue
+			}
+			new szAward[24]
+			formatex(szAward, charsmax(szAward), "ach#%d", iAch)
+			new iOnce = menabp_add_coins_once(id, iReward, szAward)
+			if (iOnce < 0)
+			{
+				// Wallet went away again mid-loop: keep the rest for the next tick.
+				log_amx("[FreeNova] Pending achievement %d coins NOT paid to id %d: wallet refused", iAch, id)
+				break
+			}
+			g_iAchUnpaid[id] &= ~(1 << iAch)
+			if (iOnce > 0)
+				iPaid += iReward
+		}
+		SaveAchievements(id)
+		if (iPaid > 0)
+			client_printcolor(id, "!g[FreeNova] !n +!g%d Coins !n from earlier achievements credited.", iPaid)
 	}
-	g_iAchPendingCoins[id] = 0
-	SaveAchievements(id)
-	client_printcolor(id, "!g[FreeNova] !n +!g%d Coins !n from earlier achievements credited.", iAmount)
-	return 0
+
+	if (g_iAchUnpaid[id] == 0 && g_iAchPendingCoins[id] > 0)
+	{
+		new iAmount = g_iAchPendingCoins[id]
+		if (menabp_add_coins(id, iAmount) == 0)
+		{
+			// Wallet claims ready but refused the deposit — keep the marker and
+			// let the retry task try again (logged once per attempt, not per kill).
+			log_amx("[FreeNova] Pending achievement coins NOT paid to id %d (%d coins): menabp_add_coins refused", id, iAmount)
+			return iAmount
+		}
+		g_iAchPendingCoins[id] = 0
+		SaveAchievements(id)
+		client_printcolor(id, "!g[FreeNova] !n +!g%d Coins !n from earlier achievements credited.", iAmount)
+	}
+	return PendingCoinsTotal(id)
 }
 
 // BP XP is missions-only (freenova_missions). This stub exists solely so a
@@ -354,7 +443,7 @@ bool:FlushPendingXp(id)
 
 EnsureCoinFlush(id)
 {
-	if (!g_bAchLoaded[id] || g_iAchPendingCoins[id] <= 0)
+	if (!g_bAchLoaded[id] || PendingCoinsTotal(id) <= 0)
 		return
 	if (!task_exists(id + TASK_WALLET_FLUSH))
 		set_task(15.0, "Task_FlushCoins", id + TASK_WALLET_FLUSH, "", 0, "b")
@@ -392,9 +481,9 @@ UnlockAchievementsFromStats(id)
 	g_iAchPending[id] = 0
 	if (g_iAchLifetimeKills[id] >= 100)  GiveAchievement(id, ACH_KILLS_100,  "First Blood Century")
 	if (g_iAchLifetimeKills[id] >= 1000) GiveAchievement(id, ACH_KILLS_1000, "Killing Machine")
-	if (g_iAchLifetimeKills[id] >= 5000) GiveAchievement(id, ACH_KILLS_5000, "FreeNova Legend Killer", 500)
+	if (g_iAchLifetimeKills[id] >= 5000) GiveAchievement(id, ACH_KILLS_5000, "FreeNova Legend Killer")
 	if (g_iAchLifetimeHS[id] >= 100)     GiveAchievement(id, ACH_HS_100,     "Sharpshooter")
-	if (g_iAchLifetimeHS[id] >= 500)     GiveAchievement(id, ACH_HEADS_500,  "Headhunter", 500)
+	if (g_iAchLifetimeHS[id] >= 500)     GiveAchievement(id, ACH_HEADS_500,  "Headhunter")
 	if (g_iAchLifetimePlants[id] >= 50)  GiveAchievement(id, ACH_PLANTS_50,  "Demolition Expert")
 	if (g_iAchLifetimeDefuses[id] >= 25) GiveAchievement(id, ACH_DEFUSES_25, "Bomb Squad")
 	if (g_iAchLifetimeWins[id] >= 100)   GiveAchievement(id, ACH_WINS_100,   "Team Player")
@@ -406,29 +495,31 @@ UnlockAchievementsFromStats(id)
 		iLevel = menabp_get_tier(id)
 	else
 		iLevel = crxranks_get_user_level(id)
-	if (iLevel >= 52)      GiveAchievement(id, ACH_LEVEL_52, "FreeNova Legend", 1000)
+	if (iLevel >= 52)      GiveAchievement(id, ACH_LEVEL_52, "FreeNova Legend")
 	else if (iLevel >= 26) GiveAchievement(id, ACH_LEVEL_26, "Seasoned Soldier")
 
 	new iPrestige = 0
 	if (LibraryExists("rsu_core", LibType_Library))
 		iPrestige = rsu_get_prestige(id)
 	if (iPrestige >= 1) GiveAchievement(id, ACH_PRESTIGE_1, "Prestigious")
-	if (g_iAchStreakBest[id] >= 10) GiveAchievement(id, ACH_STREAK_10, "Unstoppable", 500)
+	if (g_iAchStreakBest[id] >= 10) GiveAchievement(id, ACH_STREAK_10, "Unstoppable")
 
 	new iCoins = 0
 	if (LibraryExists("menabp", LibType_Library))
 		iCoins = menabp_get_coins(id)
 	if (iCoins >= 10000) GiveAchievement(id, ACH_COINS_10000, "Coin Magnet")
-	if (g_iAchLifetimeRevives[id] >= 25) GiveAchievement(id, ACH_REVIVER, "Combat Medic", 500)
+	if (g_iAchLifetimeRevives[id] >= 25) GiveAchievement(id, ACH_REVIVER, "Combat Medic")
 
 	if (g_iAchPending[id] > 1)
 		client_printcolor(id, "!g[FreeNova] !n +%d more achievements unlocked this round.", g_iAchPending[id] - 1)
 	g_iAchPending[id] = 0
 	// Opportunistically pay any unpaid achievement COINS on gameplay events.
 	// BP XP is missions-only and any legacy pending XP bit is cleared unpaid.
-	if (g_iAchPendingCoins[id] > 0 || g_iAchXpPending[id] != 0)
+	// PendingCoinsTotal() covers both the per-achievement markers this build
+	// writes and the pre-1.1.1 aggregate amount.
+	if (PendingCoinsTotal(id) > 0 || g_iAchXpPending[id] != 0)
 	{
-		new bool:bCoins = (g_iAchPendingCoins[id] > 0) ? (FlushPendingCoins(id) > 0) : false
+		new bool:bCoins = (PendingCoinsTotal(id) > 0) ? (FlushPendingCoins(id) > 0) : false
 		FlushPendingXp(id)
 		if (!bCoins)
 			remove_task(id + TASK_WALLET_FLUSH)

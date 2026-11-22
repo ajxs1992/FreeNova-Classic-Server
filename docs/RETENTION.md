@@ -353,3 +353,98 @@ update — it is documentation, not behaviour.
 * **`vip_model`, `vip_admin_flag`**: they only mean something inside
   `weapon_models.sma`, which was out of scope here.
 * **Triple jump**: honouring `vip_jump 2` is a movement/exploit decision.
+
+---
+
+## 4. Achievements: no reward can be lost
+
+### What it does today
+
+`freenova_achievements.amxx` keeps one nVault blob per player
+(`freenova_bp`, key `ach#<authid>`): the unlocked bitfield, seven lifetime
+counters (kills, headshots, plants, defuses, wins, revives, best streak) and the
+payout markers. 14 achievements, each paying coins once:
+
+| Achievement ids (`freenova_achievements.inc`) | Trigger | Coins |
+|---|---|---|
+| `ACH_KILLS_100` / `_1000` / `_5000` | lifetime kills | 250 / 250 / 500 |
+| `ACH_HS_100` / `ACH_HEADS_500` | lifetime headshots | 250 / 500 |
+| `ACH_PLANTS_50`, `ACH_DEFUSES_25`, `ACH_WINS_100` | lifetime bomb/round counters | 250 |
+| `ACH_LEVEL_26` / `ACH_LEVEL_52` | BattlePass tier (rank level fallback) | 250 / 1000 |
+| `ACH_PRESTIGE_1` | rsu prestige ≥ 1 (hidden from the visible count) | 250 |
+| `ACH_STREAK_10`, `ACH_COINS_10000`, `ACH_REVIVER` | best streak, coin balance, revives | 500 / 250 / 500 |
+
+Achievements pay **coins only**. BattlePass XP is missions-only by design: the
+old `ach#N` XP award is deliberately never credited, and the legacy XP marker in
+the vault is read and discarded.
+
+### Every unlock path (and the panel)
+
+There is exactly **one** function that unlocks an achievement:
+`GiveAchievement()`. It is reached from exactly one place,
+`UnlockAchievementsFromStats()`, which is called from the join/load path, from
+kills, bomb events, round wins and the revive bridge. Every trigger recomputes
+every condition from persisted counters, so a missed call can only ever delay an
+unlock, never lose it.
+
+**The web panel cannot unlock an achievement.** It is read-only for this system:
+`/achievements` renders the unlocked bitfield and the counters, which
+`freenova_sync` publishes through `menabp_get_ach_*` (a passthrough to
+`fnach_*`). There is no `claim_achievement` / `unlock_achievement` action in
+`web-panel/src/sync.js`, the panel writes nothing back for achievements, and the
+only thing an admin can edit in the panel is the *display catalog*
+(`catalog` key `achievements`: names, art, descriptions) — skin, not unlock.
+
+So the panel can neither pay nor unlock, and nothing in it can lose a reward.
+The paths that could are the in-game ones, below.
+
+### Ordering: pay first, then persist
+
+Round one already made this true, and it still holds for every path:
+`GiveAchievement()` pays through `menabp_add_coins_once(id, reward, "ach#<id>")`
+and only then writes the unlock bit. The award id is the idempotence lock, so
+paying first cannot double-pay either: if the process dies between the deposit
+and the vault write, the next session re-unlocks the achievement, the native
+returns "already awarded" and the coins are not paid twice.
+
+### The gap that was still there, and the fix
+
+The "could not pay yet" marker was a single **amount** per player
+(`achpending`), retried with a plain, non-idempotent `menabp_add_coins`. Two
+consequences:
+
+* a crash between the successful deposit and clearing the marker paid it again
+  on the next session (over-payment);
+* the marker could not say *which* achievements were unpaid, so the retry could
+  never use the once-only award id that makes a payment exactly-once.
+
+Now the unpaid marker is a **bit per achievement** (11th field of the same vault
+blob; old 10-field blobs load unchanged and old builds simply ignore the extra
+field). The retry walks the bits and pays each one with
+`ach#<id>`, the same award id the unlock used, so it is exactly-once in both
+directions: a crash cannot lose the coins and a retry cannot duplicate them. The
+pre-existing aggregate amount is still drained (it has no achievement id, so it
+can only be a plain deposit) but nothing adds to it any more.
+
+Two smaller guards came with it:
+
+* the retry clears a bit only when the wallet accepted the payment or already
+  had it; if the wallet disappears mid-loop the remaining bits are kept for the
+  next tick (the 15 s retry task) and the next session;
+* a reward whose amount is 0 clears its bit instead of retrying for ever.
+
+The retry task stops as soon as nothing is owed, and the flush-on-event path now
+counts both markers, so a player who never sees the retry task still gets paid
+on their next kill.
+
+### Left to the owner
+
+* The achievement table (targets and rewards) is still compiled in. It could get
+  the same `configs/freenova/achievements.ini` treatment missions got; it is not
+  needed for correctness and it changes what players are paid, so it was not
+  done here.
+* `ACH_XP_REWARD` still exists in the include and is paid nowhere (BP XP is
+  missions-only). Either delete it or design the XP payout deliberately.
+* `ACH_COINS_10000` ("Coin Magnet") tests the player's **current balance**, not
+  coins ever earned, so a player who spends below 10 000 before the next check
+  can miss it. Changing that is a design call about what the medal means.

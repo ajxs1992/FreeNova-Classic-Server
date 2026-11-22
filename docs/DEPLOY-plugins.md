@@ -416,8 +416,10 @@ checks that need a live player:
 | panel token gate | with `FN_LOCAL_TRUST=1`, a claim button queues (status line "Request queued"); with it unset, the page says action links are unavailable |
 
 `rt_effects`, `rt_core` and the `rsu_*` changes are exercised by the local
-ReHLDS harness (`docs/RUNBOOK.md` §6): `all 67 plugins running`,
-`no runtime errors`. The bans stack (`postgres_engine`, `advanced_bans`,
+ReHLDS harness (`cs16-linux-base`: `scripts/assemble.sh --profile freenova`
+then `scripts/test-plugin.sh tests/smoke/smoke.sma --profile freenova`):
+`all 67 plugins running`, `no runtime errors`. The bans stack
+(`postgres_engine`, `advanced_bans`,
 `cban_screenshots`, `fn_bans`) is **not** part of that profile, so those four are
 compile-verified only and need the live check above.
 

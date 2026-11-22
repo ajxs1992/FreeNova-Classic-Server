@@ -205,7 +205,148 @@ sqlite3 /tmp/fresh.sq3 < web-panel/seed_catalogs.sql      # catalogs only
 by push branches the plugin does not currently emit (`REVIEW.md` §3.6), so a
 fresh DB is expected to have them empty.
 
-## 6. Troubleshooting
+## 6. Enable the bypass guard — monitor mode first
+
+`bypass_guard` is the dev-cs.ru *Bypass Guard* chain: it decides whether a
+joining client is allowed in, from its AS number, its country and an
+IP-reputation lookup. It is **not loaded**: `plugins.ini` carries both load lines
+commented out with an `M13-fullstack` note. Until 2026-11-22 the tree could not
+even build it — the source and its third-party headers were missing from the
+snapshot (`SOURCES.md`). All nine plugins now compile, and the chain is still
+off, because two of its parts cannot run on this host at all (§6.1).
+
+### 6.1 What the chain is made of, and what can actually run here
+
+| plugin | role | needs | runs on this tree? |
+|---|---|---|---|
+| `bypass_guard` | the core: holds the lists, decides, kicks | `nvault` | **yes** |
+| `bg_provider_geoip` | country code for an IP | `geoip` module + `data/GeoLite2-Country.mmdb` | **yes** — module loaded, DB present |
+| `bg_provider_ip-api` | AS number from ip-api.com (no registration) | the **`grip`** module | **no** — no `grip_amxx_i386.so` in `modules/` |
+| `bg_provider_iphub` | proxy/VPN verdict from iphub.info | `grip` + an API key | **no** — same missing module |
+| `bg_provider_iphub_curl` | the same, over libcurl | the **`curl`** module | **no** — no `curl_amxx_i386.so` |
+| `bg_provider_iphubclient` | the same, over the iphubclient module | `iphubclient` module | **no** — only `iphubclient_amxx.dll` (Windows) is deployed |
+| `bg_supervisor` | ASN block list from PostgreSQL; kicks on a hit | `sqlx` + the PG bans DB | not yet — needs the bans stack the test profile strips |
+| `ab_bypass_bridge` | lets Advanced Bans' IP bans feed the guard | `<postgres>`, `bypass_guard` | not yet — same PG dependency |
+
+Only the country check can run on this host today; ASN and IP-reputation cannot,
+because the modules they need are either absent or shipped only as Windows
+`.dll`s. That is a fact about the deployed `modules/` directory, not about the
+plugins. Installing i386 builds of `grip`/`curl`/`iphubclient` is a separate
+decision with its own review — until then, enabling one of those four providers
+buys a `bad load` and a runtime error per map for nothing (the old
+`plugins.ini` comment records exactly that: `bg_provider_iphubclient`, "no keys
+in iphub_api_keys.ini (RTE 1 every map)").
+
+### 6.2 What bypass_guard needs
+
+* **The country DB.** `data/GeoLite2-Country.mmdb` is present. It ages; refresh it
+  before a real rollout.
+* **An IPHub key**, one per line, in `configs/bypass_guard/iphub_api_keys.ini`.
+  That file **exists in the repo and is empty** (0 bytes) — correctly so, because
+  keys are secrets. Put the key on the host only, never in this repo; `SECRETS.md`
+  lists what is in scope.
+* **Its lists**: `configs/bypass_guard/{allowed_countries,banned_countries,ip_list,as_list}.ini`.
+  `ip_list.ini` and `as_list.ini` are comments only. **`allowed_countries.ini`
+  and `banned_countries.ini` are not** — they carry a live whitelist
+  (RU, BY, UA, KZ, KG, MD, UZ, LV, LT, EE, GE, RO, AM, BG, AZ, TM, …) and a live
+  blacklist (EG, GR, …) from the plugin's original owner. Those lists are a
+  landmine: the first config that sets a country *mode* of 1 or 2 kicks every
+  player whose country is on the wrong side of them, at connect. Leave both files
+  alone and stay in mode `-1` until someone has decided what the policy is.
+* **Its nvault** (`bypass_guard`, the SteamID immunity list) — created on first
+  boot, no setup.
+* **Logs**, at `addons/amxmodx/logs/bypass_guard/`: `CMD.log`, `ERROR.log`, and a
+  per-month `MM.YYYY_DENY.log` / `MM.YYYY_ALLOW.log`.
+
+### 6.3 Monitor mode — the exact settings for the first week
+
+`bypass_guard` has no dry-run cvar. Monitor mode is therefore "enabled, and
+nothing configuring it can reach a kick". Append this to `amxx.cfg`:
+
+```cfg
+// Beginning of bypass_guard monitor week 1 -- read-only, cannot kick.
+bypass_guard_enabled 1
+bypass_guard_country_check_mode -1   // ask geoip, log the answer, skip the verdict
+bypass_guard_check_proxy 0           // no proxy provider can run here (see 6.1)
+bypass_guard_kick_if_cant_check ""   // a failed check must never kick
+bypass_guard_allow_steam 0           // let Steam clients be checked too, for the data
+bypass_guard_show_url 0              // nothing is shown: nothing kicks
+// End of bypass_guard monitor run.
+```
+
+and load **only** these two lines in `plugins.ini`, next to the existing
+`; M13-fullstack` notes:
+
+```ini
+bypass_guard.amxx            ; monitor week 1 - see docs/RUNBOOK.md §6
+bg_provider_geoip.amxx       ; the only provider that can run on this tree
+```
+
+Why each line:
+
+* `country_check_mode -1` is the only mode that asks the geoip provider for a
+  country and then **skips the verdict** — that is the difference between this
+  and 0, which never calls the provider at all and so produces no data to judge
+  the week by. Modes 1 and 2 kick on the lists in §6.2.
+* `kick_if_cant_check ""` is what makes a provider outage harmless. See §6.5.
+* `allow_steam 0` is deliberate: `1` would exempt exactly the clients whose data
+  the week is meant to collect. Turn it on afterwards if the check list turns
+  out to be all non-Steam.
+* **`bg_supervisor` and `ab_bypass_bridge` stay out.** `bg_supervisor` calls
+  `func_KickPlayer(... KICK_TYPE__SUPERVISOR)` on a block hit with no monitor
+  equivalent, and both need the PostgreSQL bans stack.
+
+### 6.4 What the week is judged on
+
+* `logs/bypass_guard/*.DENY.log` — **must stay empty**. It is written only from
+  `func_KickPlayer()`, so an empty file is proof that nothing kicked.
+* `logs/bypass_guard/*.ALLOW.log` — one line per admitted player, with the reason
+  (`[Legit Steam]`, `[Access Flags]`, `[SteamID Immunity]`, …). This is the data
+  to size the policy with: how many players resolve a country, how many come back
+  `N/A`, how many would have been caught by a whitelist.
+* `logs/bypass_guard/ERROR.log` — provider failures (§6.5).
+* `addons/amxmodx/logs/L<date>.log` — one
+  `[BypassGuard] No provider for … — failing open` line per failure class.
+
+Ship the cvar block in the seasonal config rather than editing and re-uploading
+`amxx.cfg` twice: the block is already delimited by the two comment lines.
+
+### 6.5 What a provider outage looks like
+
+Fail-**open**, by code:
+
+```
+[Error] No one handle 'bg_get_geoip' request! Check your setup! Failing open.
+```
+in `logs/bypass_guard/ERROR.log`, plus, in the AMXX log,
+`[BypassGuard] No provider for <fwd> — failing open (plugin stays loaded)`.
+The joining player is let in and nothing else happens. A dead iphub, a 429 from
+ip-api, a missing key file and a module that failed to load all arrive here.
+
+The one way to turn an outage into a kick is `bypass_guard_kick_if_cant_check`
+with the matching letter (`a` AS, `b` proxy, `c` country): that flag is read in
+`func_KickPlayer()`'s failure cases, so **never set it before its provider has
+run a clean week**. Empty is the only safe value while the chain is being
+introduced.
+
+### 6.6 Turning it on for real, when someone decides to
+
+In this order, one step per restart: populate the lists deliberately (start from
+the current files, which are someone else's policy) → `country_check_mode 1`
+(or 2) → watch `DENY.log` for a day → only then consider `check_proxy`.
+`bg_supervisor` last, and only with the bans stack live. Every step is
+reversible by restoring the cvar block.
+
+### 6.7 In the harness
+
+The `freenova` profile (`cs16-linux-base/scripts/assemble.sh --profile freenova`)
+strips the bans stack, and `plugins.ini` does not list the guard, so the smoke
+boot has never exercised it. If you enable the two lines in §6.3 the smoke boot
+will load them too — which is the cheapest check there is: `bypass_guard` with no
+provider must print the fail-open line and keep the boot green. Today's recorded
+result, chain disabled, is `all 67 plugins running` and `no runtime errors`.
+
+## 7. Troubleshooting
 
 | Symptom | First thing to check |
 |---|---|
@@ -219,7 +360,7 @@ fresh DB is expected to have them empty.
 | MOTD page is unstyled or overflows | It must render without flex/grid/`var(`; check with a GoldSrc user agent (`DEBUG.md` §3). |
 | Plugin shows `bad load` | Missing native (`LibraryExists` provider not loaded) or a stale `.amxx`; compile it from this tree (§2). |
 
-## 7. What this snapshot is not
+## 8. What this snapshot is not
 
 The game install itself (maps, models, sound, sprites, WADs, HLDS binaries,
 `steamapps/`) is **not** here, and neither are `node_modules/` or `.npm/` — see
@@ -228,7 +369,7 @@ config*, not the content.
 
 ---
 
-## 5. Things deliberately retired (2026-11-22)
+## 9. Things deliberately retired (2026-11-22)
 
 | Retired | Why | How to bring it back |
 | --- | --- | --- |

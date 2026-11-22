@@ -194,3 +194,21 @@ One line per change, with the verification that was actually run. Newest last.
   map, top, profile, events) with identical output to before the refactor;
   restart → journal shows login, `synced 7 command(s)`, presence line and REST
   shows the same seven descriptions, so the sync still carries them.
+
+- **Docs** (`README.md`): rewritten as the operator manual - what every command
+  answers and what the bot posts on its own, how to run/restart it and which
+  files it owns (`config.json`, `events.json`, `state.json`, `samples.jsonl`,
+  the venv), the full config shape with what each key does and how to rotate the
+  token, how to run the offline tests plus the two checks that need the real
+  thing (`py_compile`, restart → journal), a five-step "add a command" recipe
+  that starts with the string table, the `events.json` format, why the
+  leaderboard is parsed from HTML and where the JSON seam is, the duplicate-alert
+  judgement call in full, how to add a language, and an "If the bot is silent"
+  section (unit state → journal messages and what each means: missing token,
+  rotated token, revoked intent, sync failure, gateway/network blocked, stale
+  cache, wrong channel permissions).
+  *Verified:* every JSON example in the README parses; the commands, paths,
+  config keys and defaults it documents were read back from `bot.py`
+  (`DEFAULT_CONFIG`, `STRINGS`, `SAMPLE_PATH`, `WATCH_CONFIG`, `PERIOD_DATA_AVAILABLE`)
+  and from the live config; the journal messages quoted are the ones observed in
+  this session.

@@ -4,6 +4,9 @@ web-panel/node_modules/
 web-panel/.npm/
 web-panel/.wrangler/
 
+# karucode's own per-agent checkout directory (subagent worktrees).
+.karucode/
+
 # Wrangler local secrets. Never committed; the live values live in relay/relay.env.
 .dev.vars
 **/.dev.vars

@@ -23,7 +23,9 @@ dashboard page), the seven cropped art files under `web-panel/assets/winter/`,
 
 The page is server-rendered, has no client dependency, and the one `<script>`
 (the countdown tick) is additive: with JavaScript disabled the same screenshot
-differs by 1 582 pixels of 1 573 352 — the ticking digits and nothing else
+differs by ~1 500 pixels of 1 573 352, and every one of them is a digit — the
+four countdown cells and the two relative-time pills (`Ends in 2d 13h`,
+`Starts in 13h 50m`), both of which the server re-renders on each request anyway
 (`docs/design/renders/v2-dashboard-1672x941-nojs.png`).
 
 ## What matches the reference
@@ -121,20 +123,33 @@ a fresh response with the same body, and the harness now checks both halves
 
 ## Reproducing the renders
 
+The local panel is `http://127.0.0.1:18101` — the same port `scripts/wf-local.sh`
+uses when it lands; until then it is `server_local.mjs` against a throwaway copy
+of the database. Nothing in the code hard-codes a host or a port (every link is
+relative), so pointing a browser at that base is the only step.
+
 ```sh
 # 1. a throwaway copy of the database — never the live file
-cp web-panel/data/freenova_panel.sq3 /tmp/v2test/freenova_panel.sq3   # + -wal/-shm
-cd web-panel && PORT=18100 HOST=127.0.0.1 PANEL_DB=/tmp/v2test/freenova_panel.sq3 \
+mkdir -p /tmp/v2test && cp web-panel/data/freenova_panel.sq3* /tmp/v2test/
+cd web-panel && PORT=18101 HOST=127.0.0.1 PANEL_DB=/tmp/v2test/freenova_panel.sq3 \
   node server_local.mjs &
 
-# 2. the screenshots
+# 2. the screenshots (BASE is the local panel)
+BASE=http://127.0.0.1:18101
 brave --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
   --window-size=1672,941 --screenshot=../docs/design/renders/v2-dashboard-1672x941-empty-state.png \
-  "http://127.0.0.1:18100/v2?steamid=STEAM_0:0:683671116"
+  "$BASE/v2?steamid=STEAM_0:0:683671116"
 brave --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
   --window-size=1280,800 --screenshot=../docs/design/renders/v2-dashboard-1280x800.png \
-  "http://127.0.0.1:18100/v2?steamid=STEAM_0:0:683671116"
+  "$BASE/v2?steamid=STEAM_0:0:683671116"
+# and the JS-off render
+brave --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
+  --blink-settings=scriptEnabled=false --window-size=1672,941 \
+  --screenshot=../docs/design/renders/v2-dashboard-1672x941-nojs.png "$BASE/v2?steamid=STEAM_0:0:683671116"
 ```
+
+Every screenshot above comes from that local instance: nothing was taken from,
+or written to, a live server.
 
 `v2-dashboard-1672x941.png` / `v2-dashboard-1280x800.png` are the **fixture**
 renders: a copy of the live database with a Winterfest snapshot pushed through
@@ -143,6 +158,12 @@ populated layout can be judged. `v2-dashboard-1672x941-empty-state.png` is the
 **same page against the untouched copy** — that is the honest zero state, and
 what a player sees before the game pushes anything.
 `v2-dashboard-vs-reference.png` stacks the reference over the fixture render.
+
+## Branch
+
+All four commits are on the checked-out `winterfest` branch; `main` is untouched
+(no Winterfest commit of this work is on it) and nothing was pushed, deployed or
+run through `tools/deploy.sh`.
 
 ## Checks
 

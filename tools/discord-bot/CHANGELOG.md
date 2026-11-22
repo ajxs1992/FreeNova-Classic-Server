@@ -276,3 +276,12 @@ One line per change, with the verification that was actually run. Newest last.
   check tools/discord-bot --select F,E9,B` now passes with no findings (it also
   reported nothing in `bot.py`). *Verified:* `All checks passed!` and
   `62/62 tests passed in 2.11s`.
+
+- **Scheduled digest verified in the wild** (no code change): with the unit left
+  running, the 21:00 digest fired on its own at 21:04 local - journal
+  `daily digest for 2026-11-22: peak=9 map=de_dust2 posted=True (attempt 0)`,
+  and the channel message read back through the REST API:
+  `Peak players **9/32** at <t:…>, Average 8.8/32, Probes 45 up / 48,
+  Map of the day de_dust2 · 78% of probes, Leaderboard leader ajxs · 24,889 XP`,
+  footer `CS 1.6 Classic · last 24 h · A2S + public leaderboard`, colour
+  `#36DEAB`; `state.json` then held `digest.last_day = 2026-11-22`.

@@ -259,3 +259,15 @@ One line per change, with the verification that was actually run. Newest last.
   unreadable profile page → `note_kind="unreachable"` with "can't read" in the
   note → **60/60 tests pass**; restart clean (login, `synced 7 command(s)`,
   presence) and `/top all` + `/profile ajxs` still render live data.
+
+- **Digest retry + translated profile state** (`bot.py`): a digest that fails to
+  post is retried on the next five-minute cycle and gives up after three tries
+  (`digest_attempt_result()`), so a wrong channel id does not mark the day done
+  silently nor log every five minutes all evening. The player's online/offline
+  state from the profile page now goes through the string table too
+  (`profile.state.online` / `profile.state.offline`) instead of being echoed in
+  whatever language the site used.
+  *Verified:* `py_compile`; tests `test_digest_attempt_result` (posted → done,
+  failure → retry, three failures → give up, late success resets) and
+  `test_profile_state_is_translated` (a French table turns `offline` into
+  `hors ligne` in the headline) → **62/62 tests pass**; restart clean.

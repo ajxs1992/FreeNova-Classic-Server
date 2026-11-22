@@ -919,6 +919,27 @@ def test_status_shows_the_peak_from_samples():
             bot.get_info = original
 
 
+def test_digest_attempt_result():
+    assert bot.digest_attempt_result(True, 0) == (True, 0)        # posted: day is done
+    assert bot.digest_attempt_result(False, 0) == (False, 1)      # failed: retry next cycle
+    assert bot.digest_attempt_result(False, 1) == (False, 2)
+    assert bot.digest_attempt_result(False, 2) == (True, 3)       # three tries, then give up
+    assert bot.digest_attempt_result(True, 2) == (True, 0)        # a late success resets it
+
+
+def test_profile_state_is_translated():
+    profile = bot.parse_profile_html(PROFILE_HTML, "https://x/profile?steamid=1")
+    assert profile.state == "offline"
+    bot.STRINGS["test"] = {"profile.state.offline": "hors ligne"}
+    try:
+        bot.set_language("test")
+        embeds = bot.profile_embeds(profile, "https://x")
+        assert "hors ligne" in embeds[0].description
+    finally:
+        bot.STRINGS.pop("test", None)
+        bot.set_language("en")
+
+
 # ----------------------------------------------------------------------- runner
 def main() -> int:
     tests = sorted((name, obj) for name, obj in globals().items()

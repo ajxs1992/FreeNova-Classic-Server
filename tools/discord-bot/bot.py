@@ -144,6 +144,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "profile.headline_rank": "{rank}",
         "profile.headline_server_rank": "Server rank #{rank}",
         "profile.headline_seen": "last seen {seen}",
+        "profile.state.offline": "offline",
+        "profile.state.online": "online",
         "profile.field.xp": "XP",
         "profile.field.kd": "K/D",
         "profile.field.hs": "HS%",
@@ -1018,11 +1020,13 @@ def lookup_profile(base: str, query: str) -> Lookup:
 
 def profile_embeds(profile: Profile, base: str, others: int = 0) -> list[discord.Embed]:
     """Two cards: the rank/career snapshot (mint) and the battle pass (gold)."""
+    state = (t(f"profile.state.{profile.state}") if profile.state in ("offline", "online")
+             else profile.state)
     headline = " · ".join(part for part in (
         t("profile.headline_level", level=profile.level) if profile.level is not None else "",
         t("profile.headline_rank", rank=profile.rank_name) if profile.rank_name else "",
         t("profile.headline_server_rank", rank=profile.server_rank) if profile.server_rank else "",
-        profile.state,
+        state,
         t("profile.headline_seen", seen=profile.seen) if profile.seen else "",
     ) if part)
 
@@ -1183,6 +1187,19 @@ def digest_stats(samples: list[dict], now: datetime, window: int = 86400) -> dic
         stats["map_share"] = best[1] / len(up)
     stats["down_share"] = 1 - len(up) / len(rows) if rows else None
     return stats
+
+
+def digest_attempt_result(posted: bool, attempts: int,
+                          max_attempts: int = 3) -> tuple[bool, int]:
+    """After one digest send: (mark the day done, attempts to remember).
+
+    A failed send is retried on the next five-minute cycle, but only a few
+    times - a wrong channel id should not log every five minutes all evening.
+    """
+    if posted:
+        return True, 0
+    attempts += 1
+    return attempts >= max_attempts, attempts
 
 
 def digest_embed(stats: dict[str, Any], server: dict, leader: Any = None,
@@ -1882,10 +1899,14 @@ def build_bot(cfg: dict) -> commands.Bot:
         embed = digest_embed(stats, server, leader)
         channel_name = str(digest_cfg.get("channel") or "leaderboard")
         posted = await post(channel_name, embed=embed)
-        digest_state["last_day"] = today
+        done, attempts = digest_attempt_result(posted, int(digest_state.get("attempts") or 0))
+        digest_state["attempts"] = attempts
+        if done:
+            digest_state["last_day"] = today
         store.save()
-        log.info("daily digest for %s: peak=%s map=%s posted=%s", today, stats.get("peak"),
-                 stats.get("map"), posted)
+        log.info("daily digest for %s: peak=%s map=%s posted=%s (attempt %d)%s", today,
+                 stats.get("peak"), stats.get("map"), posted, attempts,
+                 "" if done else " - will retry in 5 min")
 
     # ---------------------------------------------------------------- commands
     @bot.tree.command(name="status", description=t("cmd.status.desc"))

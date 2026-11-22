@@ -97,8 +97,21 @@ function toWebRequest(req, bodyBuf) {
 }
 
 async function readBody(req) {
+  // Cap the deferred body: both HMAC endpoints buffer the whole payload before
+  // verifying it, so an unauthenticated POST could otherwise materialise
+  // hundreds of MB in memory. A full 32-slot stats push is well under 100 KB.
+  const limit = Number(process.env.PANEL_MAX_BODY_BYTES || 2 * 1024 * 1024)
   const chunks = []
-  for await (const c of req) chunks.push(c)
+  let total = 0
+  for await (const c of req) {
+    total += c.length
+    if (total > limit) {
+      const err = new Error(`request body exceeds ${limit} bytes`)
+      err.status = 413
+      throw err
+    }
+    chunks.push(c)
+  }
   return Buffer.concat(chunks)
 }
 
@@ -118,9 +131,23 @@ const server = createServer(async (req, res) => {
     const out = Buffer.from(await webRes.arrayBuffer())
     const headers = {}
     webRes.headers.forEach((v, k) => { headers[k] = v })
+    // We buffer the whole body, so framing must be ours. Copying the Worker's
+    // headers verbatim let Node choose chunked transfer for HTTP/1.1 callers,
+    // and freenova_registration.sma (which sends HTTP/1.1) has no chunked
+    // decoder: it fed "5d\r\n{...}" straight into json_parse and told every
+    // player "Malformed response from forum server" while the request had in
+    // fact been stored. An explicit Content-Length makes the body unframed for
+    // both consumers (sync.sma also validates that the byte count matches).
+    delete headers["transfer-encoding"]
+    headers["content-length"] = String(out.length)
     res.writeHead(webRes.status, headers)
     res.end(out)
   } catch (e) {
+    if (e && e.status === 413) {
+      res.writeHead(413, { "content-type": "text/plain" })
+      res.end("payload too large")
+      return
+    }
     console.error("[panel]", e && e.stack ? e.stack : e)
     res.writeHead(500, { "content-type": "text/plain" })
     res.end("panel error")

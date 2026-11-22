@@ -72,3 +72,26 @@ One line per change, with the verification that was actually run. Newest last.
   the real command callback was driven with a fake interaction (defer
   `thinking=True, ephemeral=True`, both embeds rendered); restart → 6 commands
   synced, REST shows `/profile ... [player]`.
+
+- **`/events` for real** (`bot.py`): `events.json` is parsed into `Event`
+  objects (`start`/`end` accept ISO-8601, epoch seconds or `YYYY-MM-DD HH:MM`;
+  `when` stays as free text for undated entries), and `/events` renders a
+  schedule with countdowns (`in 2 h 15 m`, `running now · ends in 45 m`,
+  `ended 2 d ago`) plus Discord timestamps, sorted running → upcoming →
+  undated → recently ended, with a `count` option (1-10). An
+  `events_loop` every 30 s re-reads the file only when its mtime changes and
+  posts **one** notice per transition (`🟢 … starts now`, `⚪ … has ended`) to
+  `channels.events`, tracked in `~/.local/share/freenova-bot/state.json`
+  (pruned after 14 days), so restarts never double-post. A running event also
+  feeds the presence hint (`de Train · 9/32 · Knife night`).
+  *Verified end-to-end:* a real event was written 35 s in the future with a
+  60 s duration; the journal shows `posted started notice for event 'Bot smoke
+  test'` then `posted ended notice`, the channel REST read shows exactly those
+  two embeds one minute apart, `state.json` recorded `posted: [started]` then
+  `[started, ended]`; with `presence_refresh` briefly 30 the journal shows
+  `presence: de Train · 9/32 · Bot smoke test`, proving the hint wiring; the
+  `/events` callback was driven with a fake interaction (1- and 2-event
+  renders). Test event, state file and test messages were then removed and the
+  bot restarted clean. Offline checks: parse of 7 mixed entries (running,
+  upcoming, undated, junk, missing title), `fmt_delta` for 0 s…3 d 4 h, empty
+  schedule text, and ended-event filtering (24 h window).

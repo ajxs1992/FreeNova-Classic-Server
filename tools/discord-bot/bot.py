@@ -858,6 +858,274 @@ def lookup_embed(result: Lookup) -> discord.Embed:
     return embed
 
 
+# ---------------------------------------------------------------------- events
+EVENT_KEEP_ENDED = 24 * 3600          # show events that ended up to a day ago
+EVENT_STATE_KEEP = 14 * 86400         # forget start/end bookkeeping after this
+
+
+def parse_time(value: Any) -> datetime | None:
+    """ISO-8601 (`2026-11-23T19:00:00Z`), epoch seconds, or a couple of common
+    human formats. Naive values are read as UTC."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    dt: datetime | None = None
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(text, fmt)
+                break
+            except ValueError:
+                continue
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+@dataclass(frozen=True)
+class Event:
+    title: str
+    start: datetime | None = None
+    end: datetime | None = None
+    when: str = ""
+    detail: str = ""
+    key: str = ""
+
+    def state(self, now: datetime) -> str:
+        """upcoming / running / ended / undated."""
+        if self.start is None:
+            return "undated"
+        if now < self.start:
+            return "upcoming"
+        if self.end is not None and now >= self.end:
+            return "ended"
+        if self.end is None and (now - self.start).total_seconds() > 6 * 3600:
+            return "ended"           # no end given: assume it is over after 6 h
+        return "running"
+
+
+def parse_events(raw: Any, now: datetime | None = None) -> list[Event]:
+    """Tolerant `events.json` reader: a list, or `{"events": [...]}`.
+
+    Each entry is `{title, when, detail, start, end}`; only `title` is required.
+    Sorted running first, then upcoming, then the ones that already ended.
+    """
+    if isinstance(raw, dict):
+        raw = raw.get("events", [])
+    if not isinstance(raw, (list, tuple)):
+        return []
+    now = now or datetime.now(timezone.utc)
+    out: list[Event] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        start = parse_time(item.get("start"))
+        end = parse_time(item.get("end"))
+        if start and end and end < start:
+            end = None
+        key = f"{title}|{start.isoformat() if start else 'undated'}"
+        out.append(Event(title=title, start=start, end=end,
+                         when=str(item.get("when") or "").strip(),
+                         detail=str(item.get("detail") or "").strip(), key=key))
+    order = {"running": 0, "upcoming": 1, "undated": 2, "ended": 3}
+    out.sort(key=lambda e: (order.get(e.state(now), 4), e.start or now, e.title.lower()))
+    return out
+
+
+def load_events(path: str = EVENTS_PATH) -> list[Event]:
+    """Read the events file; missing/broken file means "nothing scheduled"."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        log.warning("events file %s unreadable: %s", path, exc)
+        return []
+    return parse_events(raw)
+
+
+def fmt_delta(seconds: float | int) -> str:
+    """`2 d 4 h`, `2 h 15 m`, `45 m`, `<1 m` - used by every countdown."""
+    total = abs(int(seconds))
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    if days:
+        return f"{days} d {hours} h" if hours else f"{days} d"
+    if hours:
+        return f"{hours} h {minutes:02d} m" if minutes else f"{hours} h"
+    if minutes:
+        return f"{minutes} m"
+    return "<1 m"
+
+
+def event_countdown(event: Event, now: datetime) -> str:
+    """`running now`, `in 2 h 15 m`, `ended 40 m ago`, or the file's own `when`."""
+    state = event.state(now)
+    if state == "running":
+        if event.end is not None:
+            return f"running now · ends in {fmt_delta((event.end - now).total_seconds())}"
+        return "running now"
+    if state == "upcoming":
+        return f"in {fmt_delta((event.start - now).total_seconds())}"
+    if state == "ended" and event.end is not None:
+        return f"ended {fmt_delta((now - event.end).total_seconds())} ago"
+    if state == "ended":
+        return "ended"
+    return event.when or "date to be confirmed"
+
+
+def select_events(events: list[Event], now: datetime, limit: int = 8) -> list[Event]:
+    """What `/events` shows: running, then upcoming, then recently ended."""
+    try:
+        limit = max(1, int(limit))
+    except (TypeError, ValueError):
+        limit = 8
+
+    def visible(event: Event) -> bool:
+        state = event.state(now)
+        if state != "ended":
+            return True
+        ended_at = event.end or event.start
+        return bool(ended_at and (now - ended_at).total_seconds() <= EVENT_KEEP_ENDED)
+
+    return [e for e in events if visible(e)][:limit]
+
+
+def events_embed(events: list[Event], now: datetime, limit: int = 8) -> discord.Embed:
+    chosen = select_events(events, now, limit)
+    embed = discord.Embed(title="Events", colour=COLOUR_OK)
+    if not chosen:
+        embed.description = ("Nothing scheduled right now. Events are published in this channel and "
+                             "in `events.json` - the schedule shows up here as soon as it is written.")
+        embed.colour = COLOUR_DIM
+        return embed
+    blocks = []
+    for event in chosen:
+        state = event.state(now)
+        marker = {"running": "🟢", "upcoming": "🕒", "ended": "⚪"}.get(state, "•")
+        head = f"{marker} **{event.title}** — {event_countdown(event, now)}"
+        lines = [head]
+        if event.detail:
+            lines.append(f"  {event.detail}")
+        if event.start is not None:
+            lines.append(f"  <t:{int(event.start.timestamp())}:f>")
+        blocks.append("\n".join(lines))
+    embed.description = "\n\n".join(blocks)
+    running = [e.title for e in chosen if e.state(now) == "running"]
+    upcoming = [e for e in chosen if e.state(now) == "upcoming"]
+    footer = f"running now: {', '.join(running)}" if running else ""
+    if upcoming:
+        footer = (footer + " · " if footer else "") + f"next: {upcoming[0].title}"
+    if footer:
+        embed.set_footer(text=footer)
+    return embed
+
+
+class EventTracker:
+    """Remembers which events have already been announced, in a small JSON file.
+
+    One announcement per event per transition (`started`, `ended`), so a bot
+    restart or a repeated file read never double-posts.
+    """
+
+    def __init__(self, path: str = STATE_PATH) -> None:
+        self.path = path
+        self._data: dict[str, Any] = self._load()
+
+    def _load(self) -> dict[str, Any]:
+        try:
+            with open(self.path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict):
+                data.setdefault("events", {})
+                return data
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as exc:
+            log.warning("state file %s unreadable (%s); starting fresh", self.path, exc)
+        return {"events": {}}
+
+    def _save(self) -> None:
+        directory = os.path.dirname(self.path)
+        try:
+            os.makedirs(directory, exist_ok=True)
+            tmp = f"{self.path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self._data, fh, indent=2, sort_keys=True)
+            os.replace(tmp, self.path)
+        except OSError as exc:
+            log.warning("could not write state file %s: %s", self.path, exc)
+
+    def transitions(self, events: list[Event], now: datetime) -> list[tuple[Event, str]]:
+        """Transitions that still need announcing (nothing is marked here)."""
+        book = self._data.setdefault("events", {})
+        out: list[tuple[Event, str]] = []
+        for event in events:
+            entry = book.setdefault(event.key, {})
+            posted = entry.setdefault("posted", [])
+            state = event.state(now)
+            if state == "running" and "started" not in posted:
+                out.append((event, "started"))
+            if state == "ended" and "ended" not in posted:
+                out.append((event, "ended"))
+            entry["start"] = event.start.isoformat() if event.start else None
+            entry["end"] = event.end.isoformat() if event.end else None
+        self._prune(now)
+        return out
+
+    def mark_announced(self, event: Event, kind: str) -> None:
+        book = self._data.setdefault("events", {})
+        posted = book.setdefault(event.key, {"posted": []}).setdefault("posted", [])
+        if kind not in posted:
+            posted.append(kind)
+        self._save()
+
+    def _prune(self, now: datetime) -> None:
+        book = self._data.setdefault("events", {})
+        keep: dict[str, Any] = book
+        for key, entry in list(keep.items()):
+            stamp = parse_time(entry.get("end") or entry.get("start"))
+            if stamp and (now - stamp).total_seconds() > EVENT_STATE_KEEP:
+                del keep[key]
+
+
+def event_notice(event: Event, kind: str, now: datetime | None = None) -> discord.Embed:
+    """The one-off message posted when an event starts or ends."""
+    now = now or datetime.now(timezone.utc)
+    if kind == "started":
+        embed = discord.Embed(title=f"🟢 {event.title} starts now", colour=COLOUR_OK,
+                              description=event.detail or None)
+        if event.end is not None:
+            embed.add_field(name="Ends", value=f"<t:{int(event.end.timestamp())}:t> "
+                                               f"(in {fmt_delta((event.end - now).total_seconds())})",
+                            inline=True)
+    else:
+        embed = discord.Embed(title=f"⚪ {event.title} has ended", colour=COLOUR_DIM,
+                              description=event.detail or None)
+    if event.start is not None:
+        embed.timestamp = event.start
+    embed.set_footer(text="FreeNova events · times in your local timezone")
+    return embed
+
+
 # --------------------------------------------------------------------------- bot
 def instrument(interaction: discord.Interaction) -> str:
     """`/profile in #general by ajxs` for the log line of one command."""
@@ -933,6 +1201,8 @@ def build_bot(cfg: dict) -> commands.Bot:
             log.exception("command sync failed")
         if not presence_loop.is_running():
             presence_loop.start()
+        if not events_loop.is_running():
+            events_loop.start()
 
     @bot.event
     async def on_disconnect() -> None:
@@ -949,11 +1219,51 @@ def build_bot(cfg: dict) -> commands.Bot:
 
     # ---------------------------------------------------------------- presence
     presence_state: dict[str, Any] = {"last": None, "cycle": 0}
+    event_cache: dict[str, Any] = {"mtime": object(), "list": []}
+    tracker = EventTracker()
+
+    def refresh_events() -> list[Event]:
+        """Re-read events.json only when it changed on disk."""
+        try:
+            mtime: Any = os.stat(EVENTS_PATH).st_mtime
+        except OSError:
+            mtime = None
+        if mtime != event_cache["mtime"]:
+            event_cache["list"] = load_events()
+            event_cache["mtime"] = mtime
+            log.info("events file reloaded: %d event(s)", len(event_cache["list"]))
+        return event_cache["list"]
+
+    def running_event(now: datetime) -> str | None:
+        for event in refresh_events():
+            if event.state(now) == "running":
+                return event.title
+        return None
+
+    async def notify_channel(name: str):
+        """The configured channel for `name`, or None when it cannot be reached."""
+        raw = (cfg.get("channels") or {}).get(name)
+        if not raw:
+            return None
+        try:
+            channel_id = int(raw)
+        except (TypeError, ValueError):
+            log.warning("channel %r in config is not a snowflake: %r", name, raw)
+            return None
+        channel = bot.get_channel(channel_id)
+        if channel is not None:
+            return channel
+        try:
+            return await bot.fetch_channel(channel_id)
+        except discord.HTTPException:
+            log.warning("could not resolve channel %s (%s)", name, channel_id, exc_info=True)
+            return None
 
     async def apply_presence() -> None:
         """Refresh the presence line, skipping the write when nothing changed."""
         info = await get_info(server)
-        desired = presence_for(info, presence_state["cycle"])
+        now = datetime.now(timezone.utc)
+        desired = presence_for(info, presence_state["cycle"], running_event(now))
         presence_state["cycle"] = (presence_state["cycle"] + 1) % 3
         if desired.as_tuple() == presence_state["last"]:
             return
@@ -971,6 +1281,29 @@ def build_bot(cfg: dict) -> commands.Bot:
     @tasks.loop(seconds=max(30, int(cfg.get("presence_refresh") or 60)))
     async def presence_loop() -> None:
         await apply_presence()
+
+    # ------------------------------------------------------------------ events
+    @tasks.loop(seconds=30)
+    async def events_loop() -> None:
+        now = datetime.now(timezone.utc)
+        try:
+            pending = tracker.transitions(refresh_events(), now)
+        except Exception:                      # noqa: BLE001
+            log.exception("event check failed")
+            return
+        for event, kind in pending:
+            channel = await notify_channel("events")
+            if channel is None:
+                log.info("event %r %s (no events channel configured)", event.title, kind)
+                tracker.mark_announced(event, kind)
+                continue
+            try:
+                await channel.send(embed=event_notice(event, kind, now))
+                log.info("posted %s notice for event %r", kind, event.title)
+            except discord.HTTPException:
+                log.warning("could not post %s notice for %r; dropping it", kind, event.title,
+                            exc_info=True)
+            tracker.mark_announced(event, kind)
 
     # ---------------------------------------------------------------- commands
     @bot.tree.command(name="status", description="Live status of the FreeNova Classic server")
@@ -1072,21 +1405,15 @@ def build_bot(cfg: dict) -> commands.Bot:
         await _reply(interaction, embeds=profile_embeds(result.profile, base, result.others),
                      ephemeral=True)
 
-    @bot.tree.command(name="events", description="What is running on the server this week")
+    @bot.tree.command(name="events", description="The event schedule, with countdowns")
     @command_guard()
-    async def events_cmd(interaction: discord.Interaction) -> None:
-        try:
-            with open(EVENTS_PATH, encoding="utf-8") as fh:
-                events = json.load(fh)
-        except (OSError, ValueError):
-            await _reply(interaction,
-                         content="No events are scheduled right now - check back, or watch this channel.")
-            return
-        lines = []
-        for event in (events or [])[:8]:
-            lines.append(f"• **{event.get('title', 'Event')}** - {event.get('when', '')}"
-                         + (f" ({event['detail']})" if event.get("detail") else ""))
-        await _reply(interaction, content="\n".join(lines) or "Nothing scheduled.")
+    @app_commands.describe(count="How many events to show (default 5)")
+    async def events_cmd(interaction: discord.Interaction,
+                         count: app_commands.Range[int, 1, 10] = 5) -> None:
+        now = datetime.now(timezone.utc)
+        embed = events_embed(refresh_events(), now, limit=count)
+        embed.set_footer(text="Schedule: ~/.config/freenova-bot/events.json · times in your timezone")
+        await _reply(interaction, embed=embed)
 
     return bot
 

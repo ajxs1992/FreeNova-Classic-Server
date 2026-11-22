@@ -194,6 +194,17 @@ def build() -> tuple[dict, list[str]]:
     refs.sort(key=lambda r: r["id"])
 
     unique = [r for r in refs if not r["duplicate_of"]]
+    shell = notes.get("shell", {})
+    shell_items = (
+        sum(len(v) for v in shell.get("top_bar", {}).get("currency_pills", []))
+        + len(shell.get("top_bar", {}).get("icons", []))
+        + len(shell.get("top_bar", {}).get("profile_chip", []))
+        + sum(len(group) for group in shell.get("sidebar", {}).get("groups", {}).values())
+    )
+    page_specific = sum(
+        r["element_count"] - (shell_items if r["shell"]["inherits"] else 0)
+        for r in unique
+    )
     manifest = {
         "schema": 1,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -204,6 +215,8 @@ def build() -> tuple[dict, list[str]]:
             "unique": len(unique),
             "duplicates": len(refs) - len(unique),
             "elements": sum(r["element_count"] for r in refs),
+            "elements_page_specific": page_specific,
+            "shell_elements": shell_items,
             "routes_mapped": len({r["route"] for r in refs}),
             "new_pages": sum(1 for r in refs if r["status"] == "new"),
             "existing_pages": sum(1 for r in refs if r["status"] == "exists"),
@@ -363,7 +376,10 @@ def matrix(manifest: dict, warnings: list[str]) -> str:
     out.append("")
     out.append(f"Generated {manifest['generated_at']} from {c['references']} reference images "
                f"({c['unique']} unique, {c['duplicates']} duplicate), "
-               f"{c['elements']} inventoried elements and {c['routes_mapped']} mapped primary routes.")
+               f"{c['elements']} inventoried element lines and {c['routes_mapped']} mapped primary routes. "
+               f"{c['elements_page_specific']} of those lines are page-specific; the other "
+               f"{c['elements'] - c['elements_page_specific']} are the {c['shell_elements']}-item shared shell "
+               f"repeated across {c['unique']} pages.")
     out.append("")
     out.append("Every implementation page reads its numbers from here. Where a measurement could not be "
                "made cleanly from the image the row says **estimated** and the ambiguity is written down "

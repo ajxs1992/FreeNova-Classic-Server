@@ -13,6 +13,26 @@ new g_sessionBans;
 new g_fwdAdded;
 new g_fwdRemoved;
 
+// --- backend-confirmed ban accounting --------------------------------------
+// server_cmd() only queues a command and advanced_bans may still refuse it
+// (unknown target, max ban time, CBan_OnAddBan veto, backend down). REVIEW.md
+// 5.5: the session counter, the fn_ban_added forward and the audit row were
+// written the moment the command was queued, so a ban that never landed was
+// counted, announced and audited anyway. They are now written when the backend
+// itself reports the ban through CBan_OnPlayerBannedPost / CBan_OnAddBan; an
+// intent that is never confirmed is audited as ban.not_landed instead.
+#define MAX_PENDING_BANS 8
+#define TASK_PENDING     7300
+#define PENDING_TTL      10.0
+
+new bool:g_pendUsed[MAX_PENDING_BANS];
+new g_pendCase[MAX_PENDING_BANS][24];
+new g_pendAdmin[MAX_PENDING_BANS];
+new g_pendSteam[MAX_PENDING_BANS][40];
+new g_pendIp[MAX_PENDING_BANS][32];
+new g_pendMinutes[MAX_PENDING_BANS];
+new g_pendReason[MAX_PENDING_BANS][128];
+
 public plugin_natives()
 {
 	set_native_filter("native_filter");
@@ -136,6 +156,106 @@ doEnforce(const steam[], const ip[], minutes, const reason[])
 }
 
 
+// Count a ban that the backend has confirmed (or that we could not wait for).
+stock CountBan(admin, const c[], const steam[], const ip[], minutes, const reason[], tpid)
+{
+	g_sessionBans++;
+	set_pcvar_num(g_cvarSession, get_pcvar_num(g_cvarSession) + 1);
+	new ret;
+	ExecuteForward(g_fwdAdded, ret, c, admin, steam, ip, minutes, reason);
+	static idbuf[96];
+	formatex(idbuf, charsmax(idbuf), "%s %s", steam, ip);
+	fn_safe_audit(c, admin, tpid, "ban.add", idbuf);
+}
+
+// Remember a queued ban until the backend reports it.
+stock bool:pendNew(admin, const c[], const steam[], const ip[], minutes, const reason[])
+{
+	for (new i = 0; i < MAX_PENDING_BANS; i++)
+	{
+		if (g_pendUsed[i]) continue;
+		g_pendUsed[i] = true;
+		copy(g_pendCase[i], charsmax(g_pendCase[]), c);
+		g_pendAdmin[i] = admin;
+		copy(g_pendSteam[i], charsmax(g_pendSteam[]), steam);
+		copy(g_pendIp[i], charsmax(g_pendIp[]), ip);
+		g_pendMinutes[i] = minutes;
+		copy(g_pendReason[i], charsmax(g_pendReason[]), reason);
+		set_task(PENDING_TTL, "Task_PendingExpired", TASK_PENDING + i);
+		return true;
+	}
+	return false;
+}
+
+// Match the identity the backend reports (authid or IP) against queued intents.
+stock pendFind(const ident[])
+{
+	if (!ident[0]) return -1;
+	for (new i = 0; i < MAX_PENDING_BANS; i++)
+	{
+		if (!g_pendUsed[i]) continue;
+		if (equali(g_pendSteam[i], ident) || equali(g_pendIp[i], ident))
+			return i;
+	}
+	return -1;
+}
+
+stock pendConfirm(idx, tpid)
+{
+	if (idx < 0 || idx >= MAX_PENDING_BANS || !g_pendUsed[idx]) return;
+	g_pendUsed[idx] = false;
+	remove_task(TASK_PENDING + idx);
+	CountBan(g_pendAdmin[idx], g_pendCase[idx], g_pendSteam[idx], g_pendIp[idx], g_pendMinutes[idx], g_pendReason[idx], tpid);
+}
+
+// Queue the backend command and remember the intent; the accounting happens in
+// the confirmation callback below.
+stock commitBan(admin, const c[], const steam[], const ip[], minutes, const reason[])
+{
+	new tpid = doEnforce(steam, ip, minutes, reason);
+	if (!pendNew(admin, c, steam, ip, minutes, reason))
+	{
+		// Queue full (8 bans inside PENDING_TTL). Counting straight away is the
+		// old behaviour; say so rather than losing the audit row silently.
+		log_amx("[FN-BANS] pending queue full, counting case=%s immediately", c);
+		CountBan(admin, c, steam, ip, minutes, reason, tpid);
+	}
+}
+
+// advanced_bans reports a live ban that actually landed (AddBan + history done).
+public CBan_OnPlayerBannedPost(id, admin, length, const reason[])
+{
+	new steam[40], ip[32];
+	steam[0] = 0; ip[0] = 0;
+	if (id > 0 && id <= MaxClients && is_user_connected(id))
+	{
+		get_user_authid(id, steam, charsmax(steam));
+		get_user_ip(id, ip, charsmax(ip), 1);
+	}
+	new idx = pendFind(steam);
+	if (idx < 0) idx = pendFind(ip);
+	pendConfirm(idx, (id > 0 && id <= MaxClients) ? id : 0);
+	return PLUGIN_CONTINUE;
+}
+
+// advanced_bans reports an offline/IP ban it is about to store.
+public CBan_OnAddBan(const target[], admin, length, const reason[])
+{
+	pendConfirm(pendFind(target), 0);
+	return PLUGIN_CONTINUE;
+}
+
+public Task_PendingExpired(taskid)
+{
+	new i = taskid - TASK_PENDING;
+	if (i < 0 || i >= MAX_PENDING_BANS || !g_pendUsed[i]) return;
+	g_pendUsed[i] = false;
+	log_amx("[FN-BANS] backend never confirmed case=%s (%s/%s) - not counted", g_pendCase[i], g_pendSteam[i], g_pendIp[i]);
+	static idbuf[96];
+	formatex(idbuf, charsmax(idbuf), "%s %s", g_pendSteam[i], g_pendIp[i]);
+	fn_safe_audit(g_pendCase[i], g_pendAdmin[i], 0, "ban.not_landed", idbuf);
+}
+
 stock banAdd(admin, const steam[], const ip[], minutes, const reason[])
 {
 	if ((!steam[0] && !ip[0]) || minutes < 0 || !reason[0]) return 0;
@@ -161,14 +281,7 @@ stock banAdd(admin, const steam[], const ip[], minutes, const reason[])
 	c[0] = 0;
 	if (LibraryExists("fn_audit", LibType_Library)) { fn_case_new(admin, c, charsmax(c)); }
 	else { copy(c, charsmax(c), "FN-NOAUDIT"); }
-	new tpid = doEnforce(steam, ip, minutes, clean);
-	g_sessionBans++;
-	set_pcvar_num(g_cvarSession, get_pcvar_num(g_cvarSession) + 1);
-	new ret;
-	ExecuteForward(g_fwdAdded, ret, c, admin, steam, ip, minutes, clean);
-	static idbuf[96];
-	formatex(idbuf, charsmax(idbuf), "%s %s", steam, ip);
-	fn_safe_audit(c, admin, tpid, "ban.add", idbuf);
+	commitBan(admin, c, steam, ip, minutes, clean);
 	return 1;
 }
 
@@ -181,14 +294,7 @@ stock banAddConfirmed(admin, const c[])
 	new m = str_to_num(ms);
 	new cap2 = banCap();
 	if (cap2 > 0 && m > cap2) { m = cap2; log_amx("[FN-BANS] confirmed clamped to amx_tempban_maxtime %d", cap2); }
-	new tp = doEnforce(s, p, m, r);
-	g_sessionBans++;
-	set_pcvar_num(g_cvarSession, get_pcvar_num(g_cvarSession) + 1);
-	new ret;
-	ExecuteForward(g_fwdAdded, ret, c, admin, s, p, m, r);
-	static idb2[96];
-	formatex(idb2, charsmax(idb2), "%s %s", s, p);
-	fn_safe_audit(c, admin, tp, "ban.add", idb2);
+	commitBan(admin, c, s, p, m, r);
 	return 1;
 
 }
@@ -232,12 +338,7 @@ public _ban_add_confirmed(plugin, params)
 	new m = str_to_num(ms);
 	new cap2 = banCap();
 	if (cap2 > 0 && m > cap2) { m = cap2; log_amx("[FN-BANS] confirmed clamped to amx_tempban_maxtime %d", cap2); }
-	new tp = doEnforce(s, p, m, r);
-	g_sessionBans++;
-	set_pcvar_num(g_cvarSession, get_pcvar_num(g_cvarSession) + 1);
-	new ret;
-	ExecuteForward(g_fwdAdded, ret, c, admin, s, p, m, r);
-	fn_safe_audit(c, admin, tp, "ban.add", r);
+	commitBan(admin, c, s, p, m, r);
 	return 1;
 }
 public _ban_remove(plugin, params)
@@ -336,14 +437,7 @@ public cmdConfirm(id, level, cid)
 	new m = str_to_num(ms);
 	new cap2 = banCap();
 	if (cap2 > 0 && m > cap2) { m = cap2; log_amx("[FN-BANS] confirmed clamped to amx_tempban_maxtime %d", cap2); }
-	new tp = doEnforce(s, p, m, r);
-	g_sessionBans++;
-	set_pcvar_num(g_cvarSession, get_pcvar_num(g_cvarSession) + 1);
-	new ret;
-	ExecuteForward(g_fwdAdded, ret, c, id, s, p, m, r);
-	static idb[96];
-	formatex(idb, charsmax(idb), "%s %s", s, p);
-	fn_safe_audit(c, id, tp, "ban.add", idb);
+	commitBan(id, c, s, p, m, r);
 	log_amx("[FN-BANS] confirmed ban enforced case=%s", c);
 	console_print(id, "[FN] confirmed ban enforced.");
 	return PLUGIN_HANDLED;

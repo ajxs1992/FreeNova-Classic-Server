@@ -92,6 +92,8 @@ public plugin_init()
 
 public plugin_cfg()
 {
+    // Per-map state: never inherit an active flavor from an in-place reload.
+    g_iActiveFlavor = -1
     ScheduleNext()
 }
 
@@ -252,7 +254,19 @@ public Task_AssertHappy()
 public Task_End()
 {
     remove_task(TASK_ASSERT)
+    RevertEvent()
 
+    log_amx("[FreeNova][RandEvent] ENDED flavor=%d, values restored", g_iActiveFlavor)
+    g_iActiveFlavor = -1
+
+    Announce("Random event ended. Thanks for playing!")
+    ScheduleNext()
+}
+
+// Restores the one owner cvar this event changed, from the value snapshotted at
+// fire time. Shared by Task_End() and plugin_end().
+RevertEvent()
+{
     if (g_iActiveFlavor == FLAVOR_XP)
     {
         new pXp = ResolvePtr("fn_event_xp_mult")
@@ -277,12 +291,25 @@ public Task_End()
         if (pHappy)
             set_pcvar_float(pHappy, g_fSavedHappy)
     }
+}
 
-    log_amx("[FreeNova][RandEvent] ENDED flavor=%d, values restored", g_iActiveFlavor)
+// REVIEW.md §5.2: g_iActiveFlavor is per-map RAM and dies with the map, the
+// owner cvar it boosted does not. An event that fired just before a map change
+// therefore left fn_event_xp_mult (or fn_double_xp / fn_happy_hour) boosted for
+// ever: AnyEventActive() stayed true, Task_Fire() retried for ever and Task_End()
+// could never run. Restore on unload, exactly as Task_End() does.
+public plugin_end()
+{
+    remove_task(TASK_FIRE)
+    remove_task(TASK_END)
+    remove_task(TASK_ASSERT)
+
+    if (g_iActiveFlavor == -1)
+        return
+
+    RevertEvent()
+    log_amx("[FreeNova][RandEvent] unloaded mid-event: flavor=%d restored", g_iActiveFlavor)
     g_iActiveFlavor = -1
-
-    Announce("Random event ended. Thanks for playing!")
-    ScheduleNext()
 }
 
 // --- announce (chat + HUD) --------------------------------------------------

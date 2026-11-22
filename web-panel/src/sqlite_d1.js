@@ -106,6 +106,8 @@ export function migratePlayers(raw) {
     ["bp_chute", "INTEGER NOT NULL DEFAULT 0"],
     ["bp_premium", "INTEGER NOT NULL DEFAULT 0"],
     ["bp_milestone", "INTEGER NOT NULL DEFAULT 0"],
+    ["bp_xp", "INTEGER NOT NULL DEFAULT 0"],
+    ["bp_tier", "INTEGER NOT NULL DEFAULT 0"],
     ["bp_season", "TEXT NOT NULL DEFAULT '1'"],
     ["bp_premium_season", "TEXT NOT NULL DEFAULT ''"],
     ["bp_ent_lane", "INTEGER NOT NULL DEFAULT 0"],

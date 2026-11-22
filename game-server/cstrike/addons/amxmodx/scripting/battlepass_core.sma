@@ -123,6 +123,24 @@ new bool:g_bLastStandProc[MAX_PLAYERS + 1] // consumed this spawn
 // highest milestone level already paid per player (prevents re-payment
 // of the whole milestone table on every join/level-restore)
 new g_iMilestonePaid[MAX_PLAYERS + 1]
+
+// ============================================================
+// BATTLEPASS XP / TIER LEDGER (REVIEW.md §2.4 H1)
+// ============================================================
+// Rank XP/level stay owned by CRX/RSU and are read that way everywhere else in
+// this file (per-level HP/armor/damage tables, milestone cursor, legend gate).
+// This ledger is the ONLY store of BattlePass XP and the ONLY source of BP
+// tier: menabp_get_xp / menabp_get_tier / menabp_add_xp / menabp_add_xp_once
+// read and write it and never call crxranks_give_user_xp - that call moves rank
+// XP, which is the counter these comments always said was a different one.
+//
+// Persistence is the `bpxp` vault key (season-stamped through BpCursorKey, like
+// every other BP cursor), so the ledger survives a map change, a restart and
+// plugin_end. No migration and no seeding from rank XP: every player starts at
+// BP XP 0 and earns from here on (product decision, REVIEW §9d).
+new g_iBpXp[MAX_PLAYERS + 1]
+new g_iBpTier[MAX_PLAYERS + 1]
+new bool:g_bBpXpLoaded[MAX_PLAYERS + 1]
 new g_iBpTierStart[MAX_PLAYERS + 1]
 new g_iPremiumPaid[MAX_PLAYERS + 1]
 new g_iPremiumLane[MAX_PLAYERS + 1] // 0 none, 1 VIP, 2 VIP+, 3 Elite
@@ -425,6 +443,10 @@ public plugin_init()
     // (VIP auto-grant, un-stamped vault keys). Seasons >1 use stamped keys
     // plus a store entitlement (amx_bpent) - see BpPremiumAllowed.
     register_cvar("fn_bp_current_season", "1")
+    // BattlePass XP per tier - the same flat curve the panel derives its tier
+    // from (web-panel/src/bp_track.js xpPerTier over reward_track.xp_per_tier,
+    // default 1000). Change both together or /bp and the panel disagree.
+    register_cvar("fn_bp_xp_per_tier", "1000")
 
     // Shop commands
     register_clcmd("say /shop", "Cmd_Shop")
@@ -530,6 +552,7 @@ public Task_AutoSave(taskid)
         SaveShopData(players[i])
         SavePrestige(players[i])
         SaveMilestonePaid(players[i])
+        SaveBpXp(players[i])
         SavePremiumPaid(players[i])
         SavePremiumLane(players[i])
         SaveBpBoost(players[i])
@@ -559,6 +582,7 @@ public plugin_end()
             SaveCoins(players[i])
             SaveShopData(players[i])
             SaveMilestonePaid(players[i])
+            SaveBpXp(players[i])
             SavePremiumPaid(players[i])
             SavePremiumLane(players[i])
             SaveBpBoost(players[i])
@@ -739,6 +763,7 @@ BP_DoLoad(id)
     LoadPrestige(id)
     LoadCoins(id)
     LoadMilestonePaid(id)
+    LoadBpXp(id)
     LoadPremiumPaid(id)
     LoadPremiumLane(id)
     LoadBpBoost(id)
@@ -818,6 +843,7 @@ public client_disconnected(id)
         SaveCoins(id)
         SaveShopData(id)
         SaveMilestonePaid(id)
+        SaveBpXp(id)
         SavePremiumPaid(id)
         SavePremiumLane(id)
         SaveBpBoost(id)
@@ -895,6 +921,9 @@ ResetPlayer(id)
     ResetCombatState(id)
 
     g_iCoins[id] = 0
+    g_iBpXp[id] = 0
+    g_iBpTier[id] = 1
+    g_bBpXpLoaded[id] = false
     arrayset(g_iShopSkillLevel[id], 0, SKILL_COUNT)
     g_bBoughtHeal[id] = false
 
@@ -3281,6 +3310,175 @@ SaveMilestonePaid(id)
     }
 }
 
+// ============================================================
+// BATTLEPASS XP / TIER LEDGER (curve, persistence, grant path)
+// ============================================================
+// Flat curve, identical to the panel's `reward_track.xp_per_tier`
+// (web-panel/src/bp_track.js xpPerTier, default 1000): tier N covers
+// [(N-1)*per, N*per), tier 1 starts at 0. A player with 0 BP XP therefore
+// reads "tier 1, empty progress" on the HUD, in /bp and on the web panel -
+// never NaN, never a rank-derived tier.
+stock BpXpPerTier()
+{
+    new i = get_cvar_num("fn_bp_xp_per_tier")
+    return (i > 0) ? i : 1000
+}
+
+stock BpTierThreshold(iTier)
+{
+    if (iTier <= 1)
+        return 0
+    if (iTier > MAX_LEVELS)
+        iTier = MAX_LEVELS
+    return (iTier - 1) * BpXpPerTier()
+}
+
+stock BpMaxXp()
+{
+    return MAX_LEVELS * BpXpPerTier()
+}
+
+stock BpTierFromXp(iXp)
+{
+    if (iXp < 0)
+        iXp = 0
+    new iTier = 1 + (iXp / BpXpPerTier())
+    return (iTier > MAX_LEVELS) ? MAX_LEVELS : iTier
+}
+
+// 0 while the row is still loading: that is the documented native contract
+// (menabp_get_tier "or 0 if not loaded") that HUD/sync/panel gate on.
+stock BpGetTier(id)
+{
+    if (!BpValidId(id) || !g_bBpXpLoaded[id])
+        return 0
+    new iTier = g_iBpTier[id]
+    if (iTier < 1)
+        iTier = 1
+    return (iTier > MAX_LEVELS) ? MAX_LEVELS : iTier
+}
+
+stock BpGetXp(id)
+{
+    if (!BpValidId(id) || !g_bBpXpLoaded[id])
+        return 0
+    return (g_iBpXp[id] < 0) ? 0 : g_iBpXp[id]
+}
+
+// Shop XP boost, pruned on read (same expiry rule as crxranks_user_receive_xp).
+stock Float:BpXpBoostMult(id)
+{
+    if (!g_bHasXpBoost[id])
+        return 1.0
+    if (g_iBoostEndTime[id] > 0 && get_systime() >= g_iBoostEndTime[id])
+    {
+        g_bHasXpBoost[id] = false
+        g_fXpBoost[id] = 1.0
+        g_iBoostEndTime[id] = 0
+        return 1.0
+    }
+    return (g_fXpBoost[id] > 0.0) ? g_fXpBoost[id] : 1.0
+}
+
+// No seeding: a pid with no `bpxp` key starts at 0 BP XP / tier 1. Old rank XP
+// is never copied in, so an existing player keeps rank progress and begins BP
+// progress from zero.
+LoadBpXp(id)
+{
+    g_iBpXp[id] = 0
+    g_iBpTier[id] = 1
+    g_bBpXpLoaded[id] = true
+    if (g_VaultBP == INVALID_HANDLE)
+        return
+    new key[64], value[16]
+    BpCursorKey(id, key, charsmax(key), "bpxp")
+    if (nvault_get(g_VaultBP, key, value, charsmax(value)))
+        g_iBpXp[id] = clamp(str_to_num(value), 0, BpMaxXp())
+    g_iBpTier[id] = BpTierFromXp(g_iBpXp[id])
+}
+
+SaveBpXp(id)
+{
+    if (g_VaultBP == INVALID_HANDLE || !g_bBpXpLoaded[id])
+        return
+    new key[64], value[16]
+    BpCursorKey(id, key, charsmax(key), "bpxp")
+    formatex(value, charsmax(value), "%d", g_iBpXp[id])
+    if (!nvault_set(g_VaultBP, key, value))
+        log_amx("[FreeNova] WARNING: nvault_set failed for BP XP key=%s", key)
+}
+
+// THE BP XP grant path. Every multiplier lives here and only here, so
+// menabp_add_xp_once (which calls this and then records the award id) can never
+// multiply twice, and a replayed award id never reaches it at all. Rank XP is
+// never touched: no crxranks_give_user_xp call exists in this function.
+BpAddXp(id, amount)
+{
+    if (!BpValidId(id) || !g_bDataLoaded[id] || !g_bBpXpLoaded[id] || amount <= 0)
+        return 0
+
+    new iMax = BpMaxXp()
+    if (g_iBpXp[id] >= iMax)
+        return 0
+
+    // Shop XP boost * VIP BP bonus. fnvip_get_bp_multiplier had zero call sites
+    // before REVIEW §2.4 H1; it returns 1.0 for a non-VIP and when the VIP core
+    // is absent, so this stays a no-op for everyone else.
+    new Float:fMult = BpXpBoostMult(id) * fnvip_get_bp_multiplier(id)
+    new iAdd = floatround(float(amount) * fMult)
+    if (iAdd < 1)
+        iAdd = 1
+
+    new iOldXp = g_iBpXp[id]
+    new iNewXp = iOldXp + iAdd
+    if (iNewXp > iMax)
+        iNewXp = iMax
+    if (iNewXp <= iOldXp)
+        return 0
+
+    g_iBpXp[id] = iNewXp
+    new iOldTier = g_iBpTier[id]
+    g_iBpTier[id] = BpTierFromXp(g_iBpXp[id])
+    SaveBpXp(id)
+    if (g_iBpTier[id] > iOldTier)
+        BpTierUp(id, iOldTier, g_iBpTier[id])
+    return iNewXp - iOldXp
+}
+
+// A BP tier-up announces only. The claim cursors (g_iMilestonePaid /
+// g_iPremiumPaid) are rank-level driven and pay once per tier there; paying
+// them again from BP XP would double every tier reward, so this build keeps the
+// BP ledger off the reward cursors (operator decision, REVIEW §9d).
+BpTierUp(id, iFrom, iTo)
+{
+    new szAuth[40]
+    BpSafeAuth(id, szAuth, charsmax(szAuth))
+    log_amx("[FreeNova] BP TIERUP %s %d -> %d (bp_xp=%d)", szAuth, iFrom, iTo, g_iBpXp[id])
+    client_printcolor(id, "!g[FreeNova] !nBattle Pass tier !g%d!n reached (was %d).", iTo, iFrom)
+}
+
+BpAddXpOnce(id, amount, const awardId[])
+{
+    if (!BpValidId(id) || !g_bDataLoaded[id] || !g_bBpXpLoaded[id] || amount <= 0 || !awardId[0])
+        return -1
+    if (BpAwardExists(id, "xp", awardId))
+        return 0
+    new iAdded = BpAddXp(id, amount)
+    if (iAdded <= 0)
+    {
+        // At the cap the award is still consumed, otherwise a later season could
+        // replay an award that was already earned.
+        if (g_iBpXp[id] >= BpMaxXp())
+        {
+            BpMarkAward(id, "xp", awardId)
+            return 0
+        }
+        return -1
+    }
+    BpMarkAward(id, "xp", awardId)
+    return iAdded
+}
+
 LoadPremiumPaid(id)
 {
     g_iPremiumPaid[id] = 0
@@ -4075,7 +4273,7 @@ public Cmd_BattlePass(id)
     }
     if(equali(szArg, "next", 4))
     {
-        new iMy = crxranks_get_user_level(id)
+        new iMy = BpGetTier(id)
         new iStart = BpTierWindowStart(id, iMy) + 4
         if (iStart > MAX_LEVELS - 3) iStart = MAX_LEVELS - 3
         g_iBpTierStart[id] = iStart
@@ -4084,7 +4282,7 @@ public Cmd_BattlePass(id)
     }
     if(equali(szArg, "prev", 4))
     {
-        new iMy2 = crxranks_get_user_level(id)
+        new iMy2 = BpGetTier(id)
         new iStart2 = BpTierWindowStart(id, iMy2) - 4
         if (iStart2 < 1) iStart2 = 1
         g_iBpTierStart[id] = iStart2
@@ -4156,9 +4354,11 @@ ShowBpLiteMenu(id)
     FN_MenuTitle(szTitle, charsmax(szTitle), "Battle Pass")
     new menu = menu_create(szTitle, "BpLite_Handler")
 
-    formatex(szItem, charsmax(szItem), "\wTier \y%d \d/ %d  \wSeason \y%d", crxranks_get_user_level(id), MAX_LEVELS, BpCurrentSeason())
+    // BP tier / BP XP from the BP ledger - this is the Battle Pass page, not
+    // the rank page (REVIEW §2.4 H1: it used to print rank level as "Tier").
+    formatex(szItem, charsmax(szItem), "\wBP Tier \y%d \d/ %d  \wSeason \y%d", BpGetTier(id), MAX_LEVELS, BpCurrentSeason())
     menu_additem(menu, szItem, "0")
-    formatex(szItem, charsmax(szItem), "\wXP \y%d  \d|  \wCoins \y%d", crxranks_get_user_xp(id), g_iCoins[id])
+    formatex(szItem, charsmax(szItem), "\wBP XP \y%d \d|  \wCoins \y%d", BpGetXp(id), g_iCoins[id])
     menu_additem(menu, szItem, "0")
     formatex(szItem, charsmax(szItem), "\wLane \y%s  \d|  \wPremium paid to \y%d", g_szLaneNames[g_iPremiumLane[id]], g_iPremiumPaid[id])
     menu_additem(menu, szItem, "0")
@@ -4396,10 +4596,18 @@ ShowBpMainPage(id)
 {
     new szBpName[24], szBpSub[64]
     get_cvar_string("fn_bp_season_name", szBpName, charsmax(szBpName))
-    new iXP = crxranks_get_user_xp(id)
-    new iNext = crxranks_get_user_next_xp(id)
-    new iLevel = crxranks_get_user_level(id)
-    new iPercent = iNext > 0 ? clamp((iXP * 100) / iNext, 0, 100) : 100
+    // BP XP / BP tier: this page is the Battle Pass track, so its progress must
+    // not be rank XP (REVIEW §2.4 H1). Rank progress lives on /rank.
+    // BpGetTier is 0 while the row loads: the page must still read "tier 1,
+    // empty progress" rather than tier 0, so clamp it here.
+    new iXP = BpGetXp(id)
+    new iLevel = BpGetTier(id)
+    if (iLevel < 1)
+        iLevel = 1
+    new iNext = BpTierThreshold(iLevel + 1)
+    if (iLevel >= MAX_LEVELS)
+        iNext = BpMaxXp()
+    new iPercent = (iNext > 0) ? clamp((iXP * 100) / iNext, 0, 100) : 100
     new iBpEnd = get_cvar_num("fn_bp_season_end")
     new iDaysLeft = (iBpEnd > get_systime()) ? ((iBpEnd - get_systime()) / 86400) : -1
     if (iDaysLeft >= 0)
@@ -4494,9 +4702,9 @@ public plugin_natives()
     register_native("menabp_get_coins", "native_get_coins")
     register_native("menabp_add_coins", "native_add_coins")
     register_native("menabp_add_coins_once", "native_add_coins_once")
-    // Single-source progression compatibility: rank XP/level are now the
-    // Battle Pass XP/tier. These natives keep older HUD/panel/sync callers
-    // loading and operating against the same ledger.
+    // BattlePass XP/tier natives. They read and write the BP ledger above -
+    // NOT crxranks rank XP/level (REVIEW §2.4 H1). The names are historic:
+    // menabp_get_xp is BP XP, menabp_get_tier is BP tier.
     register_native("menabp_get_xp", "native_get_bp_xp")
     register_native("menabp_get_tier", "native_get_bp_tier")
     register_native("menabp_get_next_xp", "native_get_bp_next_xp")
@@ -4716,22 +4924,27 @@ public native_add_coins_once(plugin, params)
 public native_get_bp_xp(plugin, params)
 {
     new id = get_param(1)
-    return (BpValidId(id) && g_bDataLoaded[id]) ? crxranks_get_user_xp(id) : 0
+    if (!BpValidId(id) || !g_bDataLoaded[id])
+        return 0
+    return BpGetXp(id)
 }
 public native_get_bp_tier(plugin, params)
 {
     new id = get_param(1)
     if (!BpValidId(id) || !g_bDataLoaded[id])
         return 0
-    new iLevel = crxranks_get_user_level(id)
-    return (iLevel < 1) ? 1 : ((iLevel > MAX_LEVELS) ? MAX_LEVELS : iLevel)
+    return BpGetTier(id)
 }
 public native_get_bp_next_xp(plugin, params)
 {
     new id = get_param(1)
     if (!BpValidId(id) || !g_bDataLoaded[id])
         return 0
-    return crxranks_get_user_next_xp(id)
+    new iTier = BpGetTier(id)
+    // Absolute BP XP threshold of the next tier; at tier 60 it is the cap.
+    if (iTier >= MAX_LEVELS)
+        return BpMaxXp()
+    return BpTierThreshold(iTier + 1)
 }
 public native_get_bp_max_tier(plugin, params)
 {
@@ -4742,10 +4955,11 @@ public native_add_bp_xp(plugin, params)
 {
     new id = get_param(1)
     new amount = get_param(2)
-    if (!BpValidId(id) || !g_bDataLoaded[id] || amount <= 0)
+    if (!BpValidId(id) || !g_bDataLoaded[id] || !g_bBpXpLoaded[id] || amount <= 0)
         return 0
-    crxranks_give_user_xp(id, amount, "", CRXRANKS_XPS_PLUGIN)
-    return amount
+    // BP XP only. crxranks_give_user_xp is deliberately NOT called: it moves
+    // rank XP, and amx_bp_givexp must not touch that counter (REVIEW §2.4 H1).
+    return BpAddXp(id, amount)
 }
 public native_add_bp_xp_once(plugin, params)
 {
@@ -4753,13 +4967,11 @@ public native_add_bp_xp_once(plugin, params)
     new amount = get_param(2)
     new szAward[64]
     get_string(3, szAward, charsmax(szAward))
-    if (!BpValidId(id) || !g_bDataLoaded[id] || amount <= 0 || !szAward[0])
+    if (!BpValidId(id) || !g_bDataLoaded[id] || !g_bBpXpLoaded[id] || amount <= 0 || !szAward[0])
         return -1
-    if (BpAwardExists(id, "xp", szAward))
-        return 0
-    crxranks_give_user_xp(id, amount, "", CRXRANKS_XPS_PLUGIN)
-    BpMarkAward(id, "xp", szAward)
-    return amount
+    // Idempotency and the multipliers both live one level down (BpAddXpOnce ->
+    // BpAddXp), so a consumed award id adds nothing and never doubles.
+    return BpAddXpOnce(id, amount, szAward)
 }
 public native_get_skill_stage(plugin, params)
 {

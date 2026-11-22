@@ -1,0 +1,10 @@
+# FreeNova BP ledger test: one regex per line, all must appear in the log.
+# Prefix a line with ! to require that it does NOT appear.
+\[FNBP\] lib=1
+\[FNBP\] max_tier=60
+\[FNBP\] xp0=0 tier0=0 add0=0 once0=-1
+\[FNBP\] nextxp0=0 ready0=0
+\[FNBP\] RESULT ok
+# The ledger must never be seeded from rank XP, so the old crxranks path must
+# not appear in the BP provider's log at all.
+!\[FNBP\] RESULT fail

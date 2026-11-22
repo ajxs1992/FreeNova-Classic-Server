@@ -311,11 +311,12 @@ async function handleSync(request, env) {
          comp_msn_k, comp_msn_h, comp_msn_w, comp_msn_m, comp_msn_done,
           eq_spawn, eq_title, eq_death, eq_color, custom_tag, eq_model,
           bp_hp, bp_armor, bp_jumps, bp_sniper, bp_laststand, bp_chute, bp_premium, bp_milestone,
-          vip_remaining, server_id, last_seen, cc)
+          vip_remaining, server_id, last_seen, cc,
+          bp_xp, bp_tier)
        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,
                ?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,
                ?36,?37,?38,?39,?40,?41,?42,?43,?44,?45,?46,?47,?48,?49,?50,?51,?52,
-               ?53,?54,?55,?56,?57,?58,?59,?60,?61,?62,?63,?64)
+               ?53,?54,?55,?56,?57,?58,?59,?60,?61,?62,?63,?64,?65,?66)
        ON CONFLICT(steamid) DO UPDATE SET
          name=?2, xp=?3, level=?4, rank_id=?5, prestige=?6,
          kills=?7, deaths=?8, assists=?9, headshots=?10, damage=?11, shots=?12, hits=?13,
@@ -332,7 +333,11 @@ async function handleSync(request, env) {
          eq_spawn=?47, eq_title=?48, eq_death=?49, eq_color=?50, custom_tag=?51, eq_model=?52,
          bp_hp=?53, bp_armor=?54, bp_jumps=?55, bp_sniper=?56, bp_laststand=?57, bp_chute=?58,
          bp_premium=?59, bp_milestone=?60,
-         vip_remaining=?61, server_id=?62, last_seen=?63, cc=?64
+         vip_remaining=?61, server_id=?62, last_seen=?63, cc=?64,
+         -- BattlePass XP/tier ledger (REVIEW.md §2.4 H1): the game's own BP
+         -- counters, stored as sent. They ride the same last_seen guard, so a
+         -- late push cannot roll BP XP back any more than rank xp.
+         bp_xp=?65, bp_tier=?66
        WHERE excluded.last_seen >= players.last_seen`)
       .bind(
         p.steamid, str(p.name, 32), num(p.xp), num(p.level), num(p.rank_id), num(p.prestige),
@@ -360,7 +365,8 @@ async function handleSync(request, env) {
         num(p.bp_boosts && p.bp_boosts.premium),
         num(p.bp_boosts && p.bp_boosts.milestone),
         num(p.vip_remaining),
-        str(serverId, 48), pushClock(p.last_seen, nowSec), ccOf(p.cc)))
+        str(serverId, 48), pushClock(p.last_seen, nowSec), ccOf(p.cc),
+        num(p.bp_xp), num(p.bp_tier)))
 
     // per-weapon stats (top-slot array; absent = no update)
     if (Array.isArray(p.weapons)) {
@@ -588,6 +594,8 @@ async function handleSync(request, env) {
     ["bp_chute", "INTEGER NOT NULL DEFAULT 0"],
     ["bp_premium", "INTEGER NOT NULL DEFAULT 0"],
     ["bp_milestone", "INTEGER NOT NULL DEFAULT 0"],
+    ["bp_xp", "INTEGER NOT NULL DEFAULT 0"],
+    ["bp_tier", "INTEGER NOT NULL DEFAULT 0"],
     ["bp_season", "TEXT NOT NULL DEFAULT '1'"],
     ["bp_premium_season", "TEXT NOT NULL DEFAULT ''"],
     ["bp_ent_lane", "INTEGER NOT NULL DEFAULT 0"],

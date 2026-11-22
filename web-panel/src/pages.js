@@ -14,18 +14,15 @@ import {
 } from "./catalogs.js"
 import { RANKS, rankName, rankProgress } from "./ranks.js"
 import {
-  premiumLaneName, premiumPerk, normalizeBpRarity, hasSeasonPremium, premiumExtraCoins
+  premiumLaneName, premiumPerk, normalizeBpRarity, hasSeasonPremium, premiumExtraCoins,
+  playerBpTier, bpInto
 } from "./bp_track.js"
 
-// Canonical Battle Pass tier: milestone > level > xp-progress, capped 60.
-// Profile and BattlePass both use this; hub (game-side) uses
-// min(60, level), which agrees whenever a milestone or level exists.
+// Canonical Battle Pass tier: the BP ledger only (REVIEW.md §2.4 H1). Rank
+// level and bp_milestone used to win here, which is why a player with rank
+// level 40 and no BP XP read "tier 40". The curve lives in bp_track.js.
 function bpTierOf(p, need) {
-  const ms = num(p && p.bp_milestone)
-  if (ms > 0) return Math.min(60, ms)
-  const lv = num(p && p.level)
-  if (lv > 0) return Math.min(60, lv)
-  return Math.min(60, Math.floor(Math.max(0, num(p && p.xp)) / (num(need) || 1000)))
+  return playerBpTier(p, need)
 }
 function vipLane(vipTier) {
   const t = num(vipTier)
@@ -1812,13 +1809,12 @@ export async function pageBattlePass(env, url) {
     return notFound("BATTLE PASS", "battlepass", "This SteamID has no snapshot yet. Play a few minutes, then retry.")
   }
 
-  const xp = Math.max(0, num(p.xp))
   const vip = num(p.vip_tier) > 0
-  const ms = num(p.bp_milestone)
-  const crx = num(p.level)
+  // BattlePass progress is BP XP / BP tier - never rank xp/level and never the
+  // milestone cursor (REVIEW.md §2.4 H1).
   const tier = bpTierOf(p, need)
   const claimed = 0
-  const into = xp % need
+  const into = bpInto(p.bp_xp, need)
   const season = String(track.season || p.bp_season || "1")
   // S1 grandfathering: premium was VIP-gated auto-grant, so S1 honors the
   // legacy bp_premium cursor. Seasons >1 require a store entitlement row.

@@ -3910,11 +3910,11 @@ public XPAmountHandler(id, menu, item)
 
     if(tid == id)
     {
-        client_printcolor(id, "!g[FreeNova] !nGave yourself %d Rank XP (requested %d).", given, amount)
+        client_printcolor(id, "!g[FreeNova] !nGave yourself %d Rank XP (requested %d; BP XP unchanged).", given, amount)
     }
     else
     {
-        client_printcolor(id, "!g[FreeNova] !nGave %d Rank XP to %s", given, targetName)
+        client_printcolor(id, "!g[FreeNova] !nGave %d Rank XP to %s (BP XP unchanged)", given, targetName)
         client_printcolor(tid, "!g[FreeNova] !nAdmin %s gave you %d Rank XP!", adminName, given)
     }
 
@@ -4169,11 +4169,11 @@ public BpXPAmountHandler(id, menu, item)
 
     if(tid == id)
     {
-        client_printcolor(id, "!g[FreeNova] !nGave yourself %d BP XP (requested %d).", given, amount)
+        client_printcolor(id, "!g[FreeNova] !nGave yourself %d BP XP (requested %d; rank XP unchanged).", given, amount)
     }
     else
     {
-        client_printcolor(id, "!g[FreeNova] !nGave %d BP XP to %s", given, targetName)
+        client_printcolor(id, "!g[FreeNova] !nGave %d BP XP to %s (rank XP unchanged)", given, targetName)
         client_printcolor(tid, "!g[FreeNova] !nAdmin %s gave you %d BP XP!", adminName, given)
     }
 
@@ -4230,7 +4230,10 @@ public Cmd_AdminGiveBpXp(id, level, cid)
     get_user_name(tid, targetName, charsmax(targetName))
     new iTotal = menabp_get_xp(tid)
     new iTier = menabp_get_tier(tid)
-    console_print(id, "[FreeNova] Granted %d BP XP to %s (requested %d). Total: %d XP | BP T%d.", given, targetName, amount, iTotal, iTier)
+    // Names the counter it moved, and the one it did not: amx_bp_givexp used to
+    // move rank XP because menabp_add_xp called crxranks_give_user_xp
+    // (REVIEW §2.4 H1). It now writes the BP ledger only.
+    console_print(id, "[FreeNova] Granted %d BP XP to %s (requested %d). Total: %d BP XP | BP T%d. Rank XP unchanged.", given, targetName, amount, iTotal, iTier)
     client_printcolor(tid, "!g[FreeNova] !nAn admin gave you %d BP XP! Now %d total, BP T%d.", given, iTotal, iTier)
     log_amx("[FreeNova] ADMIN_CMD BPXP target=%s requested=%d granted=%d total=%d tier=%d", targetName, amount, given, iTotal, iTier)
     return PLUGIN_HANDLED

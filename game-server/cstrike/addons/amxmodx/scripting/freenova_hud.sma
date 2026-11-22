@@ -148,11 +148,13 @@ RefreshCache(id)
     }
     g_iCacheCoins[id] = LibraryExists("menabp", LibType_Library) ? menabp_get_coins(id) : 0
 
-    // The BattlePass tier is its own ledger (freenova_bp bpxp key, owned by
-    // battlepass_core). It is NOT the RSU/crxranks rank level: rank XP from
-    // kills advances Lv, while BP tier only advances through mission XP.
-    // Deriving BP T from g_iCacheLevel made the HUD show BP T12 as soon as the
-    // player hit rank 12, while /bp correctly still reported tier 11.
+    // The BattlePass tier is its own ledger: battlepass_core keeps BP XP in the
+    // `bpxp` key of the freenova_bp vault and menabp_get_tier() derives the
+    // tier from it (REVIEW §2.4 H1; the key exists again as of §9d). It is NOT
+    // the RSU/crxranks rank level: rank XP from kills advances Lv, while BP
+    // tier only moves when BP XP is granted (missions, admin, web). Deriving
+    // BP T from g_iCacheLevel made the HUD show BP T12 as soon as the player
+    // hit rank 12.
     g_iCacheTier[id] = 0
     g_bCacheBpLoaded[id] = false
     if (LibraryExists("menabp", LibType_Library) && menabp_is_ready(id))

@@ -5,6 +5,7 @@ import { motdFrame, esc, fmt } from "./top15/render.js"
 import { DEFAULT_SKILLS } from "./catalogs.js"
 import { PERK_PREVIEW_TRACK } from "./bp_perk_track.js"
 import { isMotdCompact } from "./ui.js"
+import { xpPerTier, playerBpTier, bpInto } from "./bp_track.js"
 
 function steamidOf(url) {
   const minted = url && url._fnMotdSid
@@ -25,7 +26,7 @@ export async function pageBattlePass(env, url) {
   let track = PERK_PREVIEW_TRACK
 
   const tiers = Array.isArray(track.tiers) ? track.tiers : []
-  const need = Math.max(1, Number(track.xp_per_tier) || 1000)
+  const need = xpPerTier(track)
   const season = String(track.season || "1")
 
   if (!steamid) {
@@ -50,12 +51,12 @@ export async function pageBattlePass(env, url) {
     })
   }
 
-  const xp = Math.max(0, Number(p.xp) || 0)
-  const ms = Number(p.bp_milestone) || 0
-  const lvl = Number(p.level) || 0
+  // BattlePass XP/tier from the BP ledger columns (REVIEW.md §2.4 H1): this
+  // page is the BP track, so rank xp/level and bp_milestone must not decide it.
+  const bpXp = Math.max(0, Number(p.bp_xp) || 0)
   const maxTier = tiers.length || 60
-  const tier = Math.min(maxTier, ms > 0 ? ms : lvl > 0 ? lvl : Math.floor(xp / need))
-  const into = xp % need
+  const tier = Math.min(maxTier, playerBpTier(p, need))
+  const into = bpInto(bpXp, need)
   const pct = Math.max(0, Math.min(100, Math.round(into * 100 / need)))
   const premiumOwned = season === "1"
     ? (Number(p.bp_premium) > 0 || Number(p.vip_tier) > 0)
@@ -150,7 +151,7 @@ export async function pageBattlePass(env, url) {
     <div class='bp-progress'>
       <table class='proghead' cellspacing='0' cellpadding='0'><tr>
         <td>Tier ${fmt(tier)} → ${fmt(Math.min(maxTier, tier + 1))}</td>
-        <td class='r'>${fmt(into)} / ${fmt(need)} XP · ${fmt(xp)} total</td>
+        <td class='r'>${fmt(into)} / ${fmt(need)} BP XP · ${fmt(bpXp)} total</td>
       </tr></table>
       <div class='progbar'><i style='width:${pct}%'></i></div>
     </div>

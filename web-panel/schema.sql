@@ -76,6 +76,11 @@ CREATE TABLE IF NOT EXISTS players (
     bp_chute           INTEGER NOT NULL DEFAULT 0,
     bp_premium         INTEGER NOT NULL DEFAULT 0,
     bp_milestone       INTEGER NOT NULL DEFAULT 0,
+    -- BattlePass XP + tier ledger (REVIEW.md §2.4 H1). Pushed by the game from
+    -- battlepass_core's `bpxp` vault key and tiered by bp_track.bpTierFromXp.
+    -- Rank xp/level above never derives these.
+    bp_xp              INTEGER NOT NULL DEFAULT 0,
+    bp_tier            INTEGER NOT NULL DEFAULT 0,
     -- battlepass season + per-season premium entitlement (additive 2026-10-10;
     -- game snapshot upsert never writes these; store/staff grant path only)
     bp_season          TEXT NOT NULL DEFAULT '1',

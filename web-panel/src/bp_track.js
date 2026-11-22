@@ -63,6 +63,40 @@ export function xpPerTier(track) {
   return Math.max(1, Number.isFinite(n) && n > 0 ? n : BP_XP_PER_TIER_FALLBACK)
 }
 
+// ---- BattlePass XP / tier ledger (REVIEW.md §2.4 H1) -----------------------
+// BattlePass XP is its own ledger on the game side (battlepass_core.sma keeps
+// it in the `bpxp` key of the freenova_bp vault) and rank XP/level is a
+// different counter. The curve below is the ONLY tier curve in the panel:
+// tier 1 covers [0, need), tier N covers [(N-1)*need, N*need), capped at 60, so
+// a player with 0 BP XP reads "tier 1, empty progress" - never tier 0, never
+// NaN, never a rank-derived tier. It mirrors battlepass_core.sma
+// BpTierFromXp()/BpXpPerTier() (`fn_bp_xp_per_tier`, default 1000).
+export const BP_MAX_TIER = 60
+
+export function bpTierFromXp(bpXp, need) {
+  const per = Math.max(1, Number(need) || BP_XP_PER_TIER_FALLBACK)
+  const xp = Number(bpXp)
+  const safe = Number.isFinite(xp) && xp > 0 ? xp : 0
+  return Math.min(BP_MAX_TIER, 1 + Math.floor(safe / per))
+}
+
+export function bpInto(bpXp, need) {
+  const per = Math.max(1, Number(need) || BP_XP_PER_TIER_FALLBACK)
+  const xp = Number(bpXp)
+  const safe = Number.isFinite(xp) && xp > 0 ? xp : 0
+  return safe % per
+}
+
+// A players row -> BP tier. The stored bp_tier wins (the game derived it from
+// this same curve); with no tier we derive it from bp_xp; a row carrying
+// neither is tier 1. Rank xp/level and bp_milestone are deliberately NOT read
+// here: they are the counters §2.4 H1 conflated with BattlePass progress.
+export function playerBpTier(p, need) {
+  const t = Math.trunc(Number(p && p.bp_tier))
+  if (Number.isFinite(t) && t >= 1) return Math.min(BP_MAX_TIER, t)
+  return bpTierFromXp(p && p.bp_xp, need)
+}
+
 export const PERKS = {
   5: { key: "jumps", n: 1 },
   10: { key: "hp", n: 2 },

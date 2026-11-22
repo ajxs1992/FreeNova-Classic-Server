@@ -5,6 +5,10 @@
 //      (the original smoke suite - it must stay green and stay first);
 //   2. the signed game push: replay guard, signature check, body cap, and the
 //      ordering guard that stops a stale snapshot rolling counters back;
+//   2b. the BattlePass XP ledger (REVIEW.md §2.4 H1): a push carrying
+//      bp_xp/bp_tier lands in its own columns, a stale push cannot lower them,
+//      a player with rank XP and 0 BP XP renders tier 1 (never NaN, never a
+//      rank-derived tier), and the tier curve matches bp_track.js;
 //   3. the action queue: claim-once under concurrency, exactly one re-dispatch
 //      for a lost reply, a receipt for a re-dispatched row, and expiry only
 //      after the dispatch attempts are used;
@@ -28,7 +32,10 @@ import { request } from "node:http"
 
 import { openLocalD1 } from "./src/sqlite_d1.js"
 import { handleSync, mintActionToken, localTrustEnabled } from "./src/sync.js"
-import { premiumExtraCoins, premiumCoins, xpPerTier, PREMIUM_COINS } from "./src/bp_track.js"
+import {
+  premiumExtraCoins, premiumCoins, xpPerTier, PREMIUM_COINS,
+  bpTierFromXp, bpInto, playerBpTier, BP_MAX_TIER,
+} from "./src/bp_track.js"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const root = mkdtempSync(join(tmpdir(), "freenova-panel-test-"))
@@ -237,6 +244,45 @@ try {
   await push(panel, { players: [player(steamA, { xp: 6000, coins: 800, last_seen: now + 60 })] })
   const rowNew = panel.first(`SELECT xp, coins FROM players WHERE steamid=?1`, steamA)
   check("newer push applied", Number(rowNew.xp) === 6000, "xp=" + rowNew.xp)
+
+  // ------------------------------- 2b. BattlePass XP ledger (REVIEW §2.4) ----
+  const steamBp = "STEAM_0:0:303"
+  check("BP push accepted", (await push(panel, {
+    players: [player(steamBp, { xp: 40000, level: 40, bp_xp: 1500, bp_tier: 2, last_seen: now + 300 })],
+  })).status === 200)
+  const bpRow = panel.first(`SELECT bp_xp, bp_tier, xp FROM players WHERE steamid=?1`, steamBp)
+  check("push stored bp_xp", !!bpRow && Number(bpRow.bp_xp) === 1500, bpRow ? "bp_xp=" + bpRow.bp_xp : "missing")
+  check("push stored bp_tier", !!bpRow && Number(bpRow.bp_tier) === 2, bpRow ? "bp_tier=" + bpRow.bp_tier : "missing")
+
+  // a late snapshot may no more roll BP XP back than rank xp
+  await push(panel, {
+    players: [player(steamBp, { xp: 1, level: 1, bp_xp: 0, bp_tier: 0, last_seen: now - 600 })],
+  })
+  const bpStale = panel.first(`SELECT bp_xp, bp_tier FROM players WHERE steamid=?1`, steamBp)
+  check("stale push did not lower bp_xp", Number(bpStale.bp_xp) === 1500, "bp_xp=" + bpStale.bp_xp)
+  check("stale push did not lower bp_tier", Number(bpStale.bp_tier) === 2, "bp_tier=" + bpStale.bp_tier)
+
+  // the ledger still follows a newer snapshot (so it is not write-once)
+  await push(panel, {
+    players: [player(steamBp, { xp: 40000, level: 40, bp_xp: 3200, bp_tier: 4, last_seen: now + 600 })],
+  })
+  const bpNew = panel.first(`SELECT bp_xp, bp_tier FROM players WHERE steamid=?1`, steamBp)
+  check("newer push raised bp_xp", Number(bpNew.bp_xp) === 3200, "bp_xp=" + bpNew.bp_xp)
+  check("newer push raised bp_tier", Number(bpNew.bp_tier) === 4, "bp_tier=" + bpNew.bp_tier)
+
+  // A rank-52 player with no BP XP: tier 1, empty progress, no NaN anywhere.
+  const steamZero = "STEAM_0:0:304"
+  await push(panel, {
+    players: [player(steamZero, { xp: 59000, level: 52, rank_id: 52, bp_xp: 0, bp_tier: 0, last_seen: now + 300 })],
+  })
+  const bpPage = await (await fetch(panel.base + "/battlepass?steamid=" + encodeURIComponent(steamZero))).text()
+  const bpPageTier = (bpPage.match(/Tier<\/span><span class='v p'>(\d+) \/ 60/) || [])[1]
+  check("0 BP XP renders tier 1 on /battlepass", bpPageTier === "1", "tier=" + bpPageTier)
+  check("/battlepass shows no NaN for a 0 BP XP player", !bpPage.includes("NaN"))
+  const profZero = await (await fetch(panel.base + "/profile?steamid=" + encodeURIComponent(steamZero))).text()
+  check("0 BP XP renders tier 1 on /profile", profZero.includes("Tier 1 / 60"))
+  check("/profile shows 0 / 1,000 BP XP", /0 \/ 1,000 BP XP/.test(profZero))
+  check("/profile shows no NaN for a 0 BP XP player", !profZero.includes("NaN"))
 
   // Worker-side body cap (unit: the handler refuses before touching the DB)
   const bigBody = JSON.stringify({ players: [], pad: "x".repeat(2 * 1024 * 1024 + 16) })
@@ -455,6 +501,23 @@ try {
   check("premiumCoins matches the table", premiumCoins(50) === 1950, String(premiumCoins(50)))
   check("xpPerTier follows the track", xpPerTier({ xp_per_tier: 2500 }) === 2500)
   check("xpPerTier falls back to 1000", xpPerTier(null) === 1000, String(xpPerTier(null)))
+
+  // BP tier curve (bp_track.js is the single source): tier 1 covers [0, need).
+  check("bpTierFromXp(0) is tier 1", bpTierFromXp(0, 1000) === 1, String(bpTierFromXp(0, 1000)))
+  check("bpTierFromXp(999) is tier 1", bpTierFromXp(999, 1000) === 1, String(bpTierFromXp(999, 1000)))
+  check("bpTierFromXp(1000) is tier 2", bpTierFromXp(1000, 1000) === 2, String(bpTierFromXp(1000, 1000)))
+  check("bpTierFromXp(1500) is tier 2", bpTierFromXp(1500, 1000) === 2, String(bpTierFromXp(1500, 1000)))
+  check("bpTierFromXp(59000) is tier 60", bpTierFromXp(59000, 1000) === 60, String(bpTierFromXp(59000, 1000)))
+  check("bpTierFromXp caps at tier 60", bpTierFromXp(999999, 1000) === BP_MAX_TIER, String(bpTierFromXp(999999, 1000)))
+  check("bpTierFromXp survives null/undefined", bpTierFromXp(null, 1000) === 1 && bpTierFromXp(undefined, 1000) === 1)
+  check("bpTierFromXp follows a non-default curve", bpTierFromXp(2500, 2500) === 2, String(bpTierFromXp(2500, 2500)))
+  check("bpInto(1500, 1000) is 500", bpInto(1500, 1000) === 500, String(bpInto(1500, 1000)))
+  check("bpInto(0) is 0", bpInto(0, 1000) === 0)
+  check("playerBpTier prefers the stored tier", playerBpTier({ bp_xp: 0, bp_tier: 7 }, 1000) === 7)
+  check("playerBpTier derives from bp_xp", playerBpTier({ bp_xp: 2000, bp_tier: 0 }, 1000) === 3, String(playerBpTier({ bp_xp: 2000, bp_tier: 0 }, 1000)))
+  check("playerBpTier ignores rank xp/level",
+    playerBpTier({ xp: 59000, level: 52, bp_xp: 0, bp_tier: 0 }, 1000) === 1,
+    String(playerBpTier({ xp: 59000, level: 52, bp_xp: 0, bp_tier: 0 }, 1000)))
 } catch (e) {
   bad("suite", e && e.stack ? e.stack : String(e))
   console.error("--- panel output ---\n" + panel.output.split("\n").slice(-25).join("\n"))

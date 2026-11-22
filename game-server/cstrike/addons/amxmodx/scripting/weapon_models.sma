@@ -2396,11 +2396,13 @@ public Cmd_AdminRemoveSkin(id, level, cid)
     fclose(fpOut);
 
     delete_file(g_szCustomSkinsPath);
-    new iRetry;
-    for (iRetry = 0; iRetry < 8 && file_exists(g_szCustomSkinsPath); iRetry++) {}
+    // No busy-wait: eight file_exists() calls inside one server frame cannot
+    // observe a change in the filesystem, so the loop only burned the frame and
+    // reported "after 8 retries" for what was really one failed unlink
+    // (REVIEW.md 5.5). Either the delete worked or the temp file stays behind.
     if (file_exists(g_szCustomSkinsPath))
     {
-        log_amx("[FreeNova Skins] Could not replace custom_skins.ini after %d retries; temp left at %s", iRetry, szTempFile);
+        log_amx("[FreeNova Skins] Could not replace custom_skins.ini (delete failed); temp left at %s", szTempFile);
         return PLUGIN_HANDLED;
     }
     rename_file(szTempFile, g_szCustomSkinsPath, 1);

@@ -469,3 +469,58 @@ Not deployed here: `web-panel/**`. The Worker deployment is a separate artefact
 (`npm run deploy` against the owner's Cloudflare account, which this machine is
 not logged in to) - the panel changes are committed and tested but still need
 `wrangler deploy` from a machine with credentials.
+
+---
+
+## 8. Deployment record — web panel, 2026-11-22 (~17:00 UTC)
+
+The live panel is **not** a Cloudflare Worker deployment. It is the Node runner
+(`server_local.mjs`) on the Catalyst server "Leaderboard Website"
+(`cmuyj281s0c0i01p3edt001f0`, SFTP root of the second account), published as
+**https://leaderboard.fn-gaming.net**. Deploying it is the same operation as the
+plugins: upload the changed files over SFTP, then restart that server from the
+panel. `wrangler deploy` is irrelevant for this deployment - the workers.dev host
+in `relay/relay.log` is dead (`error code: 1042`) and nothing is served there.
+
+Uploaded: **18 files** (`git diff c7f8ca2..HEAD -- web-panel`), i.e. every panel
+change made in this repo since the snapshot - 9 `src/*.js`, `server_local.mjs`,
+`relay/relay.js`, `test_harness.mjs`, `HUB.md`, `package.json` and
+`package-lock.json`. Nothing under `data/`, `assets/`, `node_modules/` or
+`relay/relay.env` was touched (the secrets and the live SQLite replica stay as
+they are).
+
+Pre-flight: the live tree was **byte-identical to this repo's first snapshot**
+(`c7f8ca2`) for every file in that set, so the upload could not revert a
+hand-edit made on the host. Post-upload: **18/18 matched** their local sizes.
+Rollback: `/tmp` is not durable, so rebuild the old file with
+`git show c7f8ca2:web-panel/<file>` and put it back, then restart.
+
+Restart log (clean):
+
+```
+[panel] SQLite /home/container/data/freenova_panel.sq3
+[panel] HTTP http://127.0.0.1:8762  (bind 0.0.0.0)
+[panel] GoldSrc MOTD uses this HTTP URL - Cloudflare is not in the path
+```
+
+Verified against the live domain afterwards:
+
+| check | before | after |
+|---|---|---|
+| `/`, `/profile`, `/top15`, `/bp` | 200 | 200 |
+| `GET /top15?theme=save&k=<wrong>` | authorised a catalog write | **403 "the admin key is no longer accepted"** |
+| `POST /api/v1/server/stats` unsigned | 401 | 401 `{"ok":false,"error":"missing signature"}` |
+| `/competitive?claim=…&steamid=…` | queued an action for any steamid | **"not available on this deployment - open the panel from the game server"** |
+| `/u/STEAM_0:0:683671116` | 404 | **200** (colon form accepted) |
+| `/m/i/0-0-683671116/daily.htm` | 200 | 200 |
+| `/m/b/0-0-683671116/missions.htm` | 302 -> `/m/i/.../daily.htm` | 302 (unchanged) |
+
+The MOTD path takes **dashed** steamids (`/m/<code>/<a>-<b>-<c>/<tab>.htm`);
+the colon form 404s on the old code too - verified by running the snapshot and
+the current tree side by side against a copy of the live DB, so that 404 is
+pre-existing behaviour, not a regression from this deploy.
+
+Not verifiable right now: end-to-end game->panel sync freshness. The newest
+`players.last_seen` in the live DB is 2026-11-21 12:11 because only YaPB bots have
+been on the server since; the HMAC endpoint answers correctly, but a real player
+session is needed to prove the push path end to end.

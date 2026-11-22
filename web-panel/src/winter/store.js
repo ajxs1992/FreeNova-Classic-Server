@@ -26,6 +26,7 @@
 
 import { normalizeSteamid } from "../publicapi.js"
 import { parisParts } from "../periods.js"
+import { devShapeBlobs, playerFromDevShape, catalogFromDevShape, mergeCatalogRows } from "./devshape.js"
 import { checkActionToken } from "../sync.js"
 
 export const WINTER_DDL = `
@@ -235,6 +236,16 @@ export async function applyWinterPayload(env, payload, nowSec) {
       if (p && p.winter && typeof p.winter === "object") rows.push({ ...p.winter, steamid: p.steamid })
     }
   }
+  const pendingCatalog = []
+  // Accept docs/WINTERFEST-DEV.md §9's rendered shape as well as the panel's
+  // own raw one: whichever the game implements first, the same rows land.
+  const devBlobs = devShapeBlobs(payload)
+  for (const { steamid, blob } of devBlobs) {
+    if (!steamid) continue
+    rows.push(playerFromDevShape(steamid, blob))
+    const implied = catalogFromDevShape(blob)
+    if (implied) pendingCatalog.push(implied)
+  }
   if (!block && !rows.length) return result
   await ensureWinterTables(env)
 
@@ -243,7 +254,7 @@ export async function applyWinterPayload(env, payload, nowSec) {
   // season's year), so a push without a season block still lands in the same
   // ledger the calendar reads. Falling back to the Paris year of `now` does
   // that without inventing a season: on 1 January both sides say next year,
-  // and nothing is open on either side.\
+  // and nothing is open on either side.
   const seasonYear = block && block.season && block.season.year ? String(int(block.season.year, 0)) : ""
   const seasonLabel = seasonYear || String(parisParts(now).y)
 
@@ -259,6 +270,30 @@ export async function applyWinterPayload(env, payload, nowSec) {
         `INSERT INTO winter_meta (key, value, updated_at) VALUES ('community', ?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
         .bind(JSON.stringify(block.community).slice(0, 2000), now).run()
+    }
+    if (pendingCatalog.length) {
+      // docs/WINTERFEST-DEV.md §9 carries the catalogue inside the player blob.
+      // Keep it as a FALLBACK: src/winter/catalog.js prefers the static
+      // catalogs.winterfest document and only reads this when that is absent.
+      let merged = pendingCatalog[0]
+      for (const extra of pendingCatalog.slice(1)) merged = mergeCatalogRows(merged, extra)
+      let stored = null
+      try {
+        const row = await env.DB.prepare("SELECT value FROM winter_meta WHERE key=?1").bind("catalog").first()
+        if (row && row.value) stored = JSON.parse(row.value)
+      } catch { stored = null }
+      await env.DB.prepare(
+        `INSERT INTO winter_meta (key, value, updated_at) VALUES ('catalog', ?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+        .bind(JSON.stringify(mergeCatalogRows(stored, merged)).slice(0, 20000), now).run()
+      if (!block || !block.season) {
+        // §9 also carries the season; without it the panel would keep guessing.
+        const season = merged.season || null
+        if (season) await env.DB.prepare(
+          `INSERT INTO winter_meta (key, value, updated_at) VALUES ('season', ?1, ?2)
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+          .bind(JSON.stringify(season).slice(0, 4000), now).run()
+      }
     }
   } catch (e) { result.errors.push("meta: " + (e && e.message)) }
 

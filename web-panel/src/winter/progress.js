@@ -79,8 +79,10 @@ export function passStatus(cat, state) {
   const upcoming = []
   for (let t = tier + 1; t <= PASS_TIERS && upcoming.length < 3; t++) {
     const p = passEntry(cat, t)
-    if (!p || p.type === REWARD.NONE) continue
-    upcoming.push({ tier: t, xp: p.xp, label: rewardLabel(cat, p.type, p.id, p.amount) })
+    if (!p) continue
+    const label = p.label || (p.type !== REWARD.NONE ? rewardLabel(cat, p.type, p.id, p.amount) : "")
+    if (!label) continue
+    upcoming.push({ tier: t, xp: p.xp, label })
   }
   const ladder = []
   for (let t = 1; t <= PASS_TIERS; t++) {
@@ -88,7 +90,7 @@ export function passStatus(cat, state) {
     ladder.push({
       tier: t,
       xp: p ? p.xp : null,
-      label: p && p.type !== REWARD.NONE ? rewardLabel(cat, p.type, p.id, p.amount) : "",
+      label: p ? (p.label || (p.type !== REWARD.NONE ? rewardLabel(cat, p.type, p.id, p.amount) : "")) : "",
       state: t < tier ? "done" : t === tier ? "now" : "locked"
     })
   }

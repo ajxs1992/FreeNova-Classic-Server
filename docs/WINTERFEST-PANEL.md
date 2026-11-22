@@ -177,6 +177,38 @@ game can push it either way (`{ "players": [ { "steamid": "...", "winter": {...}
 retried push a no-op. The reward is `type/id/amount` exactly like an
 `[open]` pool row.
 
+### 3.2b The `WINTERFEST-DEV.md` §9 shape is accepted too
+
+`docs/WINTERFEST-DEV.md` §9 (written after this surface was designed) describes
+the payload the core agent has in mind: one **rendered** blob per player —
+`winterfest: { season, wallet, presents, ornaments, sets, tree, advent, pass,
+titles }` with `reward_text`, `claimable`, `filled` and `slots[].ornament_id`.
+
+`src/winter/devshape.js` translates that into exactly the same internal rows, so
+the panel works whichever shape ships first, and there is still one source of
+truth: everything is copied from the payload, nothing is derived from what the
+panel thinks the ini says. Specifically:
+
+* `wallet.snowflakes` → `winter_players.snowflakes`;
+* `tree.style/level/slots[].ornament_id` → style, level and `winter_tree`;
+* `ornaments[].owned === true` → the ownership cache (the rest are *not* owned);
+* `presents[]` → the gift log, **only** the ones with `opened === true`;
+* `advent[].claimed === true` → the claim ledger (`claimable` is never a claim);
+* `pass.xp/tier` → `winter_pass`;
+* its `ornaments[]/sets[]/advent[]/pass[]` rows become a **fallback catalogue**
+  in `winter_meta.catalog`, used only when `catalogs.winterfest` has not been
+  pushed — so the book, the calendar and the ladder still print the game's own
+  names and reward text instead of "not published yet".
+
+Both shapes may be pushed in the same payload; the last write for a player wins,
+which is the same rule the rest of the mirror follows.
+
+§9 also says a drag or a claim "must go through `wf_tree_set_slot` /
+`wf_advent_claim` so the ledger stays the only record". The panel already does
+exactly that: it queues `wf_tree_move` (§3.3) and never writes player state.
+Advent claims are not offered on the panel at all — the calendar says "claim in
+game", which is the same rule.
+
 ### 3.3 Coming back from the panel: two action types
 
 The panel never changes player state. A move or a style change is queued in the
@@ -231,7 +263,8 @@ leave the panel exactly as it is today.
 ## 5. What this surface still needs from the other workstreams
 
 1. **`sync.js`: the one-line `applyWinterPayload` hook** (§3.2). Without it the
-   pages render the honest zero state; nothing breaks.
+   pages render the honest zero state; nothing breaks. The hook takes either the
+   panel's raw shape or `WINTERFEST-DEV.md` §9's rendered one (§3.2b).
 2. **The game pushes the catalogue** (§3.1) — otherwise the ornament book, the
    Advent rewards and the pass ladder say "not published yet" instead of
    inventing entries. The panel's three tree layouts are the only content it
@@ -249,8 +282,9 @@ leave the panel exactly as it is today.
 
 ## 6. Verification
 
-`cd web-panel && node test_harness.mjs` — 239 checks before this surface, 359
-after (120 new), 0 failures. The winter section (§9 of the harness) asserts, on
+`cd web-panel && node test_harness.mjs` — 239 checks before this surface, 367
+after (128 new), 0 failures. The 239 baseline also still passes on its own: the
+previous revision of `test_harness.mjs` runs green against this source tree. The winter section (§9 of the harness) asserts, on
 real databases and real HTTP:
 
 * the season window arithmetic with a fixed clock (before / open / last day /

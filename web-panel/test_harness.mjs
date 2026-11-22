@@ -50,7 +50,7 @@ import { renderFallback } from "./src/motd.js"
 // Winterfest panel surface (this agent: src/winter/*).
 import { resolveSeason, parisStamp } from "./src/winter/season.js"
 import {
-  normalizeWinterCatalog, rewardType, rewardLabel, rarityColor
+  normalizeWinterCatalog, rewardType, rewardLabel, rarityColor, loadCatalog, adventEntry
 } from "./src/winter/catalog.js"
 import { adventStatus, passStatus, treeStatus } from "./src/winter/progress.js"
 import { applyWinterPayload, ensureWinterTables, loadState } from "./src/winter/store.js"
@@ -1179,6 +1179,55 @@ try {
       unseenState.owned.length === 0 && unseenState.advent.size === 0 && unseenState.pass.tier === 0)
     check("store: a bad steamid reads as empty instead of throwing",
       (await loadState(wEnv, "not-a-steamid", "2026")).found === false)
+
+    // docs/WINTERFEST-DEV.md §9: the core agent documented a RENDERED per-player
+    // blob. It is translated into the same rows, so the panel works whichever
+    // shape ships first — without a second source of truth.
+    const devPush = await applyWinterPayload(wEnv, {
+      players: [{
+        steamid: stranger,
+        winterfest: {
+          season: { name: "Winterfest", year: 2026, start: "2026-12-01", end: "2026-12-24", enabled: 1 },
+          wallet: { snowflakes: 77 },
+          presents: [
+            { instance: 5, rarity: 2, rarity_name: "Rare", opened: true },
+            { instance: 6, rarity: 0, rarity_name: "Common", opened: false }
+          ],
+          ornaments: [
+            { id: 1, name: "Crystal Snowflake", rarity: 0, set: 1, owned: true, hidden: false },
+            { id: 4, name: "Frozen Star", rarity: 1, set: 1, owned: false, hidden: true }
+          ],
+          sets: [{ id: 1, name: "Snowflakes", title: "Ice Warrior", owned: 1, total: 2, complete: false }],
+          tree: { style: 3, level: 1, filled: 1, slots: [{ slot: 7, ornament_id: 1, x: 10, y: 20 }] },
+          advent: [{ day: 1, reward_text: "40 snowflakes", claimed: true }, { day: 2, reward_text: "45 snowflakes", claimable: true }],
+          pass: { tier: 2, xp: 700, next_xp: 900, max_tier: 30, tiers: [
+            { tier: 1, xp: 300, reward_text: "100 snowflakes", claimed: true },
+            { tier: 2, xp: 600, reward_text: "110 snowflakes", claimed: false }
+          ] }
+        }
+      }]
+    }, nowW + 10)
+    check("§9 payload: a rendered blob lands as one player row", devPush.players === 1 && devPush.treeSlots === 1,
+      JSON.stringify({ players: devPush.players, tree: devPush.treeSlots, errors: devPush.errors }))
+    const devState = await loadState(wEnv, stranger, "2026")
+    check("§9 payload: wallet, style, level and pass are mirrored",
+      devState.snowflakes === 77 && devState.treeStyle === 3 && devState.treeLevel === 1 && devState.pass.tier === 2,
+      JSON.stringify({ s: devState.snowflakes, st: devState.treeStyle, t: devState.pass.tier }))
+    check("§9 payload: chapter and verse — only an OPENED present reaches the log",
+      devState.gifts.length === 1 && devState.gifts[0].rarity === 2, String(devState.gifts.length))
+    check("§9 payload: only owned ornaments count as owned",
+      devState.ownedIds.has(1) && !devState.ownedIds.has(4))
+    check("§9 payload: only CLAIMED advent days reach the ledger",
+      devState.advent.size === 1 && devState.advent.has(1), String(devState.advent.size))
+    check("§9 payload: slots are mirrored by ornament_id",
+      devState.slots.get(7) === 1, String(devState.slots.get(7)))
+    const devCat = await loadCatalog(wEnv)
+    check("§9 payload: its catalogue is used when catalogs.winterfest is absent",
+      devCat.ok && devCat.ornaments.length === 2 && devCat.ornamentById.get(4).secret === true,
+      JSON.stringify({ ok: devCat.ok, n: devCat.ornaments.length }))
+    check("§9 payload: the reward text it carries is what the pages print",
+      !!adventEntry(devCat, 1) && adventEntry(devCat, 1).label === "40 snowflakes",
+      adventEntry(devCat, 1) && adventEntry(devCat, 1).label)
 
     // ---- 9d. the pages over HTTP (catalogue through the REAL push) --------
     await winterPanel.start(18083)

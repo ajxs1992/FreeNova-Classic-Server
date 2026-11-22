@@ -20,8 +20,10 @@ const PER_ROW = 6
 
 function rewardText(cat, day) {
   const e = adventEntry(cat, day)
-  if (!e || e.type === REWARD.NONE) return ""
-  return e.label || rewardLabel(cat, e.type, e.id, e.amount)
+  if (!e) return ""
+  if (e.label) return e.label
+  if (e.type === REWARD.NONE) return ""
+  return rewardLabel(cat, e.type, e.id, e.amount)
 }
 
 export function pageWinterAdvent(ctx) {

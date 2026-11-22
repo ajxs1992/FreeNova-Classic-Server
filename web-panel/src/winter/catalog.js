@@ -275,14 +275,33 @@ function dedupeSlots(slots) {
  */
 export async function loadCatalog(env) {
   let row = null
+  // A pre-Winterfest database may not even have the table: that is "not pushed
+  // yet", not an error, and it must still fall through to the §9 fallback.
   try {
     row = await env.DB.prepare("SELECT json, version, updated_at FROM catalog WHERE key='winterfest'").bind().first()
-  } catch { return emptyCatalog("catalogue table unavailable") }
-  if (!row || !row.json) return emptyCatalog("not pushed yet")
+  } catch { row = null }
   let raw = null
-  try { raw = JSON.parse(row.json) } catch { return emptyCatalog("catalogue JSON is invalid") }
+  let version = 0
+  let updatedAt = 0
+  if (row && row.json) {
+    try {
+      raw = JSON.parse(row.json)
+      version = row.version
+      updatedAt = row.updated_at
+    } catch { return emptyCatalog("catalogue JSON is invalid") }
+  }
+  if (!raw) {
+    // docs/WINTERFEST-DEV.md §9 carries the catalogue inside the player blob.
+    // It is a fallback, never a second source of truth: only used when the
+    // static catalogs.winterfest document has not been pushed.
+    try {
+      const m = await env.DB.prepare("SELECT value, updated_at FROM winter_meta WHERE key=?1").bind("catalog").first()
+      if (m && m.value) { raw = JSON.parse(m.value); updatedAt = m.updated_at }
+    } catch { raw = null }
+    if (!raw) return emptyCatalog("not pushed yet")
+  }
   if (!raw || typeof raw !== "object") return emptyCatalog("catalogue JSON is not an object")
-  try { return normalize(raw, row.version, row.updated_at) } catch { return emptyCatalog("catalogue could not be read") }
+  try { return normalize(raw, version, updatedAt) } catch { return emptyCatalog("catalogue could not be read") }
 }
 
 /**

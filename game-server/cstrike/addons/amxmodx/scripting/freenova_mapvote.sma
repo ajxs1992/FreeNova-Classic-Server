@@ -50,6 +50,7 @@
 #define MAX_OPTIONS   7
 #define MAX_POOL      64
 #define MAX_NOMS      8
+#define MAX_NOM_NAME  32
 
 #define VOTE_MENU  "FreeNova MapVote"
 #define CFG_REL    "freenova/mapvote.ini"
@@ -94,7 +95,7 @@ new g_szMapSource[64]
 new g_szCurrent[32]
 
 // nominations
-new g_szNoms[MAX_NOMS][32]
+new g_szNoms[MAX_NOMS][MAX_NOM_NAME]
 new g_iNoms
 
 // rock the vote
@@ -338,16 +339,21 @@ public Cmd_Noms(id)
         return PLUGIN_HANDLED
     }
 
-    new szList[160], szOne[32], len
+    // One line per nomination. The old single line collected all MAX_NOMS
+    // names (8 x up to 31 chars + ", " separators = up to 262 cells) into
+    // szList[160]; once that filled, `charsmax(szList) - len` went negative
+    // and formatex() ran off the end of the array. A line per nomination also
+    // fits inside the ~190-byte chat line limit, which the joined list did not.
+    new szMsg[64]
+    formatex(szMsg, charsmax(szMsg), "Nominated (%d/%d):", g_iNoms, NominationCap())
+    Reply(id, szMsg)
+
+    new szOne[MAX_NOM_NAME + 8]
     for (new i = 0; i < g_iNoms; i++)
     {
-        copy(szOne, charsmax(szOne), g_szNoms[i])
-        len += formatex(szList[len], charsmax(szList) - len, "%s%s", i ? ", " : "", szOne)
+        formatex(szOne, charsmax(szOne), "%d. %s", i + 1, g_szNoms[i])
+        Reply(id, szOne)
     }
-
-    new szMsg[192]
-    formatex(szMsg, charsmax(szMsg), "Nominated (%d/%d): %s", g_iNoms, NominationCap(), szList)
-    Reply(id, szMsg)
     return PLUGIN_HANDLED
 }
 

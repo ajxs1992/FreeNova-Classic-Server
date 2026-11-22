@@ -356,6 +356,12 @@ BuildAndPush()
 
     formatex(szBody, charsmax(szBody), "{^"players^":[")
 
+    // One snapshot clock for the whole body. The panel stamps players.last_seen
+    // from this (falling back to its own clock for older plugins) and refuses a
+    // row whose snapshot is older than the one already stored - without it a
+    // late or duplicated push silently rewrote newer xp/coins (REVIEW.md §4.1 H1).
+    new iSnapNow = get_systime()
+
     for (new i; i < iNum; i++)
     {
         new id = iPlayers[i]
@@ -417,7 +423,7 @@ BuildAndPush()
 
         // Core stats & Progression
         new iVipRemaining = LibraryExists("freenova_vip", LibType_Library) ? fnvip_get_remaining(id) : 0
-        formatex(szPlayer, charsmax(szPlayer), "%s{^"steamid^":^"%s^",^"name^":^"%s^",^"xp^":%d,^"level^":%d,^"rank_id^":%d,^"prestige^":%d,^"kills^":%d,^"deaths^":%d,^"assists^":%d,^"headshots^":%d,^"damage^":%d,^"shots^":%d,^"hits^":%d,^"mvps^":%d,^"wins^":%d,^"losses^":%d,^"playtime_minutes^":%d,^"rating_x100^":%d,^"vip_tier^":%d,^"vip_remaining^":%d,^"coins^":%d,^"bp_xp^":%d,^"bp_tier^":%d", iIncluded ? "," : "", szAuth, szEsc, crxranks_get_user_xp(id), crxranks_get_user_level(id), ClampRank(crxranks_get_user_level(id)), rsu_get_prestige(id), iKills, iDeaths, iAssists, iHs, iDamage, iShots, iHits, iMvps, iWins, iLosses, iPlayMin, CalculateRatingX100(id), fnvip_get_tier(id), iVipRemaining, bBp ? menabp_get_coins(id) : 0, bBp ? menabp_get_xp(id) : 0, bBp ? menabp_get_tier(id) : 0)
+        formatex(szPlayer, charsmax(szPlayer), "%s{^"steamid^":^"%s^",^"name^":^"%s^",^"xp^":%d,^"level^":%d,^"rank_id^":%d,^"prestige^":%d,^"kills^":%d,^"deaths^":%d,^"assists^":%d,^"headshots^":%d,^"damage^":%d,^"shots^":%d,^"hits^":%d,^"mvps^":%d,^"wins^":%d,^"losses^":%d,^"playtime_minutes^":%d,^"rating_x100^":%d,^"vip_tier^":%d,^"vip_remaining^":%d,^"coins^":%d,^"bp_xp^":%d,^"bp_tier^":%d,^"last_seen^":%d", iIncluded ? "," : "", szAuth, szEsc, crxranks_get_user_xp(id), crxranks_get_user_level(id), ClampRank(crxranks_get_user_level(id)), rsu_get_prestige(id), iKills, iDeaths, iAssists, iHs, iDamage, iShots, iHits, iMvps, iWins, iLosses, iPlayMin, CalculateRatingX100(id), fnvip_get_tier(id), iVipRemaining, bBp ? menabp_get_coins(id) : 0, bBp ? menabp_get_xp(id) : 0, bBp ? menabp_get_tier(id) : 0, iSnapNow)
 
         // BattlePass daily missions
         formatex(szPlayer[strlen(szPlayer)], charsmax(szPlayer) - strlen(szPlayer), ",^"bp_daily_kills^":%d,^"bp_daily_hs^":%d,^"bp_daily_plants^":%d,^"bp_daily_defuses^":%d,^"bp_daily_wins^":%d,^"bp_daily_streak^":%d,^"bp_daily_damage^":%d,^"bp_daily_survives^":%d,^"bp_daily_complete^":%d", bBp ? menabp_get_daily_progress(id, 0) : 0, bBp ? menabp_get_daily_progress(id, 1) : 0, bBp ? menabp_get_daily_progress(id, 2) : 0, bBp ? menabp_get_daily_progress(id, 3) : 0, bBp ? menabp_get_daily_progress(id, 4) : 0, bBp ? menabp_get_daily2_progress(id, 0) : 0, bBp ? menabp_get_daily2_progress(id, 1) : 0, bBp ? menabp_get_daily2_progress(id, 2) : 0, bBp ? menabp_is_mission_complete(id) : 0)

@@ -74,11 +74,15 @@ public plugin_init()
 
 public team_score()
 {
-	new team[16];
+	// The TeamScore message carries a ONE-CHARACTER team id ("C" / "T") and the
+	// new score - the same thing mapchooser, statsx and rsu_matchstats read.
+	// Comparing the buffer to "CT" never matched, which made every score look
+	// like a Terrorist win and would have scrambled the wrong team.
+	new team[2];
 	read_data(1, team, charsmax(team));
 	new score = read_data(2);
 
-	new idx = equali(team, "CT") ? 2 : 1;
+	new idx = (team[0] == 'C') ? 2 : 1;
 
 	if (score > g_iLastScore[idx] && g_iLastScore[idx] >= 0)
 	{

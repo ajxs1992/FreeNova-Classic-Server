@@ -111,6 +111,16 @@ public plugin_init()
 
 public plugin_end()
 {
+	// Claimed milestones are only persisted on disconnect, so a clean shutdown
+	// (changelevel) used to drop them and re-pay every milestone reached this
+	// map on the next one. Save everyone first, then close the vault.
+	// REVIEW.md §5.3.
+	for(new id = 1; id <= MaxClients; id++)
+	{
+		if(is_user_connected(id))
+			SaveMilestones(id)
+	}
+
 	if(g_iMilestoneVault != INVALID_HANDLE)
 		nvault_close(g_iMilestoneVault)
 }
@@ -180,22 +190,29 @@ public client_disconnected(id)
 	remove_task(id + TASK_LATELOAD)
 
 	// Persist claimed milestones before state reset.
-	// Guard against STEAM_ID_PENDING: a player who connected and immediately
-	// disconnected before Steam auth completed must not corrupt or overwrite
-	// a legitimate milestone record under a pending key.
-	if(!is_user_bot(id) && g_bMilestoneLoaded[id] && g_iMilestoneClaimed[id] && g_iMilestoneVault != INVALID_HANDLE)
-	{
-		new szAuth[40], szKey[48], szValue[16]
-		get_user_authid(id, szAuth, charsmax(szAuth))
-		if(!equal(szAuth, "STEAM_ID_PENDING") && !equal(szAuth, "") && !equal(szAuth, "UNKNOWN"))
-		{
-			formatex(szKey, charsmax(szKey), "mile#%s", szAuth)
-			formatex(szValue, charsmax(szValue), "%d", g_iMilestoneClaimed[id])
-			nvault_set(g_iMilestoneVault, szKey, szValue)
-		}
-	}
+	SaveMilestones(id)
 
 	ResetPlayer(id)
+}
+
+// Persists the claimed-milestone bitfield for one player. Called on disconnect
+// and from plugin_end (a changelevel must not lose what this map paid).
+// Guard against STEAM_ID_PENDING: a player who connected and immediately
+// disconnected before Steam auth completed must not corrupt or overwrite a
+// legitimate milestone record under a pending key.
+SaveMilestones(const id)
+{
+	if(is_user_bot(id) || !g_bMilestoneLoaded[id] || !g_iMilestoneClaimed[id] || g_iMilestoneVault == INVALID_HANDLE)
+		return
+
+	new szAuth[40], szKey[48], szValue[16]
+	get_user_authid(id, szAuth, charsmax(szAuth))
+	if(equal(szAuth, "STEAM_ID_PENDING") || equal(szAuth, "") || equal(szAuth, "UNKNOWN"))
+		return
+
+	formatex(szKey, charsmax(szKey), "mile#%s", szAuth)
+	formatex(szValue, charsmax(szValue), "%d", g_iMilestoneClaimed[id])
+	nvault_set(g_iMilestoneVault, szKey, szValue)
 }
 
 ResetPlayer(const id)

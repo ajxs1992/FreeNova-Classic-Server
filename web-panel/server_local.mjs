@@ -72,6 +72,11 @@ const env = {
   SYNC_SECRET: secret,
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "",
   ADMIN_STEAMIDS: process.env.ADMIN_STEAMIDS || "STEAM_0:0:683671116",
+  // Panel-side action-token minting is opt-in (see src/sync.js
+  // localTrustEnabled). Set FN_LOCAL_TRUST=1 only for a LAN/loopback deploy
+  // whose MOTD is the only client; a public deployment must leave it unset and
+  // rely on game-minted ?t= links.
+  FN_LOCAL_TRUST: process.env.FN_LOCAL_TRUST || "",
   DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL || "",
   DISCORD_ADMIN_PING: process.env.DISCORD_ADMIN_PING || "<@&1476343004640837772>",
   ASSETS: {
@@ -83,14 +88,23 @@ const env = {
   }
 }
 
+// Headers a client may not forge for this process. The panel's rate limiting
+// and login lockout read the platform client address, so the runner supplies it
+// from the socket and strips the ones a caller could otherwise choose
+// (REVIEW.md §4.2 M2).
+const CLIENT_CONTROLLED_IP = ["x-forwarded-for", "x-freenova-client-ip", "forwarded", "x-real-ip"]
+
 function toWebRequest(req, bodyBuf) {
   const host = req.headers.host || `127.0.0.1:${PORT}`
   const url = `http://${host}${req.url}`
   const headers = new Headers()
   for (const [k, v] of Object.entries(req.headers)) {
     if (v == null) continue
+    if (CLIENT_CONTROLLED_IP.includes(k.toLowerCase())) continue
     headers.set(k, Array.isArray(v) ? v.join(", ") : String(v))
   }
+  const peer = (req.socket && req.socket.remoteAddress) || ""
+  headers.set("x-freenova-client-ip", peer)
   const init = { method: req.method, headers }
   if (req.method !== "GET" && req.method !== "HEAD") init.body = bodyBuf
   return new Request(url, init)

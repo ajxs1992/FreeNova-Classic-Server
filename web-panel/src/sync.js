@@ -57,25 +57,65 @@ export async function checkActionToken(secret, steamid, token) {
   return timingSafeEqual(t, today) || timingSafeEqual(t, yesterday)
 }
 
-// LOCAL-TRUST ONLY — exact inverse of checkActionToken (today's unixDay).
-// SECURITY TRADEOFF: the public Worker must never call this — any request
-// that can render a page could then mint that player's action token.
-// server_local.mjs is local/LAN-only with no Cloudflare and no public upload
-// in the path, so the panel trusts the request URL: knowing a steamid implies
-// the ability to trigger that player's queued actions (every action is still
-// re-validated game-side before it applies — the game is the spender).
-// BEFORE ANY PUBLIC UPLOAD: stop deriving tokens here; mint them game-side
-// (AMXX) and pass them in as ?t= only.
-export async function mintActionToken(secret, steamid) {
+// LOCAL-TRUST ONLY — minting the exact inverse of checkActionToken (today's
+// unixDay) panel-side means "whoever can render this page may queue an action
+// for this steamid". That is only acceptable when the panel is reachable from
+// the LAN/loopback and the MOTD is the only client, which is what the original
+// design assumed. REVIEW.md §3.8/§8.6: this comment said so and nothing
+// enforced it, while wrangler.toml binds a production D1 - so
+// `?steamid=<victim>&act=claim_event:7` queued actions for anyone, with no
+// session, no token and no signature.
+//
+// The gate is explicit and default-OFF:
+//   FN_LOCAL_TRUST=1       the runner's env (server_local.mjs) or a Worker
+//                          [vars] entry: panel-side minting enabled.
+//   unset / anything else  no panel-side minting. Pages fall back to game-minted
+//                          ?t= links and say so when asked to act without one.
+// Do not set it on a deployment reachable from the internet.
+export function localTrustEnabled(env) {
+  const v = String((env && env.FN_LOCAL_TRUST) || "").trim().toLowerCase()
+  return v === "1" || v === "true" || v === "yes" || v === "on"
+}
+
+// What the panels print when an action is requested on a deployment that does
+// not mint tokens, instead of silently doing nothing.
+export const NO_MINT_MSG = "Action links are not available on this deployment - open the panel from the game server."
+
+export async function mintActionToken(env, steamid) {
+  if (!localTrustEnabled(env)) return ""
+  const secret = env && env.SYNC_SECRET
   if (!secret || !validSteamid(steamid)) return ""
   return actionToken(secret, steamid, 0)
+}
+
+// Largest body either HMAC endpoint will buffer. The local runner already caps
+// the socket read (PANEL_MAX_BODY_BYTES, 2 MiB); the Worker used to rely on
+// Cloudflare's own limit and still buffered the whole body *before* checking
+// the signature, so an unauthenticated 500 MB POST was materialised in memory
+// (REVIEW.md §4.1 H3). A full 32-player stats push is ~100 KB.
+const MAX_BODY_BYTES = 2 * 1024 * 1024
+
+function tooLarge() {
+  return { ok: false, response: json({ ok: false, error: "payload too large" }, 413) }
+}
+
+// Rejects an over-size body from the declared length when there is one, and
+// again from the buffered text (a chunked request has no content-length).
+function bodyTooLarge(request, text) {
+  const declared = Number(request.headers.get("content-length") || 0)
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return true
+  return typeof text === "string" && text.length > MAX_BODY_BYTES
 }
 
 async function verifyGamePost(request, env, path) {
   if (!env.SYNC_SECRET)
     return { ok: false, response: json({ ok: false, error: "sync secret not configured" }, 401) }
 
+  const declared = Number(request.headers.get("content-length") || 0)
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return tooLarge()
+
   const body = await request.text()
+  if (bodyTooLarge(request, body)) return tooLarge()
   const ts = request.headers.get("X-FreeNova-Timestamp") || ""
   const nonce = request.headers.get("X-FreeNova-Nonce") || ""
   const sig = request.headers.get("X-FreeNova-Signature") || ""
@@ -204,6 +244,12 @@ export async function handleAdminCall(request, env) {
   return json({ ok: true })
 }
 
+// How many times one action may be advertised to the game. 2 = the first
+// dispatch plus one re-dispatch for a lost reply; see the comment at the queue.
+const MAX_DISPATCH_ATTEMPTS = 2
+// How long an action stays eligible for dispatch, in seconds.
+const DISPATCH_WINDOW = 3600
+
 async function handleSync(request, env) {
   const verified = await verifyGamePost(request, env, signedPath(request, "/api/v1/server/stats"))
   if (!verified.ok) return verified.response
@@ -244,6 +290,13 @@ async function handleSync(request, env) {
     }
   } catch (e) { /* first push / table young — derive from zero */ }
 
+  // Ordering guard (REVIEW.md §4.1 H1). The game retries a push when the relay
+  // times out, and the retry can arrive after a newer snapshot: without this
+  // WHERE, a late push wrote its older xp/coins/kills back over the newer row,
+  // the event baselines rescored off the regressed values and every page showed
+  // counters rolling backwards. Same idea as the catalog upsert below
+  // (`excluded.version >= catalog.version`); last_seen is the per-row clock, so
+  // equal timestamps still apply (a replay inside the same second is harmless).
   for (const p of payload.players) {
     if (!p || !validSteamid(p.steamid)) continue
     stmts.push(env.DB.prepare(
@@ -279,7 +332,8 @@ async function handleSync(request, env) {
          eq_spawn=?47, eq_title=?48, eq_death=?49, eq_color=?50, custom_tag=?51, eq_model=?52,
          bp_hp=?53, bp_armor=?54, bp_jumps=?55, bp_sniper=?56, bp_laststand=?57, bp_chute=?58,
          bp_premium=?59, bp_milestone=?60,
-         vip_remaining=?61, server_id=?62, last_seen=?63, cc=?64`)
+         vip_remaining=?61, server_id=?62, last_seen=?63, cc=?64
+       WHERE excluded.last_seen >= players.last_seen`)
       .bind(
         p.steamid, str(p.name, 32), num(p.xp), num(p.level), num(p.rank_id), num(p.prestige),
         num(p.kills), num(p.deaths), num(p.assists), num(p.headshots), num(p.damage),
@@ -306,7 +360,7 @@ async function handleSync(request, env) {
         num(p.bp_boosts && p.bp_boosts.premium),
         num(p.bp_boosts && p.bp_boosts.milestone),
         num(p.vip_remaining),
-        str(serverId, 48), nowSec, ccOf(p.cc)))
+        str(serverId, 48), pushClock(p.last_seen, nowSec), ccOf(p.cc)))
 
     // per-weapon stats (top-slot array; absent = no update)
     if (Array.isArray(p.weapons)) {
@@ -609,23 +663,45 @@ async function handleSync(request, env) {
   // (the normal case while the game retries after a relay timeout) both returned
   // the same ids and the game applied each action twice - double coins for
   // claim_bp and srv_event_reward.
+  // Re-dispatch a 'sent' action once (REVIEW.md §4.2 M5). A row is 'sent' as
+  // soon as the panel advertises it, so a push whose reply never reached the
+  // game - the relay's 10 s timeout is the normal case - left the row waiting
+  // for a result that could not come, and it was expired an hour later even
+  // though the game may have applied it: the success was dropped and the
+  // panels showed "expired". Handing the same row out a second time is safe
+  // because the game-side grants are idempotent (freenova_sync.sma award ids
+  // `wact#<action id>`, REVIEW §9b f138da2): a duplicate dispatch ACKs
+  // "already applied" instead of paying twice.
   const { results: pending } = await env.DB.prepare(
     `SELECT id, steamid, type, arg, attempts FROM actions
-     WHERE status = 'pending' ORDER BY created_at ASC LIMIT 8`).all()
+     WHERE (status = 'pending' OR (status = 'sent' AND attempts < ?2))
+       AND created_at > ?1
+     ORDER BY created_at ASC LIMIT 8`).bind(nowSec - DISPATCH_WINDOW, MAX_DISPATCH_ATTEMPTS).all()
   const dispatched = []
   for (const a of pending) {
+    // Compare-and-swap on the attempts counter we just read: that is the claim,
+    // so two overlapping pushes cannot both win the same row (the pre-fix bug
+    // was reading rows and then flipping them by id alone).
     const claim = await env.DB.prepare(
-      `UPDATE actions SET status='sent', attempts=attempts+1 WHERE id=?1 AND status='pending'`)
-      .bind(a.id).run()
+      `UPDATE actions SET status='sent', attempts=attempts+1
+       WHERE id=?1 AND status IN ('pending','sent') AND attempts=?2`)
+      .bind(a.id, a.attempts).run()
     // meta.changes is 1 for the winner of the race. A shim that returns no meta
     // keeps the pre-fix behaviour instead of silently dropping every action.
     const won = claim && claim.meta ? Number(claim.meta.changes || 0) : 1
     if (won === 1) dispatched.push(a)
   }
-  // expire actions the game never picked up
+  // Expire what the game never picked up. A 'pending' row that was never
+  // advertised is expired after the dispatch window; a 'sent' row is expired
+  // only once it has used every dispatch attempt (one dropped reply must not
+  // throw away a claim the game already paid), with a hard stop at two windows
+  // so a row can never sit in 'sent' for ever.
   await env.DB.prepare(
-    `UPDATE actions SET status='expired', closed_at=?1 WHERE status IN ('pending','sent') AND created_at < ?2`)
-    .bind(nowSec, nowSec - 3600).run()
+    `UPDATE actions SET status='expired', closed_at=?1
+     WHERE (status = 'pending' AND created_at < ?2)
+        OR (status = 'sent' AND created_at < ?2 AND attempts >= ?3)
+        OR (status = 'sent' AND created_at < ?4)`)
+    .bind(nowSec, nowSec - DISPATCH_WINDOW, MAX_DISPATCH_ATTEMPTS, nowSec - 2 * DISPATCH_WINDOW).run()
 
   // ---- spec broadcast: active metric events for the game's offline ledger ----
   // Additive response field (freenova_sync.sma EvtIngestSpecs already parses
@@ -704,6 +780,20 @@ export async function saveFeatured(env, steamid, csv, token, ownershipIds) {
      ON CONFLICT(steamid) DO UPDATE SET featured=?2, updated_at=?3`)
     .bind(steamid, clean.join(","), Math.floor(Date.now() / 1000)).run()
   return { ok: true, featured: clean }
+}
+
+// The clock a players row is ordered by. freenova_sync.sma sends one
+// `last_seen` per push (the snapshot time); a body without it - an older plugin
+// or a hand-rolled probe - falls back to the panel's arrival time, which is the
+// old behaviour. REVIEW.md §4.1 H1: with only the arrival clock the
+// `excluded.last_seen >= players.last_seen` guard on the upsert could never
+// distinguish a stale snapshot from a new one.
+function pushClock(sent, now) {
+  const t = Math.trunc(num(sent))
+  // Reject nonsense: a zero/missing value means "use arrival time", and a
+  // clock more than an hour off the panel's is not trusted to order rows.
+  if (!Number.isFinite(t) || t <= 0 || Math.abs(t - now) > 3600) return now
+  return t
 }
 
 function str(v, max) { return String(v == null ? "" : v).slice(0, max || 64) }

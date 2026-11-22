@@ -9,10 +9,24 @@ export const FREE_COINS = {
   51:5000,52:10000,53:500,54:500,55:2500,56:500,57:500,58:1000,59:1000,60:5000
 }
 
-const PREMIUM_TOTAL = {
-  1: { 50: 2500, 52: 10000, 60: 10000 },
-  2: { 50: 3000, 52: 12500, 60: 12500 },
-  3: { 50: 4000, 52: 15000, 60: 15000 }
+// Premium-lane coin payout per tier, mirrored verbatim from the game:
+// battlepass_core.sma `stock const g_iBpPremiumCoins[MAX_LEVELS + 1]` (line
+// ~157). 0 means that tier pays a premium item/perk instead of coins, which is
+// exactly what the server does (`BpPremiumExtraCoinsLane()` returns this value
+// and ignores the lane for coins - lane modifiers change perks, not money).
+//
+// REVIEW.md §4.2 M8: this file used to carry a three-entry PREMIUM_TOTAL table,
+// so premiumExtraCoins() answered "nothing" for 57 of the 60 tiers and every
+// premium column on /battlepass read the same as the free one. The table below
+// is the server's own numbers; keep it in step with battlepass_core.sma rather
+// than inventing values here - the panel displays, the game pays.
+export const PREMIUM_COINS = {
+  1:150, 2:150, 3:225, 4:0, 5:300, 6:300, 7:375, 8:0, 9:450, 10:450,
+  11:525, 12:0, 13:600, 14:600, 15:675, 16:0, 17:0, 18:750, 19:0, 20:0,
+  21:0, 22:900, 23:975, 24:0, 25:0, 26:1050, 27:1125, 28:0, 29:1200, 30:1200,
+  31:1275, 32:0, 33:0, 34:1350, 35:1425, 36:0, 37:0, 38:1500, 39:1575, 40:0,
+  41:1650, 42:1650, 43:1725, 44:0, 45:0, 46:1800, 47:1875, 48:0, 49:0, 50:1950,
+  51:2025, 52:0, 53:0, 54:2100, 55:0, 56:0, 57:0, 58:2250, 59:2325, 60:0,
 }
 
 export function premiumLaneName(lane) {
@@ -22,10 +36,31 @@ export function premiumLaneName(lane) {
   return "FREE"
 }
 
+// Raw premium-lane coin table lookup (0 outside 1..60). Kept separate from
+// premiumExtraCoins() so a caller can tell "no premium payout" from "unknown".
+export function premiumCoins(tier) {
+  const t = Math.trunc(Number(tier))
+  if (!Number.isFinite(t) || t < 1 || t > 60) return 0
+  return PREMIUM_COINS[t] || 0
+}
+
+// Coins a premium lane pays ON TOP of the free lane at `tier`, straight from
+// the server table above. `lane` is accepted for call-site compatibility and is
+// deliberately not used: the game's coin table does not vary by lane.
 export function premiumExtraCoins(tier, lane = 1) {
-  const table = PREMIUM_TOTAL[lane] || PREMIUM_TOTAL[1]
-  const extra = (table[tier] || 0) - (FREE_COINS[tier] || 0)
-  return extra > 0 ? extra : 0
+  const t = Math.trunc(Number(tier))
+  if (!Number.isFinite(t) || t < 1 || t > 60) return 0
+  const n = PREMIUM_COINS[t] || 0
+  return n > 0 ? n : 0
+}
+
+// Battle-pass XP needed per tier: one source for every page (REVIEW.md §4.3).
+// The live value is the `reward_track` catalog row the game pushes; 1000 is the
+// fallback the tree has always used. profile.js used to hard-code 1000 instead.
+export const BP_XP_PER_TIER_FALLBACK = 1000
+export function xpPerTier(track) {
+  const n = Number(track && track.xp_per_tier)
+  return Math.max(1, Number.isFinite(n) && n > 0 ? n : BP_XP_PER_TIER_FALLBACK)
 }
 
 export const PERKS = {

@@ -4,7 +4,7 @@ import { serverMeta } from "./top15/meta.js"
 import { motdFrame, esc, fmt, rankName, rankFile, isOn, ago } from "./top15/render.js"
 import { flagImg } from "./ui.js"
 import { pageActionToken } from "./pages.js"
-import { queueAction } from "./sync.js"
+import { queueAction, localTrustEnabled, NO_MINT_MSG } from "./sync.js"
 
 function steamidOf(url) {
   const minted = url && url._fnMotdSid
@@ -32,8 +32,19 @@ export async function pageCompetitive(env, url) {
   const token = await pageActionToken(env, url, steamid)
   const claimArg = url.searchParams.get("claim") || ""
 
+  // A ?claim= click without a token used to fall through silently: the page
+  // rendered as if nothing had been asked. Say why instead - no token means
+  // this deployment does not mint action tokens (REVIEW.md §3.8), or the link
+  // was opened without a steamid.
+  // Why a click cannot act, in the caller's words: either this deployment does
+  // not mint tokens at all, or the link carried no steamid to act for.
+  const noTokenWhy = localTrustEnabled(env)
+    ? "Open this page from the game server to claim a prize."
+    : NO_MINT_MSG
   let claimMsg = ""
-  if (claimArg && steamid && token) {
+  if (claimArg && !token) {
+    claimMsg = `<div class='panel msg'>${esc(noTokenWhy)}</div>`
+  } else if (claimArg && steamid && token) {
     try {
       const res = await queueAction(env, steamid, "claim_tournament", claimArg, token)
       claimMsg = res.ok

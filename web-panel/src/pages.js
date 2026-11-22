@@ -6,7 +6,7 @@ import {
   progressBar, emptyState, sortHeader, WEAPONS, COSMETICS, isMotdCompact,
   panelHref, navHref, tabBar, medalTable, flagImg, eventKind, eventIcon
 } from "./ui.js"
-import { queueAction, actionStatusLine, saveFeatured, mintActionToken } from "./sync.js"
+import { queueAction, actionStatusLine, saveFeatured, mintActionToken, localTrustEnabled, NO_MINT_MSG } from "./sync.js"
 import {
   DEFAULT_REWARD_TRACK, DEFAULT_SKILLS, DEFAULT_SKINS, DEFAULT_MODELS,
   DEFAULT_ACHIEVEMENTS, DEFAULT_COSMETICS, DEFAULT_HALL_OF_FAME,
@@ -134,19 +134,19 @@ function vipMintedSteamid(url) {
   return /^STEAM_[0-9]:[0-9]:\d+$/.test(sid) ? sid : ""
 }
 
-// Action token for THIS render (see sync.js mintActionToken for the trust
-// tradeoff: local-only panel — knowing a steamid implies the ability to
-// trigger that player's queued actions; before any public upload tokens must
-// be minted game-side instead). Explicit ?t= always wins so game-minted
-// /u/<sid>/<slug>/k/<token> links keep their token. Otherwise mint a today
-// token for the resolved steamid so every generated action link (claim,
-// reroll, buy, equip, tournament claim, featured save) works on first click.
-// No steamid / no SYNC_SECRET → "" and callers keep their read-only states.
+// Action token for THIS render. Explicit ?t= always wins, so a game-minted
+// /u/<sid>/<slug>/k/<token> link keeps working on any deployment. Beyond that
+// the panel only mints when it is explicitly trusted to (FN_LOCAL_TRUST=1, see
+// sync.js localTrustEnabled): REVIEW.md §3.8 - a silent mint turns "I can render
+// this page" into "I may act for this steamid", which a public deployment must
+// never allow. No steamid / no SYNC_SECRET / no trust → "" and every caller
+// falls back to its read-only state.
 async function pageActionToken(env, url, steamid) {
   const explicit = url.searchParams.get("t") || ""
   if (explicit) return explicit
   if (!steamid || !env || !env.SYNC_SECRET) return ""
-  return await mintActionToken(env.SYNC_SECRET, steamid)
+  if (!localTrustEnabled(env)) return ""
+  return await mintActionToken(env, steamid)
 }
 
 // ============================================================ HOME

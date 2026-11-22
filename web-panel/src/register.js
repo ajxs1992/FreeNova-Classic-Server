@@ -55,6 +55,8 @@ const HEALTH_PATH = "/api/game/v1/health"
 const EXPECTED_SERVER_ID = "freenova-public-1"
 // Replay window, same posture as the stats push (sync.js L89-92, docs L44-45).
 const TS_WINDOW = 300
+// Largest registration body accepted; a real one is < 4 KB.
+const MAX_REG_BODY_BYTES = 2 * 1024 * 1024
 
 function json(obj, status) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } })
@@ -208,8 +210,17 @@ async function validatePayload(payload, now) {
 export async function handleRegister(request, env) {
   const path = new URL(request.url).pathname
 
+  // Cap before buffering (REVIEW.md §4.1 H3): the raw body is read before the
+  // signature is checked, so an unauthenticated caller could otherwise make the
+  // Worker hold an arbitrary payload. Same 2 MiB bound as sync.js.
+  const declared = Number(request.headers.get("content-length") || 0)
+  if (Number.isFinite(declared) && declared > MAX_REG_BODY_BYTES)
+    return fail("PAYLOAD_TOO_LARGE", "request body too large", 413)
+
   // Byte-exact body first: the signature covers the raw bytes the plugin sent.
   const rawBody = new Uint8Array(await request.arrayBuffer())
+  if (rawBody.length > MAX_REG_BODY_BYTES)
+    return fail("PAYLOAD_TOO_LARGE", "request body too large", 413)
 
   const auth = await verifyRegisterAuth(request, env, path, rawBody)
   if (!auth.ok) return auth.response

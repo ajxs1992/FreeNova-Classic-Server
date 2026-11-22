@@ -57,10 +57,21 @@ function validSteamid(s) {
 
 function nowSec() { return Math.floor(Date.now() / 1000) }
 
+// Platform-reported client address only. REVIEW.md §4.2 M2: trusting
+// x-forwarded-for made the 5-attempt login lockout bypassable with one header,
+// because on the local runner that header is whatever the client sends.
+//   x-freenova-client-ip  set by server_local.mjs from req.socket.remoteAddress,
+//                         and stripped from anything a client sends.
+//   cf-connecting-ip      set by Cloudflare itself; Cloudflare overwrites a
+//                         client-supplied value, so it cannot be spoofed there.
+// Anything else (a bare x-forwarded-for, a missing header) is "unknown", which
+// only means the shared bucket is used - never a bucket the caller chooses.
 function clientIp(request) {
-  return (request.headers.get("cf-connecting-ip")
-    || request.headers.get("x-forwarded-for")
-    || "").split(",")[0].trim().slice(0, 64) || "unknown"
+  const direct = request.headers.get("x-freenova-client-ip")
+  if (direct) return String(direct).trim().slice(0, 64) || "unknown"
+  const cf = request.headers.get("cf-connecting-ip")
+  if (cf) return String(cf).split(",")[0].trim().slice(0, 64) || "unknown"
+  return "unknown"
 }
 
 function isMotdUa(request) {
@@ -329,20 +340,35 @@ export async function ensureAdminTables(env) {
   await seedStaff(env)
 }
 
+// Window (seconds) a login failure counts for; also the lifetime of a
+// login_fail meta row.
+const LOGIN_FAIL_WINDOW = 600
+
 async function loginFailCount(env, ip) {
   const row = await env.DB.prepare(`SELECT value FROM meta WHERE key=?1`).bind("login_fail:" + ip).first()
   if (!row) return { n: 0, at: 0 }
   const [n, at] = String(row.value || "0:0").split(":").map(x => parseInt(x, 10) || 0)
-  if (nowSec() - at > 600) return { n: 0, at: 0 }
+  if (nowSec() - at > LOGIN_FAIL_WINDOW) return { n: 0, at: 0 }
   return { n, at }
 }
 
 async function bumpLoginFail(env, ip) {
   const cur = await loginFailCount(env, ip)
   const n = cur.n + 1
+  const now = nowSec()
   await env.DB.prepare(
     `INSERT INTO meta (key, value) VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=?2`
-  ).bind("login_fail:" + ip, `${n}:${nowSec()}`).run()
+  ).bind("login_fail:" + ip, `${n}:${now}`).run()
+  // Expire the counters. Before this, every distinct address that ever failed a
+  // login left a permanent meta row (REVIEW.md §4.2 M2) - the table grew for
+  // ever and the "counters expire" behaviour only ever existed in the reader.
+  // The timestamp is the part after the colon in "n:at".
+  try {
+    await env.DB.prepare(
+      `DELETE FROM meta WHERE key LIKE 'login_fail:%'
+         AND CAST(substr(value, instr(value, ':') + 1) AS INTEGER) < ?1`
+    ).bind(now - LOGIN_FAIL_WINDOW).run()
+  } catch {}
   return n
 }
 
@@ -375,6 +401,9 @@ async function handleLogin(request, env) {
      ON CONFLICT(token) DO UPDATE SET expires_at=?4`
   ).bind(token, steamid, nowSec(), exp).run()
   await env.DB.prepare(`UPDATE staff SET last_login=?2 WHERE steamid=?1`).bind(steamid, nowSec()).run()
+  // A successful login clears this address's counter, so a legitimate staff
+  // member who mistyped twice does not carry it for the rest of the window.
+  try { await env.DB.prepare(`DELETE FROM meta WHERE key=?1`).bind("login_fail:" + ip).run() } catch {}
   await audit(env, steamid, "LOGIN", ip)
   const secure = new URL(request.url).protocol === "https:"
   return redirect("/admin", { "set-cookie": cookieHeader(cookie, SESSION_SEC, secure) })

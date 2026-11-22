@@ -9,6 +9,7 @@ import { TORNADO_WEAPONS, skillOf, xpColorOf } from "./top15/theme.js"
 import { rankProgress } from "./ranks.js"
 import { flagImg } from "./ui.js"
 import { apUnlocksMap, badgeCabinet } from "./pages.js"
+import { xpPerTier } from "./bp_track.js"
 
 function steamidOf(url) {
   const minted = url && url._fnMotdSid
@@ -279,7 +280,16 @@ export async function pageProfile(env, url) {
     rankPos = Number(r && r.n) || 1
   } catch { rankPos = 0 }
 
-  const bpNeed = 1000
+  // Battle-pass XP per tier comes from the same place /battlepass reads - the
+  // `reward_track` catalog row the game pushes, via bp_track.xpPerTier.
+  // REVIEW.md §4.3: this used to be a literal 1000, so the profile showed a
+  // different tier than the battle pass page whenever the track said otherwise.
+  let bpTrack = null
+  try {
+    const cat = await env.DB.prepare(`SELECT json FROM catalog WHERE key = 'reward_track'`).first()
+    if (cat && cat.json) bpTrack = JSON.parse(cat.json)
+  } catch {}
+  const bpNeed = xpPerTier(bpTrack)
   const bpTier = Math.min(60,
     Number(p.bp_milestone) > 0 ? Number(p.bp_milestone)
       : Number(p.level) > 0 ? Number(p.level)
@@ -288,7 +298,7 @@ export async function pageProfile(env, url) {
   const bpInto = Number(p.xp || 0) % bpNeed
 
   const career = `<table class='career' cellspacing='0' cellpadding='0'><tr>
-      <td class='first'><span class='k'>Battle Pass</span><span class='v p'>Tier ${fmt(bpTier)} / 60</span><span class='sub'>${fmt(bpInto)} / 1,000 XP</span><a href='/battlepass?steamid=${encodeURIComponent(steamid)}&compact=1'>Open</a></td>
+      <td class='first'><span class='k'>Battle Pass</span><span class='v p'>Tier ${fmt(bpTier)} / 60</span><span class='sub'>${fmt(bpInto)} / ${fmt(bpNeed)} XP</span><a href='/battlepass?steamid=${encodeURIComponent(steamid)}&compact=1'>Open</a></td>
       <td><span class='k'>Competitive</span><span class='v'>${fmt(p.comp_points)} pts</span><span class='sub'>${compPos > 0 ? "#" + fmt(compPos) : "Unranked"}</span><a href='/competitive?steamid=${encodeURIComponent(steamid)}&compact=1'>Open</a></td>
       <td><span class='k'>Achievements</span><span class='v'>${fmt(p._medals)} / ${fmt(achTotal)}</span><span class='sub'>${closest.length ? "Next: " + esc(closest[0].title) : "All medals earned"}</span><a href='/achievements?steamid=${encodeURIComponent(steamid)}&compact=1'>Open</a></td>
     </tr></table>`

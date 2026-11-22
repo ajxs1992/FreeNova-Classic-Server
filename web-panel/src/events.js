@@ -8,7 +8,7 @@ import {
   eventCountdown, loadEventsList, loadEventBoardRows, eventBoardSort,
   eventWinnersMap, eventHistoryRows, fmtEventWhen
 } from "./pages.js"
-import { queueAction } from "./sync.js"
+import { queueAction, localTrustEnabled, NO_MINT_MSG } from "./sync.js"
 
 function steamidOf(url) {
   const minted = url && url._fnMotdSid
@@ -75,7 +75,13 @@ export async function pageEvents(env, url) {
   let actMsg = ""
   const act = String(url.searchParams.get("act") || "")
   const am = act.match(/^claim_event:(\d{1,9})$/)
-  if (am && steamid && token) {
+  // Same silent no-op as /competitive?claim= had: explain, do not pretend.
+  const noTokenWhy = localTrustEnabled(env)
+    ? "Open this page from the game server to claim."
+    : NO_MINT_MSG
+  if (am && !token) {
+    actMsg = `<div class='panel msg'>${esc(noTokenWhy)}</div>`
+  } else if (am && steamid && token) {
     try {
       const res = await queueAction(env, steamid, "claim_event", am[1], token)
       actMsg = res.ok
@@ -281,7 +287,9 @@ export async function pageEvents(env, url) {
            : `<tr><td colspan='3'><div class='msg'><b>No closed events</b></div></td></tr>`}
        </table>`
 
-  const content = `${kpis}
+  // actMsg belongs on the list view too: without it, a ?act=click on a
+  // deployment that cannot queue read as if nothing had been clicked.
+  const content = `${actMsg}${kpis}
     <div class='pills' style='border-top:0;padding-top:0;margin:4px 0 5px;'>${tabs}</div>
     ${show === "past"
       ? historyHtml

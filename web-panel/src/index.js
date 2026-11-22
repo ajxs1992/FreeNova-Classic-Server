@@ -21,6 +21,27 @@ import { pageGameSurface, pageSettings, pageRules } from "./gamepages.js"
 
 export default {
   async fetch(request, env, ctx) {
+    // One place adds the policy for pages that carry a token in their query
+    // string (REVIEW.md §4.2 M3): a ?t= / ?k= / ?claim= URL must not leak
+    // through Referer to flagcdn.com, Discord or any other third party.
+    return withSafeReferrer(request, await routeRequest(request, env, ctx))
+  }
+}
+
+function withSafeReferrer(request, res) {
+  try {
+    const url = new URL(request.url)
+    const carries = TOKEN_QUERY.some(p => url.searchParams.has(p))
+    if (!carries || !res || !res.headers || res.headers.has("referrer-policy")) return res
+    const headers = new Headers(res.headers)
+    headers.set("referrer-policy", "no-referrer")
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
+  } catch { return res }
+}
+
+const TOKEN_QUERY = ["t", "k", "claim", "act"]
+
+async function routeRequest(request, env, ctx) {
     const url = new URL(request.url)
     const path = url.pathname.replace(/\/+$/, "") || "/"
 
@@ -42,6 +63,11 @@ export default {
         return await handleRegister(request, env)
       if (request.method === "GET" && path === "/api/game/v1/health")
         return await handleRegHealth(request, env)
+
+      // Top-15 theme editor: POST only, so the staff key never rides in a URL
+      // (REVIEW.md §4.1 H2). Routed before the GET-only gate for that reason.
+      if (request.method === "POST" && (path === "/top15" || path === "/top"))
+        return await pageTop15(env, url, request)
 
       if (request.method !== "GET")
         return new Response("method not allowed", { status: 405 })
@@ -144,7 +170,7 @@ export default {
         if (view === "store" || view === "shop" || view === "skins" || view === "cosmetics" || view === "models")
           return gone()
         if (view === "top" || view === "top15" || view === "leaderboard" || view === "rankings" || view === "mapend")
-          return await pageTop15(env, url)
+          return await pageTop15(env, url, request)
         if (view === "player" || view === "rankstats" || view === "profile" || view === "statsme" || view === "rank")
           return await pageProfile(env, url)
         if (view === "bp" || view === "battlepass")
@@ -178,7 +204,7 @@ export default {
         case "/top/mvps":
         case "/top/wins":
         case "/top/playtime":
-        case "/top/rating":  return await pageTop15(env, url)
+        case "/top/rating":  return await pageTop15(env, url, request)
         case "/mapend":      return await pageMapEnd(env, url)
         case "/profile":
         case "/rankstats":
@@ -213,9 +239,9 @@ export default {
           const loc = sid ? `/profile?steamid=${encodeURIComponent(sid)}` : "/profile"
           return new Response(null, { status: 302, headers: { location: loc } })
         }
-        case "/search":      return await pageTop15(env, url)
+        case "/search":      return await pageTop15(env, url, request)
         case "/battlepass.php":
-        case "/rsu.php":     return await pageTop15(env, url)
+        case "/rsu.php":     return await pageTop15(env, url, request)
         case "/favicon.ico": return new Response(null, { status: 204 })
         default:             return page404()
       }
@@ -224,5 +250,4 @@ export default {
       console.error("panel error:", e && e.stack ? e.stack : String(e))
       return errorState("ERROR", "home", "the panel (internal error — logged)")
     }
-  }
 }

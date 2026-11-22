@@ -2,6 +2,12 @@
 #include <amxmisc>
 #include <freenova_ui>
 
+// The /calladmin and /admin reply frames are ~5.3K cells of declared buffers
+// (REVIEW.md §5.2). The AMXX default stack is 4096 cells, so the first call
+// would be "Run time error 3: stack error". Same pragma the sibling plugins
+// carry (freenova_vip/freenova_competitive 16384).
+#pragma dynamic 16384
+
 // Player -> Discord staff call.
 // AMXX cannot reach discord.com over HTTPS natively, so the plugin writes the
 // webhook JSON payload into addons/amxmodx/data/ and hands the POST to curl via

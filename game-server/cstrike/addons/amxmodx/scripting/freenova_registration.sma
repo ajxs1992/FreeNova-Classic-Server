@@ -6,6 +6,12 @@
 #include <time>
 #include <freenova_vip>
 
+// The /register frame and the sub-admin console frame are ~5.3K cells of
+// declared buffers (REVIEW.md §5.2). The AMXX default stack is 4096 cells, so
+// the first /register would be "Run time error 3: stack error". Same pragma the
+// sibling plugins carry (freenova_vip/freenova_competitive 16384).
+#pragma dynamic 16384
+
 #define PLUGIN_NAME     "FreeNova In-Game Registration"
 #define PLUGIN_VERSION  "1.1.0"
 #define PLUGIN_AUTHOR   "FreeNova Dev Team"

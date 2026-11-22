@@ -223,6 +223,11 @@ stock bool:FnVipUsable()
 
 stock bool:PlayerHasFlag(id)
 {
+    // Read the cvar here, not once at hand-over time. The gate runs BEFORE
+    // GrantZgun()'s RefreshFlagString(), so with only that one call g_szFlag
+    // was empty on every eligibility test and a flag-only VIP was denied for
+    // ever (only the VIP-tier path could get in). REVIEW.md 5.5.
+    RefreshFlagString();
     if (!g_szFlag[0]) return false;
     return has_flag(id, g_szFlag) ? true : false;
 }

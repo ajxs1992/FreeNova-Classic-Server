@@ -51,60 +51,6 @@ def a2s_players(*entries: tuple[str, int, int]) -> bytes:
     return b"\xff\xff\xff\xff" + body
 
 
-TOP_HTML = """<table class='champ' cellspacing='0'><tr>
-  <td class='ccrest'><img src='/ranks/rank_18.png' width='62' height='62' alt='Supreme Master First Class' title='Supreme Master First Class'></td>
-  <td><div class='clabel'><span class='cplace'>1</span>Champion · Season 1</div>
-    <div class='cname'><img src='https://flagcdn.com/20x15/ro.png' width='15'> <a href='/profile?steamid=STEAM_0%3A0%3A683671116' style='color:inherit;'>ajxs</a></div>
-    <div class='crank'>Supreme Master First Class · Level 18 · last seen 26d</div></td>
-  <td class='cxp'><b>24,889</b><span>XP</span></td>
-</tr></table>
-<table class='runner'><tr><td class='r2'>
-  <span class='rplace'>2</span><img class='rcrest' src='/ranks/rank_14.png' width='26' title='Master Guardian Elite'>
-  <span class='rname'><a href='/profile?steamid=STEAM_0%3A1%3A799106783' style='color:inherit;'>NPC_Leaders</a></span>
-  <span class='rxp'>12,463 <em>XP</em></span>
-  <span class='rmeta'>1.33 K/D · 41.7% · 76 wins</span>
-</td></tr></table>
-<table class='board' cellspacing='0'><tbody>
-<tr class='row' onclick="location.href='/profile?steamid=STEAM_0%3A0%3A611856215'">
-  <td class='idx'>4</td>
-  <td class='l'><img src='https://flagcdn.com/20x15/se.png' width='13'> <a class='pname' href='/profile?steamid=STEAM_0%3A0%3A611856215'>npc_known</a>
-    <span class='sub' title='Last seen 27d ago'>L1 · Unranked · seen 27d</span></td>
-  <td class='metric'><span class='xp'>82</span></td>
-  <td>0</td><td class='wcol'>0</td><td>0.00</td><td>—</td>
-  <td class='c'><img class='crest' src='/ranks/rank_01.png' alt='Unranked' title='Unranked'></td>
-</tr>
-<tr class='row' onclick="location.href='/profile?steamid=STEAM_1%3A0%3A236593364'">
-  <td class='idx'>5</td>
-  <td class='l'><a class='pname' href='/profile?steamid=STEAM_1%3A0%3A236593364'>Ying</a>
-    <span class='sub' title='Last seen 27d ago'>L1 · Unranked · seen 27d</span></td>
-  <td class='metric'><span class='xp'>14</span></td>
-  <td>0</td><td class='wcol'>0</td><td>—</td><td>—</td>
-  <td class='c'><img class='crest' src='/ranks/rank_01.png' alt='Unranked' title='Unranked'></td>
-</tr>
-</tbody></table>"""
-
-PROFILE_HTML = """<div class='panel idpanel'><table class='idtable'><tr>
-  <td class='idcrestcell'><img class='bigcrest' src='/ranks/rank_18.png' width='42' height='42' alt='Supreme Master First Class' title='Supreme Master First Class'></td>
-  <td><div class='pbig'><img src='https://flagcdn.com/20x15/ro.png' width='15' height='11' alt='ro'> ajxs</div>
-    <div class='psmall'>Lvl 18 · Supreme Master First Class · offline · seen 26d</div></td>
-  <td align='right' width='126'><div class='pxpbig'>24,889<span>XP</span></div>
-    <div class='psmall'>Server rank #1</div></td>
-</tr></table></div>
-<table class='statgrid' cellspacing='0'>
-  <tr><td><span class='sk'>Kills</span><span class='sv'>7</span></td><td><span class='sk'>Deaths</span><span class='sv'>7</span></td></tr>
-  <tr><td><span class='sk'>K/D</span><span class='sv'>1.00</span></td><td><span class='sk'>HS%</span><span class='sv'>28.6%</span></td></tr>
-  <tr><td><span class='sk'>Playtime</span><span class='sv'>7h 27m</span></td><td><span class='sk'>Wins</span><span class='sv'>14</span></td></tr>
-</table>
-<div class='skillrow'>Skill <span class='skill' style='background-color:#FCE590;color:#111'>L- 50</span></div>
-<div class='skillrow'>VIP Elite · [ ajxs67 ]</div>
-<div class='medal-count'>1 / 13 medals</div>
-<table class='proghead'><tr>
-  <td>Supreme Master First Class → Global Elite</td><td class='r'>5,111 XP to go</td></tr></table>
-<table class='career'><tr><td class='first'><span class='k'>Battle Pass</span><span class='v p'>Tier 18 / 60</span><span class='sub'>889 / 1,000 XP</span><a href='/battlepass?steamid=STEAM_0%3A0%3A683671116&compact=1'>Open</a></td></tr></table>"""
-
-PROFILE_MISSING_HTML = """<div class='pagehead'><div class='ph-t'>Player Profile</div></div>
-<div class='panel msg'><b>No snapshot for STEAM_0:0:999999999</b><br>Play a few minutes on the server, then retry.</div>"""
-
 SEARCH_HTML = """<table class='champ'><tr><td><span class='cplace'>1</span>
   <div class='cname'><a href='/profile?steamid=STEAM_0%3A0%3A683671116' style='color:inherit;'>ajxs</a></div></td></tr></table>
 <table class='board'><tbody><tr class='row'><td class='idx'>8</td>
@@ -652,77 +598,105 @@ def test_is_steamid():
     assert not bot.is_steamid("STEAM_0:1")
     assert not bot.is_steamid("")
     assert bot.normalise_steamid(" steam_0:1:123 ") == "STEAM_0:1:123"
+    assert bot.packed_steamid("0-0-683671116") == "STEAM_0:0:683671116"
+    assert bot.packed_steamid("STEAM_0:0:1") is None
+    assert bot.packed_steamid("junk") is None
 
 
-def test_parse_profile_html():
-    profile = bot.parse_profile_html(PROFILE_HTML, "https://x/profile?steamid=1")
+def test_player_from_api():
+    profile = bot.player_from_api(API_PLAYER, "https://x/profile?steamid=1")
     assert profile is not None
-    assert profile.name == "ajxs"
-    assert profile.rank_name == "Supreme Master First Class"
-    assert profile.level == 18 and profile.xp == 24889 and profile.server_rank == 1
-    assert profile.state == "offline" and profile.seen == "26d" and profile.country == "RO"
-    assert profile.stats["Playtime"] == "7h 27m" and profile.stats["K/D"] == "1.00"
-    assert profile.bp_tier == "Tier 18 / 60" and profile.bp_xp == "889 / 1,000 XP"
-    assert profile.next_rank == "Supreme Master First Class → Global Elite · 5,111 XP to go"
-    assert profile.skill.startswith("Skill") and profile.vip.startswith("VIP Elite")
-    assert profile.medals == "1 / 13 medals"
-    assert profile.steamid == "STEAM_0:0:683671116"
+    assert profile.name == "ajxs" and profile.steamid == "STEAM_0:0:683671116"
+    assert profile.rank == 1
+    assert profile.bp_tier == 18 and profile.bp_xp == 17889
+    assert profile.bp_next_xp == 111 and profile.bp_tier_xp == 1000 and profile.bp_max_tier == 60
+    assert profile.coins == 2400 and profile.playtime_minutes == 447
+    assert profile.playtime_seconds == 447 * 60
+    assert profile.badge_labels() == ("Weekly #1 · Week 46 · 2026",
+                                      "Weekly top 3 · Week 45 · 2026")
+    assert profile.url == "https://x/profile?steamid=1"
+
+    unranked = bot.player_from_api(API_PLAYER_UNRANKED)
+    assert unranked is not None and unranked.rank is None and unranked.badges == ()
+
+    assert bot.player_from_api(None) is None
+    assert bot.player_from_api({}) is None
+    assert bot.player_from_api({"steamid": "STEAM_0:0:1"}) is None, "no name is not a profile"
+    odd = bot.player_from_api({"steamid": "STEAM_0:0:9", "name": "Odd", "badges": "nope",
+                               "coins": None, "bp_max_tier": None})
+    assert odd is not None and odd.coins == 0 and odd.bp_max_tier == 60
 
 
-def test_parse_profile_html_missing_snapshot():
-    assert bot.parse_profile_html(PROFILE_MISSING_HTML) is None
-    assert bot.parse_profile_html("") is None
-    assert bot.parse_profile_html("<html>nothing</html>") is None
+def test_match_live_player():
+    players = [{"name": "ajxs", "score": 8, "seconds": 720},
+               {"name": "Ajxs", "score": 1, "seconds": 60},
+               {"name": "other", "score": 2, "seconds": 30}]
+    single = bot.match_live_player([players[0], players[2]], "AJXS")
+    assert single.state == "online" and single.seconds == 720 and single.score == 8
+    shared = bot.match_live_player(players, "ajxs")
+    assert shared.state == "shared" and shared.count == 2
+    assert bot.match_live_player([players[2]], "ajxs").state == "offline"
+    assert bot.match_live_player(None, "ajxs").state == "unknown", "probe failed"
+    assert bot.match_live_player([], "ajxs").state == "offline", "empty server"
 
 
-def test_profile_embeds_colours():
-    profile = bot.parse_profile_html(PROFILE_HTML, "https://x/profile?steamid=1")
-    embeds = bot.profile_embeds(profile, "https://x")
-    assert len(embeds) == 2
-    assert embeds[0].colour.value == bot.COLOUR_OK         # mint career card
-    assert embeds[1].colour.value == bot.COLOUR_BP         # gold battle pass card
-    assert "Level 18" in embeds[0].description and "Server rank #1" in embeds[0].description
-    assert "Tier 18 / 60" in embeds[1].description
-    fields = {field.name: field.value for field in embeds[0].fields}
-    assert fields["XP"] == "**24,889**" and fields["Playtime"] == "7h 27m"
-    assert "STEAM_0:0:683671116" in embeds[0].footer.text
+def test_lookup_profile_by_steamid_uses_the_api():
+    with stub_api({"/player/STEAM_0%3A0%3A683671116": (200, API_PLAYER)}) as api:
+        result = asyncio.run(bot.lookup_profile("https://x", "STEAM_0:0:683671116"))
+    assert result.ok and result.profile.name == "ajxs"
+    assert api.calls == ["/player/STEAM_0%3A0%3A683671116"], "one API call, no HTML page"
+    assert result.url == "https://x/profile?steamid=STEAM_0%3A0%3A683671116"
 
 
-def test_profile_embeds_mention_duplicate_names():
-    profile = bot.parse_profile_html(PROFILE_HTML, "https://x/profile?steamid=1")
-    embeds = bot.profile_embeds(profile, "https://x", others=2)
-    assert embeds[0].footer.text.startswith("2 other player(s)")
+def test_lookup_profile_accepts_a_packed_steamid():
+    with stub_api({"/player/STEAM_0%3A0%3A683671116": (200, API_PLAYER)}) as api:
+        result = asyncio.run(bot.lookup_profile("https://x", "0-0-683671116"))
+    assert result.ok and api.calls == ["/player/STEAM_0%3A0%3A683671116"]
 
 
-def test_lookup_profile_exact_name():
-    with stub_http({"top15?q=": SEARCH_HTML, "/profile?": PROFILE_HTML}):
-        result = bot.lookup_profile("https://x", "ajxs")
+def test_lookup_profile_by_name_uses_the_search_page_then_the_api():
+    with stub_api({"/player/STEAM_0%3A0%3A683671116": (200, API_PLAYER)}) as api:
+        with stub_http({"top15?q=ajxs": SEARCH_HTML}):
+            result = asyncio.run(bot.lookup_profile("https://x", "ajxs"))
     assert result.ok and result.profile.name == "ajxs"
     assert result.others == 1, "two players called ajxs on the board"
+    assert api.calls == ["/player/STEAM_0%3A0%3A683671116"]
 
 
-def test_lookup_profile_by_steamid_skips_search():
-    with stub_http({"top15?q=": SEARCH_HTML, "/profile?": PROFILE_HTML}) as http:
-        result = bot.lookup_profile("https://x", "STEAM_0:0:683671116")
-    assert result.ok
-    assert not any("top15?q=" in url for url in http.calls), "a STEAM id needs no search"
-    assert http.calls[0].endswith("STEAM_0%3A0%3A683671116")
-
-
-def test_lookup_profile_not_found():
-    with stub_http({"top15?q=": SEARCH_EMPTY_HTML}):
-        result = bot.lookup_profile("https://x", "ghost")
+def test_lookup_profile_not_found_is_a_real_404():
+    with stub_api({"/player/STEAM_0%3A0%3A999999999": (404, API_PLAYER_404)}):
+        result = asyncio.run(bot.lookup_profile("https://x", "STEAM_0:0:999999999"))
     assert not result.ok and result.note_kind == "not-found"
-    assert "ghost" in result.note
+    assert "no snapshot" in result.note
     embed = bot.lookup_embed(result)
-    assert embed.colour.value == bot.COLOUR_WARN and "ghost" in embed.title
+    assert embed.colour.value == bot.COLOUR_WARN
 
 
-def test_lookup_profile_no_snapshot():
-    with stub_http({"top15?q=": SEARCH_HTML, "/profile?": PROFILE_MISSING_HTML}):
-        result = bot.lookup_profile("https://x", "STEAM_0:0:999999999")
+def test_lookup_profile_bad_steamid_from_the_api():
+    with stub_api({"/player/STEAM_0%3A0%3A1": (400, API_BAD_STEAMID)}):
+        result = asyncio.run(bot.lookup_profile("https://x", "STEAM_0:0:1"))
     assert not result.ok and result.note_kind == "not-found"
-    assert "no snapshot" in result.note.lower()
+    assert "couldn't read" in result.note
+
+
+def test_lookup_profile_rate_limited():
+    with stub_api({"/player/STEAM_0%3A0%3A683671116": (429, API_RATE_LIMITED)}):
+        result = asyncio.run(bot.lookup_profile("https://x", "STEAM_0:0:683671116"))
+    assert not result.ok and result.note_kind == "unreachable"
+    assert "rate-limiting" in result.note
+
+
+def test_lookup_profile_api_unreachable():
+    result = asyncio.run(bot.lookup_profile("https://x", "STEAM_0:0:683671116"))
+    assert not result.ok and result.note_kind == "unreachable"
+
+
+def test_lookup_profile_name_not_found_needs_no_api_call():
+    with stub_api({}) as api:
+        with stub_http({"top15?q=": SEARCH_EMPTY_HTML}):
+            result = asyncio.run(bot.lookup_profile("https://x", "ghost"))
+    assert not result.ok and result.note_kind == "not-found"
+    assert api.calls == [], "an unknown name never reaches the player endpoint"
 
 
 def test_lookup_profile_candidates():
@@ -731,27 +705,94 @@ def test_lookup_profile_candidates():
       <a class='pname' href='/profile?steamid=STEAM_0%3A0%3A1'>Arkanian</a></td></tr>
       <tr class='row'><td class='idx'>5</td><td class='l'>
       <a class='pname' href='/profile?steamid=STEAM_0%3A0%3A2'>Aran5005</a></td></tr></tbody></table>"""
-    with stub_http({"top15?q=": page}):
-        result = bot.lookup_profile("https://x", "aran")
+    with stub_api({}) as api:
+        with stub_http({"top15?q=": page}):
+            result = asyncio.run(bot.lookup_profile("https://x", "aran"))
     assert not result.ok and result.note_kind == "ambiguous"
     assert [name for _, name in result.candidates] == ["Arkanian", "Aran5005"]
+    assert api.calls == []
     embed = bot.lookup_embed(result)
     assert "Arkanian" in embed.description and "STEAM_0:0:1" in embed.description
 
 
-def test_lookup_profile_unreachable():
+def test_lookup_profile_search_page_unreachable():
     with stub_http({"top15?q=": None}):
-        result = bot.lookup_profile("https://x", "ajxs")
+        result = asyncio.run(bot.lookup_profile("https://x", "ajxs"))
     assert not result.ok and result.note_kind == "unreachable"
 
 
-def test_lookup_profile_unexpected_page():
-    """A challenge page is reported as "can't read it", not as "no such player"."""
-    page = "<html><body><div id='cf'>Checking your browser…</div></body></html>"
-    with stub_http({"top15?q=": SEARCH_HTML, "/profile?": page}):
-        result = bot.lookup_profile("https://x", "STEAM_0:0:683671116")
-    assert not result.ok and result.note_kind == "unreachable"
-    assert "can't read" in result.note
+def test_profile_embeds_from_the_api():
+    profile = bot.player_from_api(API_PLAYER, "https://x/profile?steamid=1")
+    live = bot.LiveMatch(state="online", seconds=447 * 60, score=12, count=1)
+    embeds = bot.profile_embeds(profile, "https://x", others=1, live=live)
+    assert len(embeds) == 2
+    main, battle_pass = embeds
+    assert main.colour.value == bot.COLOUR_OK
+    assert battle_pass.colour.value == bot.COLOUR_BP
+    assert main.title == "ajxs"
+    assert "Server rank #1" in main.description
+    assert "in game now" in main.description and "7h 27m" in main.description
+    assert "12 pts" in main.description
+    fields = {field.name: field.value for field in main.fields}
+    assert fields["Playtime"] == "7h 27m"
+    assert fields["Coins"] == "2,400"
+    assert "Weekly #1 · Week 46 · 2026" in fields["Badges"]
+    assert "Weekly top 3 · Week 45 · 2026" in fields["Badges"]
+    assert "STEAM_0:0:683671116" in main.footer.text
+    assert "1 other player(s) share this name" in main.footer.text
+    assert battle_pass.description == "Tier 18 / 60 · 17,889 BP XP"
+    bp_fields = {field.name: field.value for field in battle_pass.fields}
+    assert bp_fields["Progress"] == "889 / 1,000 XP · 111 to the next tier"
+
+
+def test_profile_embeds_unranked_offline_no_badges():
+    profile = bot.player_from_api(API_PLAYER_UNRANKED)
+    embeds = bot.profile_embeds(profile, "https://x", live=bot.LiveMatch(state="offline"))
+    main = embeds[0]
+    assert "Unranked" in main.description
+    assert "not on the server right now" in main.description
+    fields = {field.name: field.value for field in main.fields}
+    assert fields["Badges"].startswith("none yet")
+    assert embeds[1].description == "Tier 1 / 60 · 0 BP XP"
+
+
+def test_profile_embeds_maxed_battle_pass():
+    payload = dict(API_PLAYER, bp_tier=60, bp_max_tier=60, bp_next_xp=0)
+    profile = bot.player_from_api(payload)
+    bp = bot.profile_embeds(profile, "https://x")[1]
+    assert bp.description == "Tier 60 / 60 · 17,889 BP XP"
+    assert "max tier reached" in bp.fields[0].value
+
+
+def test_profile_command_is_ephemeral_and_shows_badges():
+    async def fake_players(server, fresh=False):
+        return [{"name": "ajxs", "score": 9, "seconds": 900},
+                {"name": "someone", "score": 1, "seconds": 60}]
+
+    original = bot.get_players
+    bot.get_players = fake_players
+    try:
+        with stub_http({"top15?q=ajxs": SEARCH_HTML}):
+            interaction = call_command("profile", "ajxs",
+                                       api={"/player/STEAM_0%3A0%3A683671116": (200, API_PLAYER)})
+    finally:
+        bot.get_players = original
+    assert interaction.response.defer_kw == {"thinking": True, "ephemeral": True}
+    answer = interaction.answer
+    assert answer["ephemeral"] is True
+    assert [embed.title for embed in answer["embeds"]] == ["ajxs", "Battle Pass"]
+    assert "in game now" in answer["embeds"][0].description
+    assert "Weekly #1" in {field.name: field.value
+                           for field in answer["embeds"][0].fields}["Badges"]
+
+
+def test_profile_command_not_found_is_honest():
+    interaction = call_command("profile", "STEAM_0:0:999999999",
+                               api={"/player/STEAM_0%3A0%3A999999999": (404, API_PLAYER_404)})
+    embed = interaction.answer["embeds"][0]
+    assert embed.colour.value == bot.COLOUR_WARN
+    assert "no snapshot" in embed.description
+    assert interaction.answer["ephemeral"] is True
 
 
 # ---------------------------------------------------------------------- events
@@ -1021,17 +1062,6 @@ def test_command_guard_defers_and_reports_offline():
     assert "offline" in answer["embeds"][0].title.lower()
 
 
-def test_command_guard_ephemeral_for_profile():
-    instance = bot.build_bot(sample_cfg())
-    with stub_http({"top15?q=": SEARCH_HTML, "/profile?": PROFILE_HTML}):
-        interaction = FakeInteraction()
-        asyncio.run(instance.tree.get_command("profile").callback(interaction, "ajxs"))
-    assert interaction.response.defer_kw == {"thinking": True, "ephemeral": True}
-    answer = interaction.answer
-    assert answer["ephemeral"] is True
-    assert [embed.title for embed in answer["embeds"]] == ["ajxs (RO)", "Battle Pass"]
-
-
 def test_command_guard_empty_server():
     """An empty server is not an error: /players says so and stays calm."""
     instance = bot.build_bot(sample_cfg())
@@ -1097,8 +1127,9 @@ def test_command_guard_rate_limits_profile():
     """Two /profile calls are fine, the third inside 20 s is answered with a cooldown."""
     bot.COOLDOWN_BUCKETS.clear()
     instance = bot.build_bot(sample_cfg())
+    routes = {"/player/STEAM_0%3A0%3A683671116": (200, API_PLAYER)}
     try:
-        with stub_http({"top15?q=": SEARCH_HTML, "/profile?": PROFILE_HTML}):
+        with stub_http({"top15?q=": SEARCH_HTML}), stub_api(routes):
             first = FakeInteraction()
             asyncio.run(instance.tree.get_command("profile").callback(first, "ajxs"))
             second = FakeInteraction()
@@ -1338,13 +1369,12 @@ def test_digest_attempt_result():
     assert bot.digest_attempt_result(True, 2) == (True, 0)        # a late success resets it
 
 
-def test_profile_state_is_translated():
-    profile = bot.parse_profile_html(PROFILE_HTML, "https://x/profile?steamid=1")
-    assert profile.state == "offline"
-    bot.STRINGS["test"] = {"profile.state.offline": "hors ligne"}
+def test_profile_live_line_is_translated():
+    profile = bot.player_from_api(API_PLAYER)
+    bot.STRINGS["test"] = {"profile.not_in_game": "hors ligne"}
     try:
         bot.set_language("test")
-        embeds = bot.profile_embeds(profile, "https://x")
+        embeds = bot.profile_embeds(profile, "https://x", live=bot.LiveMatch(state="offline"))
         assert "hors ligne" in embeds[0].description
     finally:
         bot.STRINGS.pop("test", None)

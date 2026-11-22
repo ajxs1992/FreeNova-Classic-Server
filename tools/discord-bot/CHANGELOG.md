@@ -328,3 +328,29 @@ One line per change, with the verification that was actually run. Newest last.
   `Leaderboard · Week 47 · 2026` (dim, "No finished week yet - the board
   started tracking <date>"), `Top 10 · Lifetime` (gold, real XP rows) and
   `Top 3 kills · Lifetime` (`**1.** NPC_Leaders - 12 kills`). Tests 72 → 78.
+
+- **`/profile` is the player API plus an A2S liveness check** (`bot.py`):
+  `lookup_profile()` is async and resolves the query to a steamid first
+  (`STEAM_0:0:123`, the packed `0-0-123`, or a name via the board's search page
+  - the one thing the API does not do), then reads
+  `/api/public/player/<steamid>` (`PlayerProfile`, 60 s cache). The HTML profile
+  parser, its `Profile` dataclass and the fixtures are deleted; only
+  `parse_search_html` remains, for names. The embed now shows what the API
+  actually publishes: server rank (`Unranked` when `rank` is null), playtime,
+  coins (`2,400`) and **badges as plain text** (`Weekly #1 · Week 46 · 2026 ·
+  Weekly top 3 · Week 45 · 2026`, or "none yet"), plus a gold Battle Pass card
+  (`Tier 18 / 60 · 17,889 BP XP`, `Progress 889 / 1,000 XP · 111 to the next
+  tier`, `max tier reached` at 60). A2S decides the live line: `in game now ·
+  7h 27m played, 12 pts` by name match, `n players share this name`, `not on
+  the server right now`, or "couldn't check the live player list"; the footer
+  says `panel stats`. A 404 from the API is a real "no snapshot"; a 400 is
+  "I couldn't read that as a steamid"; 429/timeout say so.
+  *Verified against production:* `GET /api/public/player/STEAM_0:0:683671116`
+  and the packed `0-0-683671116` both `200` with
+  `{name:ajxs,rank:1,bp_tier:1,bp_xp:0,bp_next_xp:1000,bp_progress:0,
+  bp_tier_xp:1000,bp_max_tier:60,coins:999862237,playtime_minutes:447,
+  badges:[],updated:…}`; `STEAM_0:0:999999999` → `404 player_not_found`;
+  `garbage` → `400 bad_steamid`; the real callback rendered `ajxs · Server rank
+  #1 · not on the server right now · Playtime 7h 27m · Coins 999,862,237 ·
+  Badges none yet` + `Tier 1 / 60 · 0 BP XP`; a third call inside 20 s was
+  answered with the cooldown. Tests 78 → 83.

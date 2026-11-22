@@ -1,0 +1,66 @@
+name: plugins
+
+# Compiles every AMXX plugin in the snapshot.
+#
+# tools/compile-plugins.sh picks its runner itself: it tries the bundled
+# `scripting/amxxpc` (a 32-bit i386 ELF) natively, and falls back to
+# `docker run i386/debian:bookworm-slim` when the native binary cannot execute.
+# ubuntu-latest is x86_64 and does not restrict i386 syscalls, so the native path
+# is the one expected to run here and the i386 userland is installed up front —
+# that is the whole reason for the dpkg step. If the native binary ever stops
+# executing on the runner, the script does not skip anything: it falls back to the
+# container if that image has been pulled, and exits 3 with a message naming both
+# runners if it has not. Either way the job fails loudly instead of passing on an
+# empty plugin set. (On the snapshot host itself the native path is unavailable —
+# seccomp kills i386 processes — which is why the docker fallback exists at all.)
+#
+# ALLOW_FAIL: those three sources `#include` third-party `.inc` files
+# (bypass_guard's IP/country API headers, the ab_bypass bridge, and the HTTP
+# probe's client library) that are NOT part of this snapshot, so they cannot
+# compile from the tree we have. They are reported as
+# `FAIL ... known-unbuildable (allowed:...)` and do not fail the run, which is
+# the point: CI stays green for the 85 that must build and turns red the moment
+# one of those breaks — or a new source starts failing.
+#
+# Output goes to tools/build/plugins (gitignored); nothing is written into the
+# live game-server tree.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'game-server/cstrike/addons/amxmodx/scripting/**'
+      - 'tools/compile-plugins.sh'
+      - '.github/workflows/plugins.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'game-server/cstrike/addons/amxmodx/scripting/**'
+      - 'tools/compile-plugins.sh'
+      - '.github/workflows/plugins.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugins-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: amxxpc
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install the i386 runtime amxxpc needs
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libc6:i386 libstdc++6:i386 zlib1g:i386
+
+      - name: Compile every plugin
+        run: ALLOW_FAIL="bypass_guard.sma ab_bypass_bridge.sma freenova_http_probe.sma" ./tools/compile-plugins.sh

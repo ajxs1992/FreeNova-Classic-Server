@@ -1,0 +1,101 @@
+name: integrity
+
+# Reports how far the working tree has drifted from the two snapshot manifests
+# (MANIFEST-game-server.sha256, MANIFEST-web-panel.sha256), which were captured
+# when the hosts were copied.
+#
+# This is a REPORT, not a gate — hence continue-on-error on both checks. Files
+# legitimately change: today the drift is web-panel/relay/relay.js and
+# game-server/cstrike/addons/amxmodx/scripting/freenova_teamxp.sma among a
+# handful of others, all of them edits made after the manifest was written. A
+# red X on every one of those would train everyone to ignore the job, so the
+# checks are allowed to fail and the step summary carries the count and the file
+# list. What it is actually for: noticing that a file changed while you were not
+# looking — a live config edited on the host, a plugin rebuilt in place, a
+# manifest that was never refreshed after a fix.
+#
+# When a change is intentional, refresh the manifest in the same commit:
+#   find game-server -type f -print0 | sort -z | xargs -0 sha256sum > MANIFEST-game-server.sha256
+# (and the same for web-panel/) — then this job goes back to zero drift.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integrity-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: manifest drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Verify MANIFEST-game-server.sha256
+        id: game-server
+        # --quiet prints only the failures ("<path>: FAILED"). The log is kept in
+        # $RUNNER_TEMP so the summary step can count it after the fact.
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          sha256sum -c MANIFEST-game-server.sha256 --quiet 2>&1 \
+            | tee "${RUNNER_TEMP}/game-server.manifest.log"
+
+      - name: Verify MANIFEST-web-panel.sha256
+        id: web-panel
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          sha256sum -c MANIFEST-web-panel.sha256 --quiet 2>&1 \
+            | tee "${RUNNER_TEMP}/web-panel.manifest.log"
+
+      - name: Summarise drift
+        if: always()
+        run: |
+          set -uo pipefail
+          total=0
+          {
+            echo "## Manifest drift"
+            echo
+            echo "Compared against \`MANIFEST-*.sha256\` from the snapshot. Drift is expected and"
+            echo "not a failure: see the comment in \`.github/workflows/integrity.yml\`."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for half in game-server web-panel; do
+            log="${RUNNER_TEMP}/${half}.manifest.log"
+            if [ ! -f "$log" ]; then
+              echo "- **${half}**: manifest check did not run" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            # "path: FAILED" lines only; the trailing WARNING line is not a file.
+            count=$(grep -c ': FAILED$' "$log" || true)
+            total=$((total + count))
+            {
+              echo "- **${half}**: ${count} file(s) differ from \`MANIFEST-${half}.sha256\`"
+              if [ "$count" -gt 0 ]; then
+                echo ""
+                echo '  <details><summary>files</summary>'
+                echo ""
+                grep ': FAILED$' "$log" | sed 's/: FAILED$//' | sed 's/^/  - `/; s/$/`/' || true
+                echo ""
+                echo '  </details>'
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          {
+            echo ""
+            echo "**Total drift: ${total} file(s).**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "manifest drift: ${total} file(s) (reported, not enforced)"

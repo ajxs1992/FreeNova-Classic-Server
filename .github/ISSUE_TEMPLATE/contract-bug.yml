@@ -1,0 +1,96 @@
+name: Panel ↔ plugin contract bug
+description: The panel and the game server disagree about a request, a response or a field.
+title: "[contract] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when each half is individually "working" but they do not
+        agree: a signature mismatch, a status code one side treats as success,
+        a field named or typed differently. Background is in
+        `REVIEW.md` § 3 *Panel ↔ plugin contract*. Routing is in
+        `web-panel/src/index.js` (L34–43 dispatch the four routes below), the
+        stats/admin-call signature check in `web-panel/src/sync.js`, the
+        register/health side in `web-panel/src/register.js`, and the callers in
+        `game-server/cstrike/addons/amxmodx/scripting/` (`freenova_sync.sma`,
+        `freenova_registration.sma`, `freenova_http_probe.sma`).
+
+        **Never paste a secret.** No `relay.env` contents, no `fnweb_secret` /
+        `SYNC_SECRET` / `REG_SECRET` values, no `X-FreeNova-Signature` or
+        `X-FreeNova-Nonce` header value (say "signature rejected", not the
+        signature), no `rcon_password`. See
+        [SECRETS.md](https://github.com/ajxs1992/FreeNova-Classic-Server/blob/main/SECRETS.md).
+
+  - type: dropdown
+    id: endpoint
+    attributes:
+      label: Which endpoint or channel?
+      options:
+        - /api/v1/server/stats
+        - /api/v1/server/admin-call
+        - /api/game/v1/register
+        - /api/game/v1/health
+        - Web → game action queue (panel-queued command, plugin polls for it)
+        - MOTD /m/ short links
+        - Other (name it under "Details")
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed request and response
+      description: Method, path, status code and the body/headers that matter — with the secret and signature values redacted.
+      render: shell
+      placeholder: |
+        POST /api/v1/server/stats
+        -> 403 {"error":"bad_signature"}
+        game server log: "fnweb: stats rejected (sig mismatch)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected request and response
+      description: What the other half clearly expects — the status it treats as success, the body shape it parses, the header name it sends.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: field
+    attributes:
+      label: The disagreeing field or header
+      description: The single name that differs — a JSON key, a header, a query param, a content type. The signed headers in use today are X-FreeNova-Signature and X-FreeNova-Nonce.
+      placeholder: e.g. body key "server_id" vs "serverId", or header X-FreeNova-Signature vs X-FreeNova-Sig
+    validations:
+      required: true
+
+  - type: input
+    id: panel-ref
+    attributes:
+      label: Panel side — file:line
+      description: Where the panel builds or parses it (usually web-panel/src/index.js for routing, src/sync.js for stats/admin-call signing, src/register.js for register/health, or relay/relay.js).
+      placeholder: web-panel/src/sync.js:81
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-ref
+    attributes:
+      label: Plugin side — file:line
+      description: Where the game server builds or parses it (the .sma under game-server/cstrike/addons/amxmodx/scripting/).
+      placeholder: game-server/cstrike/addons/amxmodx/scripting/freenova_sync.sma:612
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details / reproduction
+      description: Commands, the order of events, and which direction broke first. Mention if it only fails with a fresh database, after a restart, or on a specific map change.
+      value: |
+        1.
+    validations:
+      required: false

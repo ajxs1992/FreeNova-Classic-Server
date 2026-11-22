@@ -1,0 +1,16 @@
+# Issue chooser configuration.
+# Docs: https://docs.github.com/communities/configuring-your-repository-for-issues
+
+# Blank issues stay enabled: an operator note or a one-line reminder does not fit
+# a form, and refusing it only pushes that text somewhere worse (chat, a commit
+# message). The two forms below are for reports that need structure.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Read SECRETS.md before pasting a config, a log or an env file
+    url: https://github.com/ajxs1992/FreeNova-Classic-Server/blob/main/SECRETS.md
+    about: >-
+      This repo is a copy of two live hosts and carries real credentials — the
+      panel HMAC secrets, an admin password, a Discord webhook, rcon passwords,
+      AMXX admin hashes and player data. SECRETS.md says which file holds what
+      and what needs rotating. Read it before you quote any of it in an issue.

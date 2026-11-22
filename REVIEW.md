@@ -580,6 +580,15 @@ contract.
 no documented provenance; they are now used by `tools/compile-plugins.sh`, which
 fixes that.
 
+**The asset pipeline is not reproducible from this snapshot.** 42 absolute
+Windows paths across 20 scripts (`DEBUG.md` §8) are one problem; the other is
+that 18 of the `web-panel/scripts/*.mjs` import `sharp` for image slicing, and
+`sharp` is not in `web-panel/package.json` (whose only dependency is
+`wrangler` as a devDependency). Regenerating the icons/medals therefore needs an
+undeclared native module of unknown version, and a few scripts reference inputs
+that were never copied. Treat `assets/` as the source of truth and the scripts
+as historical tooling until someone re-derives them.
+
 ## 8. Recommendations that need an operator decision
 
 These are not applied, because they change behaviour, game balance, or a live

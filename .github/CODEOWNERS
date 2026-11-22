@@ -1,0 +1,19 @@
+# CODEOWNERS — review routing for the two halves.
+#
+# This is a private repository with a single maintainer, so every rule points at
+# the same account today. The split is written out anyway: when a second person
+# takes one half (or a bot account lands), only the line below has to change, and
+# GitHub already shows which reviewer a path wants.
+#
+# Syntax reminder: the LAST matching pattern wins, so the broad `*` sits first
+# and the narrower directory rules follow it.
+
+# Everything not covered below — docs, MANIFEST-*.sha256, tools/, SECRETS.md.
+*       @ajxs1992
+
+# Web panel: Cloudflare Worker + local Node server + relay (HMAC, D1/SQLite).
+/web-panel/     @ajxs1992
+
+# Game server: AMXX plugins, configs and data. The cstrike/ root itself
+# (server.cfg, GameServerConfig.vdf) is intentionally left to the `*` rule.
+/game-server/cstrike/addons/    @ajxs1992

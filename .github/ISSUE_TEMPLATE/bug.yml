@@ -1,0 +1,84 @@
+name: Bug report
+description: Something is broken — in the web panel, a game-server plugin, or both.
+title: "[bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste a secret.** This repository is a copy of two live hosts and
+        carries real credentials (see [SECRETS.md](https://github.com/ajxs1992/FreeNova-Classic-Server/blob/main/SECRETS.md)).
+        Do not include any of the following in an issue, in a log excerpt, or in a
+        screenshot:
+
+        - the contents of `web-panel/relay/relay.env` (it holds `FNWEB_SECRET`,
+          `SYNC_SECRET`, `ADMIN_PASSWORD`, `REG_SECRET` and a Discord webhook URL);
+        - `fnweb_secret` / `freenova_reg_server_secret` from `amxx.cfg` or
+          `freenova_registration.cfg`, or an `X-FreeNova-Signature` /
+          `X-FreeNova-Nonce` header value;
+        - `rcon_password` (including the commented-out ones in `freenova.cfg`);
+        - AMX Mod X admin passwords or password hashes from `users.ini`, or the
+          Discord webhook from `calladmin.cfg`;
+        - SteamIDs, IPs or player rows from `web-panel/data/` if they are not yours.
+
+        Replace a value with `<redacted>` and say *which* key was there. A
+        screenshot of a config file is the same disclosure as pasting the text.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behaviour, with the concrete thing you saw — status code, error text, plugin log line, in-game symptom.
+      placeholder: |
+        GET /hub?compact=1 returns 500 and the relay log says "D1_ERROR: no such table: ...".
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+      description: If you are comparing against documented behaviour, say where it is documented (README.md, HUB.md, docs/RUNBOOK.md, REVIEW.md).
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands or clicks, in order. Note the URL/host you used (LAN IP, Worker URL, in-game) — several bugs only reproduce on one of them.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: half
+    attributes:
+      label: Which half is broken?
+      description: Pick the one that owns the failing behaviour; "both / not sure" is fine and still useful.
+      options:
+        - Web panel (web-panel/)
+        - Game server plugin (game-server/cstrike/addons/amxmodx/)
+        - Both / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: '`git rev-parse --short HEAD` for the checkout you saw it on, plus the deployed Worker version or the server you tested against if it was live.'
+      placeholder: e.g. 6f4baeb, Worker version 2.0.0 (local Node server, PORT 8080)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (redacted)
+      description: The smallest excerpt that shows the failure. Redact secrets as described above. Panel logs are relay/relay.log; plugin logs are game-server/cstrike/addons/amxmodx/logs/.
+      render: shell
+    validations:
+      required: false

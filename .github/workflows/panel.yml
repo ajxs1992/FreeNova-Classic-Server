@@ -1,0 +1,80 @@
+name: panel
+
+# The panel's testable surface has no runtime dependencies. `node test_harness.mjs`
+# starts `server_local.mjs`, which — together with the Worker under `src/` and the
+# relay — imports only Node builtins (`node:http`, `node:sqlite`, `node:crypto`,
+# `node:fs`, ...) and relative files, so the suite passes on a bare checkout with
+# no node_modules/ present (it is gitignored and deliberately absent from this
+# snapshot).
+#
+# So this job deliberately does NOT run `npm install` / `npm ci`: the only entry in
+# package.json is the `wrangler` devDependency, which nothing here needs, and
+# installing it would add minutes to every run without changing what is tested.
+# setup-node's npm cache is still keyed on package-lock.json, so the day a real
+# dependency matters the cache invalidates correctly and an install step can be
+# added then.
+#
+# The 18 asset scripts under web-panel/scripts/ do `import sharp from "sharp"`,
+# which is not in package.json either. They are only ever `node --check`ed here:
+# --check parses the file and never resolves its imports, so they are
+# syntax-checked without sharp installed. Nothing in this job imports them.
+#
+# The suite binds 127.0.0.1:18080 with a throwaway SQLite file; nothing here
+# talks to D1, the Worker or the live host.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web-panel/**'
+      - '.github/workflows/panel.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web-panel/**'
+      - '.github/workflows/panel.yml'
+
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first run irrelevant.
+concurrency:
+  group: panel-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  panel:
+    name: syntax + smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-panel/package-lock.json
+
+      - name: Syntax-check every tracked panel source
+        # Same loop as CONTRIBUTING.md. `git ls-files` (not `find`) so the check
+        # covers exactly what is committed — server_local.mjs, the Worker under
+        # src/, relay/, scripts/ and the _backup_ copy — and never wanders into
+        # node_modules or a scratch directory.
+        run: |
+          set -euo pipefail
+          files=$(git ls-files 'web-panel/*.js' 'web-panel/*.mjs' 'web-panel/*.cjs')
+          echo "node --check on $(printf '%s\n' "$files" | wc -l) files"
+          for f in $files; do
+            node --check "$f"
+          done
+
+      - name: Compile the Python tooling
+        # Catches syntax errors in the asset/icon scripts; writes __pycache__,
+        # which .gitignore already covers.
+        run: python3 -m py_compile web-panel/scripts/*.py
+
+      - name: Panel smoke suite
+        run: cd web-panel && node test_harness.mjs

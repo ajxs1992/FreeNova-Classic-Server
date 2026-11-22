@@ -110,11 +110,23 @@ All of it is in `~/.config/freenova-watch/watch.json`:
   Discord, update **both** — the tool does not read the panel's file.
 
 **Known gap (2026-11-22).** The webhook currently configured answers
-`404 Unknown Webhook` (`code: 10015`): it was deleted on Discord's side. The
-watcher keeps running and logs `webhook failed: …` to `watch.log`, but nothing
-reaches Discord until the owner regenerates the webhook in the channel and puts
-the new URL into `watch.json` (then `systemctl --user restart
-freenova-watch`). Verify with the `curl` at the end of §5.
+`404 Unknown Webhook` (`code: 10015`): it was deleted on Discord's side, and it
+is the *only* webhook URL in the tree, so the panel relay is pointing at a dead
+one too. The watcher keeps running and logs `webhook failed: …` to `watch.log`,
+but nothing it sends reaches Discord. Two ways to close it, and the choice is
+the owner's:
+
+- regenerate a webhook in the alerts channel and put the URL into
+  `watch.json` (and `DISCORD_WEBHOOK_URL` in `web-panel/relay/relay.env`), then
+  `systemctl --user restart freenova-watch`; or
+- move watch-day alerting onto the `freenova-bot` Discord application
+  (`~/.config/freenova-bot/config.json`, token + the same alerts channel),
+  which is what the bot already posts to — that needs a change to the tool, not
+  to the config.
+
+The watcher's own delivery path is otherwise proven: on 2026-11-22 the exact
+test message was delivered to that channel (through the bot, because the
+webhook was already dead), and the Discord API answered `200` with a message id.
 
 ## 4. Changing the backup
 
@@ -127,7 +139,7 @@ freenova-watch`). Verify with the `curl` at the end of §5.
   `excludeDirs` and `excludeGlobs`.
 
 `excludeDirs` / `excludeGlobs` are matched on the **leaf name** only, and are
-what keeps the snapshot ~690 MB instead of several GB: `steamapps`, `Steam`,
+what keeps the snapshot ~670 MB instead of several GB: `steamapps`, `Steam`,
 `valve`, `linux64`, `steamcmd`, `_retired`, `node_modules`, plus `*.so`,
 `hlds_linux`, `hlds_run`, `hltv`, `core.[0-9]*` and the SQLite `-wal`/`-shm`
 sidecars. See the backup repository's `README.md` for why each one is out.

@@ -102,8 +102,8 @@ player clicks "Buy" on /battlepass?…
         │
         │ next push (≤ 8 actions)
         ▼
-  sync.js claims each row with UPDATE … WHERE status='pending', advertises
-  only the rows it won, and marks them 'sent'                          :589-605
+  sync.js claims each row with a compare-and-swap on `attempts`, advertises
+  only the rows it won, and marks them 'sent'                  sync.js:663-700
         │
         ▼
   freenova_sync validates the batch, then the owning plugin enforces it:
@@ -114,7 +114,11 @@ player clicks "Buy" on /battlepass?…
         │
         ▼
   sync.js: UPDATE actions SET status='done'|'failed' WHERE id=? AND status='sent'
-  Rows nobody picked up expire after 1 h (`status IN ('pending','sent')`).
+  A reply can be lost (relay timeout, map change), so a 'sent' row is
+  advertised a second time on the next push - the game-side grants are
+  idempotent (`wact#<id>`, REVIEW §9b `f138da2`), so the duplicate ACKs
+  "already applied" instead of paying twice. Expiry waits for the attempts:
+  'pending' after 1 h, 'sent' only once `attempts >= 2` (hard stop 2 h).
 ```
 
 The panel is therefore a **queue of intents**, not a wallet. A player cannot buy
@@ -174,6 +178,7 @@ except the two GET-queued claims documented in `REVIEW.md` §4.1 H6.
 | GET | `/u/<STEAM_x-y-z or x:y:z>[/<slug>][/k/<token>]` | none | — | long-form MOTD |
 | GET | `/profile /top /battlepass /missions /achievements /tournament /vip /events /stats /settings /rules /icons /mapend` | none | `?steamid=`, `?t=`, `?tab=`, `?compact=1` | HTML |
 | GET | `/shop /skins /models /cosmetics` | none | — | read-only landing pages (live, not retired — REVIEW §6) |
+| POST | `/top15?theme=save` or `?theme=reset` | `X-FreeNova-Admin-Key` header, or `k` in the form body — never the query string | theme fields `t_<name>` | 302 on save, 403 without a key |
 
 ## 8. Trust boundaries
 
@@ -182,8 +187,14 @@ except the two GET-queued claims documented in `REVIEW.md` §4.1 H6.
 * **Panel → game** is *not* signed the other way: the panel queues, the game
   re-validates. The action token (`sha256(secret:act:steamid:unixDay)`) only
   proves the request came from a page rendered for that player — it is a bearer
-  credential for the day, and minting it panel-side on a public deployment is a
-  known issue (`REVIEW.md` §3.8).
+  credential for the day. Panel-side minting is therefore **opt-in**
+  (`FN_LOCAL_TRUST=1`, `sync.js localTrustEnabled`): a deployment that does not
+  set it only accepts game-minted `?t=` links, and a page asked to act without a
+  token says so instead of doing nothing (`REVIEW.md` §9c).
+* **Staff** write the top-15 theme with a key that is only read from a POST body
+  or the `X-FreeNova-Admin-Key` header, never from a URL (`top15/page.js`), and
+  the login lockout is keyed on the platform client address rather than on
+  `x-forwarded-for` (`admin.js clientIp`).
 * **Staff** authenticate with a password shared through `ADMIN_PASSWORD`, not a
   per-user credential; the session cookie is HMAC-signed with `SYNC_SECRET` and
   re-checked against `admin_sessions` on every request.

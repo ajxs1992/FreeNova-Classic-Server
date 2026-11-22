@@ -39,10 +39,17 @@ node --check server_local.mjs  # and every src/**/*.js
 tree's `freenova_panel.sq3`, and `relay/relay.env` supplies the secrets):
 
 ```sh
-cd web-panel && node server_local.mjs
+cd web-panel && FN_LOCAL_TRUST=1 node server_local.mjs
 # [panel] SQLite /…/data/freenova_panel.sq3
 # [panel] HTTP http://127.0.0.1:8080  (bind 0.0.0.0)
 ```
+
+`FN_LOCAL_TRUST=1` is what lets a page mint the day action token, i.e. what
+makes the buy/equip/claim buttons on the MOTD pages work. It is **off by
+default** (`REVIEW.md` §9c): without it the panel is read-only for actions and
+only game-minted `/u/<sid>/<slug>/k/<token>` links can queue anything. Set it
+only for a panel that is reachable from the LAN/loopback, never for one on the
+public internet.
 
 Check after start:
 

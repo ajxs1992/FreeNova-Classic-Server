@@ -299,3 +299,145 @@ printf 'put /tmp/freenova_sync.amxx cstrike/addons/amxmodx/plugins/freenova_sync
 then restart again. Rolling back `plugins.ini` alone restores the old
 `rt_core`/`rt_planting` order (corpse-planting disabled) without touching any
 binary.
+
+---
+
+# Round two — the Medium/Low findings and the panel gaps
+
+Commits `354280e..fef2c45` (`REVIEW.md` §9c). Round one's 16 files are already
+live; nothing here repeats them, and no `plugins.ini`, `amxx.cfg` or credential
+changes - so **no load-order step and no rotation** this time.
+
+`freenova_sync.amxx` is the one file whose *source* must go up even though its
+change is small: the panel half of the stale-snapshot guard needs the
+`last_seen` field it now sends. Panel and plugin can be deployed in either
+order (the panel falls back to its own clock when the field is absent, and an
+old panel ignores it).
+
+## 10. What to upload (plugins)
+
+```sh
+cd /home/ajxs/projects/FreeNova-Classic-Server/game-server
+PLUGINS2="rsu_matchstats battlepass_core freenova_mapvote weaponmenu \
+reapi_healthnade freenova_zgun weapon_models fn_bans postgres_engine \
+rt_effects rt_core rsu_stats freenova_sync"
+
+{
+  for p in $PLUGINS2; do
+    printf 'put cstrike/addons/amxmodx/plugins/%s.amxx cstrike/addons/amxmodx/plugins/%s.amxx\n' "$p" "$p"
+    printf 'put cstrike/addons/amxmodx/scripting/%s.sma cstrike/addons/amxmodx/scripting/%s.sma\n' "$p" "$p"
+  done
+} | sftp -P 2022 "$SFTP_HOST"
+```
+
+Same session setup as §4 (`SSH_ASKPASS_REQUIRE=force`, one `put` per file).
+
+| Plugin | was | now | sha256 (first 16) | Finding |
+|---|---|---|---|---|
+| `rsu_matchstats.amxx` | 12422 | 13413 | `411735f6be212873` | §5.5 lifetime KAST/trade/ace flush matched `server_id = 0` |
+| `battlepass_core.amxx` | 66158 | 66262 | `21858fb4a0a0b4f4` | production log: `item_defuser` is not an item class |
+| `freenova_mapvote.amxx` | 20451 | 19965 | `532e506050d98f02` | §5.5 `/noms` wrote past `szList[160]` |
+| `weaponmenu.amxx` | 7868 | 7478 | `e016210030f5a911` | §5.5 15 s expiry left the menu live |
+| `reapi_healthnade.amxx` | 14874 | 15979 | `11366130343e5f81` | comment only; the tracked binary was **stale**, this is the source's own build |
+| `freenova_zgun.amxx` | 17000 | 16806 | `fea3e0cabc5d15f1` | §5.5 flag gate read the flag string too late; config rewritten every map. **Not loaded** |
+| `weapon_models.amxx` | 43477 | 43565 | `fe7621e37d5450c4` | §5.5 refund path, `MAX_PLAYERS`, busy-wait |
+| `fn_bans.amxx` | 11740 | 14588 | `b0a10ce5193f49cb` | §5.5 audited/counted bans the backend never applied; "confirm failed" logged before every attempt |
+| `postgres_engine.amxx` | 33813 | 34358 | `34a1a92529fdd0b5` | §5.5 md5 temp file, fail-queue spin, no query timeout (new cvar `ab_sql_timeout`, default 20) |
+| `rt_effects.amxx` | 7471 | 7938 | `85d373a0e416e16c` | §5.5 hex colour parsed with `&&` |
+| `rt_core.amxx` | 11278 | 12814 | `0cec277eb2ac0bf3` | §5.5 ClCorpse origin divided as integers; the tracked binary was also stale |
+| `rsu_stats.amxx` | 1122 | 981 | `bacfc7ab9cc9cf15` | §5.5 comment claimed the plugin is not loaded (it is, line 67) |
+| `freenova_sync.amxx` | 39008 | 39058 | `6a096f5a7dbbca9d` | sends the per-push snapshot clock the panel's ordering guard needs |
+
+**One source-only change**: `scripting/ab_bypass_bridge.sma` (`e8bcb7b`, the
+`%N` log specifier) has **no `.amxx`** - `bypass_guard.inc` is not in this tree,
+so it cannot be built here. That plugin is commented out in `plugins.ini`
+(line 16), so nothing is running it; whoever re-enables it must rebuild both
+`bypass_guard` and `ab_bypass_bridge` on a host that has the include.
+
+`rt_core.amxx` must go up **with** the source: both are newer than what the tree
+had, and the ordering fix lives in `plugins.ini` (already live from round one).
+
+## 11. What to deploy (panel)
+
+The panel changes are one commit (`fef2c45`) in `web-panel/`. Files:
+`server_local.mjs`, `src/{sync,index,admin,pages,competitive,events,profile,register,bp_track}.js`,
+`src/top15/page.js`, `test_harness.mjs`.
+
+Before restarting, decide one thing:
+
+| Environment | `FN_LOCAL_TRUST` | Effect |
+|---|---|---|
+| the live LAN panel (MOTD + LAN browsers) | **`1`** | keeps today's behaviour: pages mint the day token, so buy/equip/claim/featured buttons work |
+| anything reachable from the internet | **unset** | no panel-side minting; only game-minted `/u/<sid>/<slug>/k/<token>` links can act, and the pages say so |
+
+```sh
+cd web-panel
+git pull                      # or copy the files over
+FN_LOCAL_TRUST=1 node server_local.mjs     # the live LAN panel
+```
+
+`FN_LOCAL_TRUST` is read from the process environment (or `relay/relay.env`,
+which `server_local.mjs` loads for keys that are unset). For the Worker path it
+would be a `[vars]` entry in `wrangler.toml` - leave it unset there.
+
+The theme editor is no longer a URL. To save the top-15 theme:
+
+```sh
+curl -sS -X POST -H "X-FreeNova-Admin-Key: $ADMIN_PASSWORD" \
+  --data "t_accent=%23ff0000&t_bg=%2308130f" \
+  "http://<panel>:8080/top15?theme=save"
+# reset:
+curl -sS -X POST -H "X-FreeNova-Admin-Key: $ADMIN_PASSWORD" \
+  "http://<panel>:8080/top15?theme=reset"
+```
+
+A bookmarked `GET /top15?theme=save&k=...` now answers 403 with an explanation
+instead of saving.
+
+## 12. Verify after the restart
+
+```
+amxx plugins                 # 67 loaded, none bad/unknown (70 on the live box)
+amx_syncstatus               # or watch the panel: meta.last_push must move
+```
+
+Then, in `addons/amxmodx/logs/error_<date>.log`, check for new lines. Per-fix
+checks that need a live player:
+
+| Fix | Check |
+|---|---|
+| `battlepass_core` defuse kit | a tier-8 CT spawns with a kit; the `[FUN] Item "item_defuser" failed to create` line and its `give_item` run-time error stop appearing |
+| `fn_bans` | `fn_banstatus` - `session_bans` moves only for a ban that actually kicks; `fn_confirm <case>` no longer logs "confirm failed" on success |
+| `postgres_engine` | a ban still lands (the DB is at 172.17.0.1:5434); no `[PG] md5` errors; `ab_sql_timeout` exists in `amx_cvar` |
+| `rsu_matchstats` | after a full match, `player_stats.kast_rounds` for a regular moves (before: unchanged) |
+| `rt_core` / `rt_effects` | corpse models sit exactly where the player died; a malformed `rt_revive_glow` no longer reads past the string |
+| `freenova_sync` + panel | the panel's `/profile` XP does not go backwards when a push is retried; `meta.last_push` moves |
+| `weapon_models` | buying a skin with less than the price charges nothing; `/skins` copy and shop behave as before |
+| panel token gate | with `FN_LOCAL_TRUST=1`, a claim button queues (status line "Request queued"); with it unset, the page says action links are unavailable |
+
+`rt_effects`, `rt_core` and the `rsu_*` changes are exercised by the local
+ReHLDS harness (`docs/RUNBOOK.md` §6): `all 67 plugins running`,
+`no runtime errors`. The bans stack (`postgres_engine`, `advanced_bans`,
+`cban_screenshots`, `fn_bans`) is **not** part of that profile, so those four are
+compile-verified only and need the live check above.
+
+## 13. Rollback
+
+Everything before this round is `354280e`:
+
+```sh
+PRE=354280e
+cd /home/ajxs/projects/FreeNova-Classic-Server/game-server
+for p in rsu_matchstats battlepass_core freenova_mapvote weaponmenu \
+         reapi_healthnade freenova_zgun weapon_models fn_bans postgres_engine \
+         rt_effects rt_core rsu_stats freenova_sync; do
+  git show $PRE:game-server/cstrike/addons/amxmodx/plugins/$p.amxx > /tmp/$p.amxx
+  printf 'put /tmp/%s.amxx cstrike/addons/amxmodx/plugins/%s.amxx\n' "$p" "$p"
+done | sftp -P 2022 "$SFTP_HOST"
+```
+
+then restart (AMX Mod X reads binaries at server start). The panel rolls back
+with `git checkout 354280e -- web-panel` and a restart. No database or vault
+migration is needed in either direction: nothing in this round adds or renames a
+column, a vault key or a config key - the only new knob is the optional
+`ab_sql_timeout` cvar and the optional `FN_LOCAL_TRUST` env var.

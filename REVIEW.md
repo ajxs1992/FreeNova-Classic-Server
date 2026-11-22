@@ -26,6 +26,7 @@ coins. None of it is a rewrite; the fixes in §9 are small.
 - [8. Recommendations that need an operator decision](#8-recommendations-that-need-an-operator-decision)
 - [9. Fixes applied while reviewing](#9-fixes-applied-while-reviewing)
 - [9b. Applied since review](#9b-applied-since-review)
+- [9c. Applied in round two](#9c-applied-in-round-two)
 - [10. Unverified / could not confirm](#10-unverified--could-not-confirm)
 - [11. Coverage](#11-coverage)
 
@@ -716,6 +717,123 @@ above:
    compiler reports +528 of code+data. A control patch of the same size in the
    same file also lands near 43.6 KB, so the jump is where amxxpc's image
    crosses a section boundary, not something this patch introduced.
+
+## 9c. Applied in round two
+
+The Medium/Low findings §5 and §5.5 left, plus the panel gaps in §8, applied
+after round one went live. Round one's own changes are untouched, and three
+tracked binaries turned out to be **stale relative to their sources** (see the
+notes at the end). Twenty-two commits, `354280e..fef2c45`.
+
+Plugin tree: `tools/compile-plugins.sh` before and after this round is
+identical - `compiled: 85   failed: 3   allowed-failures: 3`, exit 0, and no
+warning in any of the 88 logs. Every changed plugin was also built alone with
+`--only <name>` and its rebuilt binary replaced the tracked `.amxx` in the same
+commit. `H`/`C`/`D`/`S` are the compiler's header/code/data/stack-heap bytes
+from `tools/build/plugins/logs/<name>.sma.log`.
+
+| Finding | File | Commit | Evidence (`--only`, 0 warnings) |
+|---|---|---|---|
+| §5.5 lifetime KAST/trade/ace flush bound `server_id = 0` | `rsu_matchstats.sma` | `cc67250` | PASS; H1996 C20788 D29228 S16384; `rsu_matchstats.amxx` 12422 → 13413 |
+| production log: `[FUN] Item "item_defuser" failed to create` + `give_item` run-time error, twice | `battlepass_core.sma` | `ecceae0` | PASS; H7044 C164928 D95104 S262144; `battlepass_core.amxx` 66158 → 66262 |
+| §5.5 `/noms` joined 8×31 chars into `szList[160]`, negative max-length | `freenova_mapvote.sma` | `1e62a52` | PASS; H1936 C41428 D32324 S16384; `freenova_mapvote.amxx` 20451 → 19965 |
+| §5.5 weaponmenu 15 s "expiry" never closed the menu and ate the click | `weaponmenu.sma` | `4c7daaa` | PASS; H1356 C13924 D8172 S16384; `weaponmenu.amxx` 7868 → 7478 |
+| §5.5 "inverted pickup sound" - **not a defect**, see notes | `reapi_healthnade.sma` | `ee0ce82` | PASS; H2940 C30408 D14040 S16384; `reapi_healthnade.amxx` 14874 → 15979 (comment only; the tracked binary was stale) |
+| §5.5 zgun read its flag string after the gate that needs it | `freenova_zgun.sma` | `0cb7f77` | PASS; H2176 C27024 D28916 S16384; 17000 → 17007 |
+| §5.5 zgun deleted and rewrote its own config every map, and never exec'd it | `freenova_zgun.sma` | `007bdb3` | PASS; H2216 C27312 D27632 S16384; 17007 → 16806 |
+| §5.5 weapon_models redefined `MAX_PLAYERS` | `weapon_models.sma` | `acbb14f` | PASS; H3392 C91708 D623308 S16384; 43477 → 43473 |
+| §5.5 weapon_models spun 8 times with no delay waiting for an unlink | `weapon_models.sma` | `f2efc10` | PASS; H3392 C91548 D623304 S16384; 43473 → 43380 |
+| §5.5 weapon_models debited coins then verified with no refund path | `weapon_models.sma` | `a7645b5` | PASS; H3392 C91616 D623796 S16384; 43380 → 43565 |
+| §5.5 fn_bans counted/audited/announced a ban `server_cmd()` only queued | `fn_bans.sma` | `d1d90ec` | PASS; H1580 C26672 D16120 S16384; 11740 → 14581 |
+| §5.5 fn_bans logged "confirm failed" before every attempt | `fn_bans.sma` | `ae01ad8` | PASS; same H/C/D/S; 14581 → 14588 |
+| §5.5 postgres md5 temp file fixed + `hash_file()` unchecked | `postgres_engine.sma` | `17d01de` | PASS; H1372 C41152 D2043188 S131072; 33813 → 34032 |
+| §5.5 `PgFailQueue` re-drained a queue a handler can re-grow | `postgres_engine.sma` | `1ab99bb` | PASS; H1372 C41276 D2043188 S131072; 34032 → 34082 |
+| §5.5 no `ST_BUSY` query timeout although `g_q_start` is recorded | `postgres_engine.sma` | `f57594e` | PASS; H1392 C41876 D2043416 S131072; 34082 → 34358; new cvar `ab_sql_timeout` (20 s) |
+| §5.5 rt_effects parsed a hex colour with `&&` instead of `||` | `rt_effects.sma` | `ff3018a` | PASS; H1376 C13348 D5500 S16384; 7471 → 7938 |
+| §5.5 rt_core divided the ClCorpse origin by 128 in integer arithmetic | `rt_core.sma` | `f4c154a` | PASS; H2164 C21456 D15728 S16384; 11278 → 12814 |
+| §5.5 `ab_bypass_bridge` logged a player name with SourceMod `%N` | `ab_bypass_bridge.sma` | `e8bcb7b` | **no binary committed** - `bypass_guard.inc` is not in the snapshot. Edit compile-checked against a throwaway stub include: H648 C3652 D3176 S16384 |
+| §5.5 rsu_stats' header claimed the plugin is not loaded | `rsu_stats.sma` | `1bc16a3` | PASS; H312 C144 D708 S16384; 1122 → 981 (comment only) |
+| §7 two `.bak` files identical to their source | `scripting/*.bak` | `cbd85bf` | deleted `freenova_missions.sma.20261025-bpfix2.bak`, `freenova_randevent.sma.bak-evtest-20261119`; 18 other revisions kept |
+| §4.1 H1 stale snapshot rolls counters back (plugin half) | `freenova_sync.sma` | `96e9895` | PASS; H4928 C86056 D178040 S262144; `freenova_sync.amxx` 39008 → 39058 (adds `last_seen` per player) |
+
+Panel: one commit, `fef2c45`, because `src/sync.js` carries four of the six
+fixes in one region of the file. Verification for the whole commit:
+
+```
+cd web-panel && node test_harness.mjs
+  PASS panel test suite (73 checks)          exit 0    (was 23 checks)
+node --check over all 73 tracked JS files    0 failures
+npm audit                                    found 0 vulnerabilities
+```
+
+| Finding | File | Test that covers it |
+|---|---|---|
+| §3.8/§8.6 `mintActionToken` was public | `src/sync.js`, `src/pages.js`, `src/competitive.js`, `src/events.js`, `server_local.mjs` | "no token minted without FN_LOCAL_TRUST", "anonymous claim page explains itself", "anonymous claim queued nothing", "trusted deployment queues the claim" |
+| §4.1 H1 stale push (panel half) | `src/sync.js` | "stale push did not lower xp/coins", "newer push applied" |
+| §4.2 M5 a `sent` action is never re-dispatched | `src/sync.js` | "a lost reply is re-dispatched once", "no third dispatch", "receipt closes a re-dispatched action", "dispatches stay inside the attempts budget", "sent row with attempts left is not expired" |
+| §4.1 H2/§8.7 admin password in a GET parameter | `src/top15/page.js`, `src/index.js` | "GET admin key refused", "GET admin key changed nothing", "POST with header key accepted", "POST with body key accepted", "wrong key refused" |
+| §4.2 M2 lockout keyed on `x-forwarded-for` | `src/admin.js`, `server_local.mjs` | "lockout survives a rotated x-forwarded-for", "expired login_fail counters are pruned" |
+| §4.2 M3 token URLs without a referrer policy | `src/index.js` | "token URL sends no-referrer", "plain page sends no referrer policy" |
+| §4.2 M8 `premiumExtraCoins` returned 0 for 57/60 tiers; §4.3 profile hard-coded 1000 | `src/bp_track.js`, `src/profile.js` | "premium table covers most tiers", "premiumExtraCoins(1)/(50)/(4)", "xpPerTier follows the track" |
+| §4.1 H3 unbounded body before the HMAC check (Worker path) | `src/sync.js`, `src/register.js` | "oversize push refused with 413", "runner body cap refuses 3 MB" |
+| §4.2 M4 `sqlite_d1.batch` atomicity (round one's fix, regression test) | `src/sqlite_d1.js` | "failing batch throws", "failing batch rolls back" |
+
+### A finding that was wrong
+
+`reapi_healthnade.sma:412` `if (iPlayerAmmo)` is **correct**; negating it would
+be a bug. Upstream (github.com/Giferns/HealthNade, `reapi_healthnade.sma` on
+`main`) has the same test. The two branches of `touch_healthnade_drop()` are not
+equivalent: when the player already owns the nade, `giveNade()` calls
+`giveAmmo()`, which writes `m_rgAmmo` directly and never reaches the engine, so
+the plugin must make the sound; when the player has none, `giveNade()` creates
+the item and calls `DLLFunc_Touch`, and the engine plays the same
+`items/gunpickup2.wav` from `CBasePlayerItem::DefaultTouch` (ReGameDLL_CS
+`weapons.cpp:650`). Flipping the test would double the sound on a fresh pickup
+and silence the top-up. A comment now records this.
+
+### Four things this round measured
+
+1. **Three tracked `.amxx` binaries were stale relative to their sources** -
+   `reapi_healthnade.amxx` (14874 tracked, 15979 built from the committed
+   `.sma` *before* any change), `fn_bans.amxx` (11740 tracked, 12912 built) and
+   `rt_core.amxx` (11278 tracked, 11894 built). REVIEW §5.5's "deployment drift"
+   applies to more than `postgres_engine` and `weapon_models`: the binaries in
+   this tree cannot be assumed to be what the hosts run. Measured by compiling
+   `HEAD`'s source and my edit back to back; each of those three is rebuilt and
+   in the deploy list as a consequence.
+2. **`ab_bypass_bridge.sma` cannot be shipped from this snapshot.** It needs
+   `bypass_guard.inc`, which is not in the tree, so no `.amxx` is committed for
+   `e8bcb7b` (the plugin is omitted from `plugins.ini` anyway). Rebuilding it
+   needs the include from the host.
+3. **`fn_bans` now needs `advanced_bans`' own reports to count a ban.** It hooks
+   `CBan_OnPlayerBannedPost` (live bans, fired after `AddBan`) and
+   `CBan_OnAddBan` (offline/IP). A ban the backend refuses is audited as
+   `ban.not_landed` instead of `ban.add`. Known window: `CBan_OnAddBan` is
+   fired *before* the offline row is stored, so a DB failure after it is still
+   counted. No plugin in this tree consumes `fn_ban_added` or `fn_ban_count`.
+4. **The panel's free-lane coin table does not match the game's.** For the
+   premium column the panel now mirrors `battlepass_core.sma`
+   `g_iBpPremiumCoins` exactly, but `bp_track.js:3-7` (`FREE_COINS`) still holds
+   different numbers from `g_iBpFreeCoins` (e.g. tier 2: panel 50, game 0), and
+   the game-pushed `reward_track` catalog states a third set for the big tiers
+   (tier 50 premium 3,000c vs the code's 1,950c). Only the panel's/world's
+   *display* is affected - the game is the payer - so this stays a
+   recommendation (§8.13) rather than a change made here.
+
+### New operator decisions this round created
+
+13. **`FREE_COINS` vs `g_iBpFreeCoins` vs `seed_catalogs.sql`** (measured above):
+    pick which one `/battlepass` should display. Mirroring `g_iBpFreeCoins` is a
+    small change to `bp_track.js`, but it changes what players are promised.
+14. **`FN_LOCAL_TRUST` must be set on the LAN panel to keep in-page actions.**
+    The token gate is default-off, so after this round a panel without
+    `FN_LOCAL_TRUST=1` renders read-only action buttons (game-minted `?t=` links
+    still work). That is the intended default; the operator has to decide to opt
+    the LAN deployment back in.
+15. **The `?k=` theme editor is now POST-only** (§8.7 taken, in the narrow form:
+    body/header + constant-time compare, not a `/admin` session). A bookmarked
+    `GET /top15?theme=save&k=...` now returns 403 with an explanation; the curl
+    equivalent is in `docs/DEPLOY-plugins.md` §10.
 
 ## 10. Unverified / could not confirm
 

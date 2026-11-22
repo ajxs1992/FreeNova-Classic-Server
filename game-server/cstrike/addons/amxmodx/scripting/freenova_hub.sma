@@ -77,8 +77,9 @@ public plugin_init()
     register_clcmd("say_team /settings", "Cmd_SettingsDirect")
     register_clcmd("say /help", "Cmd_Help")
     register_clcmd("say_team /help", "Cmd_Help")
-    register_clcmd("say /commands", "Cmd_Help")
-    register_clcmd("say_team /commands", "Cmd_Help")
+    // /commands is owned by fn_commands.amxx: it builds the list from the
+    // command registry instead of a hand-written menu. Cmd_Help stays the
+    // curated overview behind /help and points there.
 
     // CS binds N to nightvision. The hub owns that key so every client
     // gets the same main menu without a client-side bind.
@@ -332,8 +333,11 @@ public Cmd_Help(id)
         return PLUGIN_HANDLED
 
     new szTitle[64]
-    FN_MenuTitle(szTitle, charsmax(szTitle), "Commands")
+    FN_MenuTitle(szTitle, charsmax(szTitle), "Help")
     new menu = menu_create(szTitle, "Help_Handler")
+    // The full, generated list lives in fn_commands (/commands): this menu is
+    // the short curated path for the things players ask for by name.
+    client_print_color(id, print_team_default, "%s This menu is the short list - say /commands for every command.", FN_CHAT_PREFIX)
     menu_additem(menu, "\wProfile / stats \d(/rankstats)", "0")
     menu_additem(menu, "\wBattle Pass \d(/bp)", "1")
     menu_additem(menu, "\wMissions \d(/missions)", "2")

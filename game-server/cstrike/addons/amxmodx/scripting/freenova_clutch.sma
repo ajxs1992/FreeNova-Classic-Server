@@ -284,9 +284,12 @@ HandleRoundEnd(CsTeams:winningTeam)
                 {
                     new cid = g_iActiveClutcher
                     g_iClutchPending[cid] += coinBonus
-                    new szPKey[64]
-                    ClutchKey(cid, szPKey, charsmax(szPKey))
-                    format(szPKey, charsmax(szPKey), "clutchpend#%s", szPKey)
+                    // Two buffers: format() writes into its destination while it
+                    // consumes the format string, so format(buf, n, "...%s", buf)
+                    // loses the authid and every player collides on one vault row.
+                    new szPId[48], szPKey[64]
+                    ClutchKey(cid, szPId, charsmax(szPId))
+                    format(szPKey, charsmax(szPKey), "clutchpend#%s", szPId)
                     if (g_VaultClutch != INVALID_HANDLE)
                     {
                         new szPAmt[16]
@@ -347,9 +350,9 @@ LoadClutchData(id)
     }
 
     // Pending clutch coins survive disconnects in the vault; pick them up.
-    new szPendKey[64], szPend[16]
-    ClutchKey(id, szPendKey, charsmax(szPendKey))
-    format(szPendKey, charsmax(szPendKey), "clutchpend#%s", szPendKey)
+    new szPendId[48], szPendKey[64], szPend[16]
+    ClutchKey(id, szPendId, charsmax(szPendId))
+    format(szPendKey, charsmax(szPendKey), "clutchpend#%s", szPendId)
     if (nvault_get(g_VaultClutch, szPendKey, szPend, charsmax(szPend)))
         g_iClutchPending[id] = str_to_num(szPend)
     g_bLoaded[id] = true
@@ -398,9 +401,9 @@ FlushClutchPending(id)
     {
         log_amx("[FreeNova Clutch] Flushed %d pending coins", g_iClutchPending[id])
         g_iClutchPending[id] = 0
-        new szKey[64]
-        ClutchKey(id, szKey, charsmax(szKey))
-        format(szKey, charsmax(szKey), "clutchpend#%s", szKey)
+        new szId[48], szKey[64]
+        ClutchKey(id, szId, charsmax(szId))
+        format(szKey, charsmax(szKey), "clutchpend#%s", szId)
         if (g_VaultClutch != INVALID_HANDLE)
             nvault_set(g_VaultClutch, szKey, "0")
     }

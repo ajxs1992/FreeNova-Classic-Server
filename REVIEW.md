@@ -577,12 +577,17 @@ from this snapshot at all until those `.inc` files are recovered from the host.
 
 ## 10. Unverified / could not confirm
 
-1. **`hash_string` hex case.** `freenova_sync.sma:602` embeds the inner digest
-   in the signed string and `sync.js:94-95` recomputes it lowercase. If AMXX
-   emitted uppercase, *every* push would 401 — a single point of total failure.
-   The live replica shows accepted pushes, which is strong evidence, but the
-   AMXX core is a binary and the `.inc` only declares the native. **Not
-   verified from source.** Confirm with one `fnweb_debug 1` log line.
+1. **`hash_string` hex case — resolved by inference, not by source.**
+   `freenova_sync.sma:602` embeds the inner digest in the signed string and
+   `sync.js:94-95` recomputes it lowercase; if AMXX emitted uppercase, *every*
+   push would 401. Three independent signals say it is lowercase:
+   (a) the live replica shows accepted pushes (`meta.last_push` moving, 15
+   players); (b) `dlls/amxmodx_mm_i386.so` contains exactly one hex table,
+   `0123456789abcdef`, and no uppercase table (`grep -c` = 1 / 0);
+   (c) that binary exports `_ZZN6SHA2567getHashEvE7dec2hex` — the static
+   `dec2hex` table inside `SHA256::getHash`, i.e. the very array used to render
+   the digest. Still not a source read: confirm with one `fnweb_debug 1` log
+   line if a push ever starts 401-ing for no visible reason.
 2. **Stack-frame sizes** (§5.2): summed from declarations, not from compiler
    output. The compiler does not report frame size.
 3. **`json_parse` strictness** — inferred from the JSON module contract, not

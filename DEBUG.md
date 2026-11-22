@@ -390,10 +390,13 @@ REVIEW §7.
 
 ## 10. Could not verify
 
-1. **AMXX `hash_string` output case.** If it emitted uppercase hex, every signed
-   push would 401 (the inner body digest is part of the signed string). The live
-   DB shows accepted pushes, which argues it is lowercase, but the AMXX core is a
-   binary and `amxmodx.inc` only declares the native. Not proven from source.
+1. **AMXX `hash_string` output case — inferred, not read.** If it emitted
+   uppercase hex, every signed push would 401 (the inner body digest is part of
+   the signed string). Evidence it is lowercase: the live DB shows accepted
+   pushes; `dlls/amxmodx_mm_i386.so` holds one hex table
+   (`0123456789abcdef`, `grep -c` = 1) and no uppercase one; and that binary
+   exports `_ZZN6SHA2567getHashEvE7dec2hex`, the static `dec2hex` table of
+   `SHA256::getHash`. Not a substitute for one `fnweb_debug 1` log line.
 2. **Real-HLDS behaviour of `json_parse`** on a fixed registration reply. Proven
    from the wire bytes and the plugin's parser, not on a running server.
 3. **The two stack-size estimates** (`freenova_registration.sma`,

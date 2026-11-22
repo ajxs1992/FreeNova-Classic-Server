@@ -164,10 +164,6 @@ ALLOW_LIST = [
      "pristine AMXX 1.10 upstream (verified against the vendored tarball) and "
      "restmenu.amxx is not in plugins.ini, so the %n crash path is unreachable; "
      "fix + rebuild together if an operator ever loads it"),
-    ("bypass_guard.sma", "format-spec",
-     "live source cannot be rebuilt from this snapshot (its third-party includes "
-     "are not vendored, REVIEW §10) and the plugin is omitted from plugins.ini; "
-     "fix + rebuild in one change once those headers are available"),
 ]
 
 

@@ -1083,8 +1083,13 @@ func_KickPlayer(pPlayer, KICK_TYPE_ENUM:iKickType, iArrayPos = 0, eRangeData[RAN
 
 	new szMsg[320]
 
-	new iLen = formatex( szMsg, chx(szMsg), "[%s] [SV: %s] %n | %s | %s",
-		KICK_TYPE[iKickType], g_szSvStatus[pPlayer], pPlayer, g_szAddress[pPlayer], g_szAuthID[pPlayer] );
+	// %n is not an AMXX format specifier: the formatter raises run time error 10
+	// on it (measured, tools/lint-plugins.py rule 2), so resolve the name first.
+	new szPlayerName[MAX_NAME_LENGTH]
+	get_user_name(pPlayer, szPlayerName, chx(szPlayerName))
+
+	new iLen = formatex( szMsg, chx(szMsg), "[%s] [SV: %s] %s | %s | %s",
+		KICK_TYPE[iKickType], g_szSvStatus[pPlayer], szPlayerName, g_szAddress[pPlayer], g_szAuthID[pPlayer] );
 
 	switch(iKickType) {
 		case KICK_TYPE__AS_BAN: {
@@ -2117,8 +2122,11 @@ public concmd_Status(pPlayer, iAccess) {
 			continue
 		}
 
-		console_print( pPlayer, "%i <-> %s <-> %n <-> %s <-> %s <-> %s <-> %s <-> %s <-> %s",
-			++iCount, g_szAccess[pUser], pUser, g_szAddress[pUser], g_szAuthID[pUser], g_szAsNumber[pUser],
+		// %n -> a resolved name (see the kick log above).
+		new szUser[32]
+		get_user_name(pUser, szUser, chx(szUser))
+		console_print( pPlayer, "%i <-> %s <-> %s <-> %s <-> %s <-> %s <-> %s <-> %s <-> %s",
+			++iCount, g_szAccess[pUser], szUser, g_szAddress[pUser], g_szAuthID[pUser], g_szAsNumber[pUser],
 			g_szDesc[pUser], g_szCode[pUser], g_szCountry[pUser] );
 	}
 
@@ -2663,28 +2671,32 @@ public concmd_RestrictPlayer(pPlayer, iAccess) {
 		copy(szMode, chx(szMode), "as")
 	}
 
+	// %n -> a resolved name (see the kick log above).
+	new szTargetName[MAX_NAME_LENGTH]
+	get_user_name(pTarget, szTargetName, chx(szTargetName))
+
 	new szComment[MAX_COMMENT_LEN]
 	if(read_argc() > 3) {
 		read_argv(3, szComment, chx(szComment))
 		trim(szComment)
 	}
 	if(!szComment[0]) {
-		formatex(szComment, chx(szComment), "restrict %n", pTarget)
+		formatex(szComment, chx(szComment), "restrict %s", szTargetName)
 	}
 
 	if(equali(szMode, "ip")) {
 		server_cmd("bg_ip_blacklist_add %s %s ^"%s^"", g_szIP[pTarget], g_szIP[pTarget], szComment)
-		console_print(pPlayer, "* Restricting IP %s for %n", g_szIP[pTarget], pTarget)
+		console_print(pPlayer, "* Restricting IP %s for %s", g_szIP[pTarget], szTargetName)
 		return PLUGIN_HANDLED
 	}
 
 	if(!g_szAsNumber[pTarget][0] || equal(g_szAsNumber[pTarget], _NA_)) {
-		console_print(pPlayer, "* ASN not known for %n yet. Use bg_restrict_player <target> ip instead.", pTarget)
+		console_print(pPlayer, "* ASN not known for %s yet. Use bg_restrict_player <target> ip instead.", szTargetName)
 		return PLUGIN_HANDLED
 	}
 
 	server_cmd("bg_as_blacklist_add %s ^"%s^"", g_szAsNumber[pTarget], szComment)
-	console_print(pPlayer, "* Restricting ASN %s for %n", g_szAsNumber[pTarget], pTarget)
+	console_print(pPlayer, "* Restricting ASN %s for %s", g_szAsNumber[pTarget], szTargetName)
 	return PLUGIN_HANDLED
 }
 

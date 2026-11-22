@@ -51,3 +51,24 @@ One line per change, with the verification that was actually run. Newest last.
   return `note_kind=period`; an unreachable base returns `note_kind=unavailable`;
   empty/garbage HTML returns `[]`; restart → 5 commands synced and REST shows
   `/top ... [period, count]`, which also proves options survive `command_guard`.
+
+- **`/profile <name or STEAM_0:x:y:z>`** (`bot.py`): resolves a STEAM_0 id
+  directly, otherwise searches the board (`/top15?q=`) and requires a single
+  exact name match - other players with that name are counted in the footer,
+  and anything inexact is answered with a short candidate list instead of a
+  guess. The board's search silently misses names with `_`/symbols, so a
+  loosened prefix retry runs and is only accepted on an exact name match.
+  The reply is two embeds: career snapshot (mint `#36DEAB`: level, rank tier,
+  server rank, XP, K/D, HS%, playtime, wins, MVP, skill/VIP/medals, crest
+  thumbnail, profile link) and battle pass (gold `#e8c547`: tier, XP, next rank
+  and XP to go). Ephemeral, because it is personal data. "Coins" are not shown
+  because the board does not publish a coin balance publicly (checked
+  `/profile`, `/shop`, `/vip`, `/battlepass`, `/statsviewer`).
+  *Verified:* `py_compile`; `parse_profile_html` against the live page returns
+  every field (ajxs: L18, 24,889 XP, rank #1, 7h 27m, BP Tier 18/60 889/1000,
+  `Supreme Master First Class → Global Elite · 5,111 XP to go`); not-found page
+  → `None`; name/STEAM/soft-hyphen variants resolve (`npc_known`, `ENZO_123`
+  via the loosened retry); `STEAM_0:0:999999999` → "no snapshot yet";
+  the real command callback was driven with a fake interaction (defer
+  `thinking=True, ephemeral=True`, both embeds rendered); restart → 6 commands
+  synced, REST shows `/profile ... [player]`.

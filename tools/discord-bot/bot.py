@@ -43,7 +43,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -455,7 +455,7 @@ def _int_of(block: str, pattern: str, group: int = 1) -> int | None:
 
 
 def _steamid_of(block: str) -> str | None:
-    match = re.search(r"/profile\?steamid=([A-Za-z0-9_%:]+)", block)
+    match = re.search(r"steamid=([A-Za-z0-9_%:]+)", block)
     return urllib.parse.unquote(match.group(1)) if match else None
 
 
@@ -585,6 +585,279 @@ def fetch_leaderboard(base: str, period: str = "all", limit: int = 10) -> Leader
     return Leaderboard(period=period, rows=tuple(rows[:max(1, limit)]), url=url)
 
 
+# --------------------------------------------------------------------- profile
+STEAMID_RE = re.compile(r"^STEAM_[0-9]:[0-9]:[0-9]{1,12}$", re.I)
+
+
+def is_steamid(query: str) -> bool:
+    """`STEAM_0:1:12345` (the form players see in game, any case)."""
+    return bool(STEAMID_RE.match((query or "").strip()))
+
+
+def normalise_steamid(query: str) -> str:
+    return (query or "").strip().upper().replace(" ", "")
+
+
+@dataclass
+class Profile:
+    """Everything the public profile page tells us about one player."""
+
+    name: str
+    steamid: str | None = None
+    rank_name: str = ""
+    level: int | None = None
+    xp: int | None = None
+    server_rank: int | None = None
+    state: str = ""
+    seen: str = ""
+    country: str = ""
+    crest: str = ""
+    stats: dict[str, str] = field(default_factory=dict)
+    bp_tier: str = ""
+    bp_xp: str = ""
+    next_rank: str = ""
+    skill: str = ""
+    vip: str = ""
+    medals: str = ""
+    url: str = ""
+
+    def playtime(self) -> str:
+        return self.stats.get("Playtime", "")
+
+
+def parse_profile_html(body: str, url: str = "") -> Profile | None:
+    """Parse `<base>/profile?steamid=…`. `None` when the player has no snapshot."""
+    if not body or re.search(r"class='panel msg'", body):
+        return None
+    name_block = re.search(r"<div class='pbig'>(.*?)</div>", body, re.S)
+    if not name_block:
+        return None
+    name = _strip_tags(name_block.group(1))
+    if not name:
+        return None
+
+    sub = _text_of(body, r"<div class='psmall'>([^<]*)</div>")
+    level = _int_of(sub, r"Lvl\s*(\d+)")
+    seen = ""
+    seen_match = re.search(r"seen (\S+)", sub)
+    if seen_match:
+        seen = seen_match.group(1)
+    state = "offline" if "offline" in sub.lower() else ("online" if "online" in sub.lower() else "")
+
+    stats: dict[str, str] = {}
+    for match in re.finditer(r"<span class='sk'>([^<]*)</span>\s*<span class='sv'>([^<]*)</span>", body):
+        key = _strip_tags(match.group(1))
+        value = _strip_tags(match.group(2))
+        if key and value:
+            stats[key] = value
+
+    bp_block = re.search(r"<span class='k'>Battle Pass</span>\s*<span class='v[^']*'>([^<]*)</span>"
+                         r"(?:\s*<span class='sub'>([^<]*)</span>)?", body)
+    skills = [_strip_tags(m) for m in re.findall(r"<div class='skillrow'>(.*?)</div>", body, re.S)]
+    skill = next((s for s in skills if s.lower().startswith("skill")), "")
+    vip = next((s for s in skills if "vip" in s.lower()), "")
+    flag = re.search(r"flagcdn\.com/20x15/([a-z]{2})\.png", body)
+    crest = re.search(r"<img class='bigcrest'[^>]*src='([^']+)'", body)
+    medals = _text_of(body, r"class='medal-count'>([^<]*)")
+    next_rank = _text_of(body, r"<table class='proghead'[^>]*>\s*<tr>\s*<td>([^<]*)</td>")
+    next_rank_to_go = _text_of(body, r"<table class='proghead'[^>]*>\s*<tr>\s*<td>[^<]*</td>\s*"
+                                     r"<td class='r'>([^<]*)</td>")
+
+    return Profile(
+        name=name,
+        steamid=_steamid_of(body),
+        rank_name=_text_of(body, r"<img class='bigcrest'[^>]*alt='([^']*)'"),
+        level=level,
+        xp=_int_of(body, r"class='pxpbig'>\s*([\d,]+)"),
+        server_rank=_int_of(body, r"Server rank #(\d+)"),
+        state=state,
+        seen=seen,
+        country=flag.group(1).upper() if flag else "",
+        crest=crest.group(1) if crest else "",
+        stats=stats,
+        bp_tier=_strip_tags(bp_block.group(1)) if bp_block else "",
+        bp_xp=_strip_tags(bp_block.group(2) or "") if bp_block else "",
+        next_rank=(next_rank + (f" · {next_rank_to_go}" if next_rank_to_go else "")) if next_rank else "",
+        skill=skill,
+        vip=vip,
+        medals=medals,
+        url=url,
+    )
+
+
+def parse_search_html(body: str) -> list[tuple[str, str]]:
+    """(steamid, name) pairs from the leaderboard search page, best first."""
+    found: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"<a[^>]*href='/profile\?steamid=([^']+)'[^>]*>(.*?)</a>", body, re.S):
+        steamid = urllib.parse.unquote(match.group(1))
+        name = _strip_tags(match.group(2))
+        if not steamid or not name or steamid in seen:
+            continue
+        seen.add(steamid)
+        found.append((steamid, name))
+    return found
+
+
+@dataclass
+class Lookup:
+    """Result of a `/profile` lookup, ready to render."""
+
+    profile: Profile | None = None
+    query: str = ""
+    candidates: tuple[tuple[str, str], ...] = ()
+    note: str = ""
+    note_kind: str = ""            # "" | "not-found" | "ambiguous" | "unreachable"
+    others: int = 0                # other players sharing the queried name
+    url: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.profile is not None
+
+
+def profile_url(base: str, steamid: str) -> str:
+    return f"{base}/profile?steamid={urllib.parse.quote(steamid, safe='')}"
+
+
+def _search_candidates(base: str, query: str) -> list[tuple[str, str]] | None:
+    """(steamid, name) pairs the board's search returns; `None` when unreachable."""
+    body = _http_get(f"{base}/top15?q={urllib.parse.quote(query)}")
+    return None if body is None else parse_search_html(body)
+
+
+def _loose_query(query: str) -> str | None:
+    """The board's search misses names containing `_` (its LIKE pattern), so
+    retry with the leading alphanumeric run - e.g. `ENZO_123` -> `ENZO`."""
+    match = re.match(r"[A-Za-z0-9]{3,}", query)
+    if match and match.group(0) != query:
+        return match.group(0)
+    return None
+
+
+def lookup_profile(base: str, query: str) -> Lookup:
+    """Resolve a name or STEAM_0:x:y:z and fetch that player's public profile.
+
+    Never guesses between players: anything but a single exact name match is
+    answered with a short list of candidates (or a plain "not found").
+    """
+    query = (query or "").strip()
+    if not query:
+        return Lookup(query=query, note="Give me a player name or a STEAM_0:x:y:z id.",
+                      note_kind="not-found")
+
+    steamid: str | None = normalise_steamid(query) if is_steamid(query) else None
+    others = 0
+    if steamid is None:
+        candidates = _search_candidates(base, query)
+        if candidates is None:
+            return Lookup(query=query, url=f"{base}/top15",
+                          note=f"I couldn't reach the leaderboard at {base} just now.",
+                          note_kind="unreachable")
+        exact = [c for c in candidates if c[1].casefold() == query.casefold()]
+        if exact:
+            # names are not unique on a public server: take the highest-ranked
+            # exact match (board order is rank order) and say so if there are others
+            steamid = exact[0][0]
+            others = len(exact) - 1
+        elif candidates:
+            return Lookup(query=query, candidates=tuple(candidates[:5]),
+                          note=f"No exact match for “{query}”. Closest players:",
+                          note_kind="ambiguous",
+                          url=f"{base}/top15?q={urllib.parse.quote(query)}")
+        else:
+            loose = _loose_query(query)
+            near = _search_candidates(base, loose) if loose else None
+            exact_near = [c for c in (near or []) if c[1].casefold() == query.casefold()]
+            if exact_near:
+                steamid = exact_near[0][0]
+                others = len(exact_near) - 1
+            elif near:
+                return Lookup(query=query, candidates=tuple(near[:5]),
+                              note=(f"No exact match for “{query}” - the board's search skips "
+                                    f"symbols, so here is what “{loose}” found:"),
+                              note_kind="ambiguous",
+                              url=f"{base}/top15?q={urllib.parse.quote(loose or query)}")
+            else:
+                return Lookup(query=query, url=f"{base}/top15?q={urllib.parse.quote(query)}",
+                              note=(f"I can't find anyone called “{query}” on the leaderboard. "
+                                    "Names have to match what the player uses in game; a "
+                                    "STEAM_0:x:y:z id always works."),
+                              note_kind="not-found")
+
+    url = profile_url(base, steamid)
+    body = _http_get(url)
+    if body is None:
+        return Lookup(query=query, url=url,
+                      note=f"I couldn't reach the leaderboard at {base} just now.",
+                      note_kind="unreachable")
+    profile = parse_profile_html(body, url)
+    if profile is None:
+        return Lookup(query=query, url=url,
+                      note=(f"There's no snapshot for `{steamid}` yet - the board records a player "
+                            "after a few minutes on the server. Play a round and try again."),
+                      note_kind="not-found")
+    if not profile.steamid:
+        profile.steamid = steamid
+    return Lookup(profile=profile, query=query, url=url, others=others)
+
+
+def profile_embeds(profile: Profile, base: str, others: int = 0) -> list[discord.Embed]:
+    """Two cards: the rank/career snapshot (mint) and the battle pass (gold)."""
+    headline = " · ".join(part for part in (
+        f"Level {profile.level}" if profile.level is not None else "",
+        profile.rank_name,
+        f"Server rank #{profile.server_rank}" if profile.server_rank else "",
+        profile.state,
+    ) if part)
+    if profile.seen:
+        headline += f" · last seen {profile.seen}"
+
+    main = discord.Embed(title=f"{profile.name}" + (f" ({profile.country})" if profile.country else ""),
+                         url=profile.url or None, colour=COLOUR_OK, description=headline or None)
+    if profile.crest:
+        main.set_thumbnail(url=profile.crest if profile.crest.startswith("http")
+                           else f"{base}{profile.crest}")
+    if profile.xp is not None:
+        main.add_field(name="XP", value=f"**{profile.xp:,}**", inline=True)
+    for label, key in (("K/D", "K/D"), ("HS%", "HS%"), ("Playtime", "Playtime"),
+                       ("Wins", "Wins"), ("MVP", "MVP")):
+        value = profile.stats.get(key)
+        if value:
+            main.add_field(name=label, value=value, inline=True)
+    extras = " · ".join(part for part in (profile.skill, profile.vip, profile.medals) if part)
+    if extras:
+        main.add_field(name="Also", value=extras, inline=False)
+    if profile.steamid:
+        footer = f"{profile.steamid} · {base.replace('https://', '')}"
+        if others:
+            footer = f"{others} other player(s) share this name · " + footer
+        main.set_footer(text=footer)
+
+    embeds = [main]
+    if profile.bp_tier or profile.bp_xp:
+        bp = discord.Embed(title="Battle Pass", colour=COLOUR_BP,
+                           description="\n".join(part for part in (profile.bp_tier,
+                                                                   profile.bp_xp) if part))
+        if profile.next_rank:
+            bp.add_field(name="Next rank", value=profile.next_rank, inline=False)
+        embeds.append(bp)
+    return embeds
+
+
+def lookup_embed(result: Lookup) -> discord.Embed:
+    """The honest answer when a lookup found nothing (or more than one player)."""
+    embed = discord.Embed(title=f"Profile · {result.query}" if result.query else "Profile",
+                          url=result.url or None,
+                          colour=COLOUR_WARN if result.note_kind != "ambiguous" else COLOUR_LIVE,
+                          description=result.note)
+    if result.candidates:
+        embed.description = (result.note + "\n" + "\n".join(
+            f"• **{name}** - `{steamid}`" for steamid, name in result.candidates))
+        embed.set_footer(text="Ask again with the name exactly as shown, or the STEAM_0:x:y:z id")
+    return embed
+
+
 # --------------------------------------------------------------------------- bot
 def instrument(interaction: discord.Interaction) -> str:
     """`/profile in #general by ajxs` for the log line of one command."""
@@ -593,13 +866,16 @@ def instrument(interaction: discord.Interaction) -> str:
 
 
 async def _reply(interaction: discord.Interaction, *, content: str | None = None,
-                 embed: discord.Embed | None = None, ephemeral: bool = False) -> None:
+                 embed: discord.Embed | None = None,
+                 embeds: list[discord.Embed] | None = None, ephemeral: bool = False) -> None:
     """Answer whether or not the interaction was already deferred; never raise."""
+    all_embeds = ([embed] if embed else []) + list(embeds or [])
     try:
         if interaction.response.is_done():
-            await interaction.followup.send(content=content, embed=embed, ephemeral=ephemeral)
+            await interaction.followup.send(content=content, embeds=all_embeds, ephemeral=ephemeral)
         else:
-            await interaction.response.send_message(content=content, embed=embed, ephemeral=ephemeral)
+            await interaction.response.send_message(content=content, embeds=all_embeds,
+                                                    ephemeral=ephemeral)
     except discord.HTTPException:
         log.warning("could not answer %s", instrument(interaction), exc_info=True)
 
@@ -780,6 +1056,21 @@ def build_bot(cfg: dict) -> commands.Bot:
             if board.note_kind == "period":
                 embed.set_footer(text="Weekly and monthly boards are not live yet - all-time is.")
         await _reply(interaction, embed=embed)
+
+    @bot.tree.command(name="profile", description="A player's leaderboard profile (rank, XP, battle pass)")
+    @command_guard(ephemeral=True)
+    @app_commands.describe(player="Player name as used in game, or a STEAM_0:0:12345 id")
+    async def profile_cmd(interaction: discord.Interaction, player: str) -> None:
+        result = await _in_thread(lookup_profile, base, player, budget=HTTP_TIMEOUT * 2 + 1)
+        if result is None:
+            await _reply(interaction, content=f"The leaderboard at {base} didn't answer in time.",
+                         ephemeral=True)
+            return
+        if not result.ok:
+            await _reply(interaction, embed=lookup_embed(result), ephemeral=True)
+            return
+        await _reply(interaction, embeds=profile_embeds(result.profile, base, result.others),
+                     ephemeral=True)
 
     @bot.tree.command(name="events", description="What is running on the server this week")
     @command_guard()

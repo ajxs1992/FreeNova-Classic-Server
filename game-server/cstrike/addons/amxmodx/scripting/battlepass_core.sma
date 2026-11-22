@@ -1144,8 +1144,14 @@ public Task_ApplySpawn(taskid)
     }
 
     // Battle Pass tier 8: free defuse kit on CT spawn.
-    if(g_iMilestonePaid[id] >= 8 && cs_get_user_team(id) == CS_TEAM_CT)
-        give_item(id, "item_defuser")
+    // "item_defuser" is not a CS 1.6 item class: every call logged
+    // `[FUN] Item "item_defuser" failed to create` followed by a give_item
+    // run time error, which aborted the rest of this spawn function (armor,
+    // gravity, speed, health nade, model assignment). The real class is
+    // item_thighpack, as used by freenova_vip.sma:1633. The ownership guard
+    // stops a respawn stacking a second kit entity on a player who has one.
+    if(g_iMilestonePaid[id] >= 8 && cs_get_user_team(id) == CS_TEAM_CT && !cs_get_user_defuse(id))
+        give_item(id, "item_thighpack")
 
     // Battle Pass tier 14: extra HE on spawn.
     if(g_iMilestonePaid[id] >= 14)
@@ -3803,13 +3809,22 @@ public ConsumableHandler(id, menu, item)
                 ShowConsumableShop(id)
                 return PLUGIN_HANDLED
             }
+            // Do not take 50 coins for a kit the player is already carrying.
+            if(cs_get_user_defuse(id))
+            {
+                client_printcolor(id, "[FreeNova Shop] You already have a defuse kit!")
+                ShowConsumableShop(id)
+                return PLUGIN_HANDLED
+            }
             if(!TrySpendCoins(id, cost))
             {
                 ShopNeedPrint(id, cost)
                 ShowConsumableShop(id)
                 return PLUGIN_HANDLED
             }
-            give_item(id, "item_defuser")
+            // Same invalid item class as the tier-8 spawn reward above; use the
+            // real one so the coins the player just paid are not lost.
+            give_item(id, "item_thighpack")
             client_printcolor(id, "[FreeNova Shop] Defuse kit given! (-%d coins)", cost)
         }
     }

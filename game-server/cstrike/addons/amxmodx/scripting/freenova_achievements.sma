@@ -253,21 +253,36 @@ GiveAchievement(id, iAch, const szName[], iReward = ACH_COIN_REWARD)
 	if (g_iAchUnlocked[id] & (1 << iAch))
 		return
 
-	g_iAchUnlocked[id] |= (1 << iAch)
-	SaveAchievements(id)
-	// Fail-safe: never announce a coin reward that was not actually paid.
-	// menabp_add_coins returns 0 when the wallet is not ready yet
-	// (data not loaded / invalid id), which used to be swallowed silently.
-	// Achievement still unlocks; the "+N Coins" line only shows when the
-	// deposit succeeded.
+	// Pay before persisting. The unlock bit is one-shot, so writing it first
+	// meant a crash between the write and the deposit (or a deposit refused
+	// without reaching the pending marker) lost the coins for ever. The award id
+	// makes the payment itself idempotent, so paying first cannot double-pay
+	// either: 0 from menabp_add_coins_once means an earlier attempt already
+	// credited it. REVIEW.md §5.3.
 	new bool:bPaid = false
 	if (iReward > 0 && LibraryExists("menabp", LibType_Library))
 	{
-		if (menabp_is_ready(id) && menabp_add_coins(id, iReward) != 0)
+		new szAward[24]
+		formatex(szAward, charsmax(szAward), "ach#%d", iAch)
+		new iOnce = menabp_is_ready(id) ? menabp_add_coins_once(id, iReward, szAward) : -1
+		if (iOnce > 0)
 			bPaid = true
+		else if (iOnce == 0)
+		{
+			// Credited by an earlier attempt whose unlock write never landed.
+			bPaid = true
+			log_amx("[FreeNova] Achievement %d reward already paid to id %d (%s)", iAch, id, szAward)
+		}
 		else
 			log_amx("[FreeNova] Achievement %d coin reward NOT paid to id %d (%d coins): wallet not ready or native refused", iAch, id, iReward)
 	}
+
+	// One vault write for the unlock bit and any unpaid remainder, so the two
+	// can never disagree after a crash.
+	g_iAchUnlocked[id] |= (1 << iAch)
+	if (iReward > 0 && !bPaid)
+		g_iAchPendingCoins[id] += iReward
+	SaveAchievements(id)
 
 	// Achievements pay coins only. BattlePass XP is missions-only:
 	// freenova_missions awards it when a daily/weekly/VIP mission set is
@@ -286,11 +301,10 @@ GiveAchievement(id, iAch, const szName[], iReward = ACH_COIN_REWARD)
 	}
 	if (iReward > 0 && !bPaid)
 	{
-		// MEDIUM-2: the unpaid reward becomes a vault-persisted pending
-		// marker, retried once the wallet reports ready. The unlock bit
-		// above stays one-shot — only the coin payment retries.
-		g_iAchPendingCoins[id] += iReward
-		SaveAchievements(id)
+		// MEDIUM-2: the unpaid reward is the vault-persisted pending marker
+		// written above, retried once the wallet reports ready. The unlock bit
+		// stays one-shot — only the coin payment retries. The "+N Coins" line
+		// above only shows when the deposit succeeded.
 		EnsureCoinFlush(id)
 	}
 }

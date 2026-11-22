@@ -172,3 +172,25 @@ One line per change, with the verification that was actually run. Newest last.
   (`/tmp/pt-venv/bin/python -m pytest tools/discord-bot/test_bot.py -q`) →
   `51 passed`. The bot venv itself has no pytest, which is why the plain runner
   exists.
+
+- **One string table, ready for translations** (`bot.py`): every user-facing
+  string now lives in `STRINGS` keyed by id (`presence.*`, `mapkind.*`,
+  `period.*`, `board.*`, `profile.*`, `events.*`, `digest.*`, `alert.*`,
+  `cmd.*`, `offline.*`, `error.generic`) with `{placeholders}` filled by the
+  embed builders - no sentence is assembled anywhere else. `t(key, **values)`
+  resolves against `LANGUAGE` (from `config.json` → `"language"`, default
+  `en`), falls back to English for a missing key and to the key for an unknown
+  one, and never raises on a bad placeholder. Adding French or German is one
+  more entry in `STRINGS` plus `"language": "fr"` - `set_language()` rejects an
+  unknown code and keeps English. Command names/descriptions/options are
+  translated at build time (so the synced command list is localised too) and
+  the `/help` footer shows the language name.
+  *Verified:* `py_compile`; the test suite grew three language tests - every
+  `t("…")` key in the source exists in `STRINGS["en"]` (114 keys, 0 missing),
+  a partial `test` table proves translate-with-English-fallback and
+  `set_language("klingon") == "en"`, and a broken placeholder returns the raw
+  template instead of raising → **54/54 tests pass**; all seven commands
+  re-rendered through the fake interaction in English (help, status, players,
+  map, top, profile, events) with identical output to before the refactor;
+  restart → journal shows login, `synced 7 command(s)`, presence line and REST
+  shows the same seven descriptions, so the sync still carries them.

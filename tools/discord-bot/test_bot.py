@@ -678,7 +678,52 @@ def test_digest_stats_and_embed():
     assert empty.colour.value == bot.COLOUR_DIM and "nothing to summarise" in empty.description
 
 
-# ---------------------------------------------------------------------- emebds
+# -------------------------------------------------------------------- language
+def test_string_table_covers_every_key_used():
+    """No `t("…")` in the bot may be missing from the English table."""
+    import re
+
+    source = open(os.path.join(HERE, "bot.py"), encoding="utf-8").read()
+    used = set(re.findall(r'(?<![A-Za-z0-9_."\'])t\("([a-z][a-zA-Z0-9_.]*)"', source))
+    assert used, "the scan should find the string keys"
+    missing = sorted(key for key in used if key not in bot.STRINGS["en"])
+    assert missing == [], f"missing from STRINGS['en']: {missing}"
+    dynamic = ([f"events.marker.{state}" for state in ("running", "upcoming", "ended", "undated")]
+               + [f"period.adj.{period}" for period in ("all", "week", "month")]
+               + [f"mapkind.{kind}" for kind in ("defuse", "hostage", "awp", "aim", "iceworld",
+                                                 "grenades", "surf", "kz", "zombie", "deathrun",
+                                                 "custom")])
+    assert [key for key in dynamic if key not in bot.STRINGS["en"]] == []
+
+
+def test_translation_can_drop_in():
+    """A partial translation works: translated keys win, the rest fall back to English."""
+    bot.STRINGS["test"] = {"presence.offline": "en attente du serveur",
+                           "cmd.status.map": "Carte"}
+    try:
+        assert bot.set_language("test") == "test"
+        assert bot.t("presence.offline") == "en attente du serveur"
+        assert bot.t("cmd.status.players") == "Players", "missing keys fall back to English"
+        assert bot.presence_for(None).text == "en attente du serveur"
+        assert bot.t("no.such.key") == "no.such.key"
+        assert bot.set_language("klingon") == "en", "unknown languages fall back to English"
+        assert bot.t("presence.offline") == "for the server to come back"
+    finally:
+        bot.STRINGS.pop("test", None)
+        bot.set_language("en")
+
+
+def test_t_survives_bad_placeholders():
+    bot.STRINGS["test"] = {"broken": "hello {nope}"}
+    try:
+        bot.set_language("test")
+        assert bot.t("broken") == "hello {nope}"        # logged, not raised
+    finally:
+        bot.STRINGS.pop("test", None)
+        bot.set_language("en")
+
+
+# ---------------------------------------------------------------------- embeds
 def test_offline_embed():
     embed = bot.offline_embed({"name": "CS 1.6 Classic", "host": "1.2.3.4", "port": 27015})
     assert embed.colour.value == bot.COLOUR_WARN
@@ -756,7 +801,7 @@ def test_command_guard_catches_exceptions():
     finally:
         bot.get_players = original
         bot.log.disabled = False
-    assert interaction.answer["content"] == bot.ERROR_TEXT
+    assert interaction.answer["content"] == bot.t("error.generic")
 
 
 def test_registered_command_table():

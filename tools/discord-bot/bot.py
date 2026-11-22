@@ -10,13 +10,16 @@ Config: ~/.config/freenova-bot/config.json (mode 600, never in git)
 
     {
       "token": "…",
+      "language": "en",                        # all strings live in STRINGS
       "guild_id": "1574…",                    # optional: instant command sync
       "channels": {"alerts": "…", "events": "…", "leaderboard": "…"},
       "server": {"name": "CS 1.6 Classic", "host": "193.70.81.30", "port": 27015},
       "mapcycle": "/home/ajxs/projects/FreeNova-Classic-Server/game-server/cstrike/mapcycle.txt",
       "leaderboard": "https://leaderboard.fn-gaming.net",
       "hourly_status_channel": null,
-      "presence_refresh": 60
+      "presence_refresh": 60,
+      "alerts": {"updown": "auto", "down_after": 2},
+      "digest": {"enabled": true, "hour": 21, "channel": "leaderboard"}
     }
 
 Everything blocking (UDP A2S, HTTP) runs in a worker thread, the A2S result is
@@ -71,9 +74,210 @@ ANSWER_BUDGET = 2.5         # extra seconds a command may wait on a probe
 HTTP_TIMEOUT = 6.0          # leaderboard fetch timeout
 
 
+# --------------------------------------------------------------------- language
+# Every user-facing string lives here, keyed by id, with `{placeholders}` for the
+# values the embed builders pass in. English is the product language; a
+# translation is one more entry in this dict (`config.json` -> "language"), and
+# nothing else has to change. Keep the ids stable - they are the translation keys.
+STRINGS: dict[str, dict[str, str]] = {
+    "en": {
+        # presence (the line under the bot's name)
+        "presence.offline": "for the server to come back",
+        "presence.empty": "{count} · waiting for players",
+        "presence.full": "{map} · {count} · full house",
+        "presence.live": "{map} · {count}",
+        "presence.free": "{n} free",
+        # map kinds, by prefix
+        "mapkind.defuse": "defuse",
+        "mapkind.hostage": "hostage rescue",
+        "mapkind.awp": "AWP only",
+        "mapkind.aim": "aim",
+        "mapkind.iceworld": "iceworld",
+        "mapkind.grenades": "grenades only",
+        "mapkind.surf": "surf",
+        "mapkind.kz": "kreedz",
+        "mapkind.zombie": "zombie",
+        "mapkind.deathrun": "deathrun",
+        "mapkind.custom": "custom",
+        "map.unknown": "unknown map",
+        # periods
+        "period.all": "all time",
+        "period.week": "this week",
+        "period.month": "this month",
+        "period.adj.all": "all-time",
+        "period.adj.week": "weekly",
+        "period.adj.month": "monthly",
+        # leaderboard
+        "board.period_note": ("The board doesn't publish a {adj} ranking yet - it only carries "
+                              "the season table, so I won't invent numbers. Weekly and monthly "
+                              "resets are agreed; as soon as the board serves them this command "
+                              "returns them."),
+        "board.period_footer": "Weekly and monthly boards are not live yet - all-time is.",
+        "board.unreachable": "I couldn't reach {url} just now.",
+        "board.unreachable_title": "The leaderboard at {url} didn't answer in time.",
+        "board.empty": "The board is reachable but has no ranked players yet.",
+        "board.title": "Top {n} · {period}",
+        "board.title_plain": "Leaderboard · {period}",
+        "board.source": "Source: {host}",
+        "board.row": "**{rank}.** {name}",
+        "board.row_detail": "**{rank}.** {name} - {detail}",
+        "board.xp": "{xp:,} XP",
+        "board.seen": "seen {seen}",
+        # profile
+        "profile.need_query": "Give me a player name or a STEAM_0:x:y:z id.",
+        "profile.unreachable": "I couldn't reach the leaderboard at {base} just now.",
+        "profile.ambiguous": "No exact match for “{query}”. Closest players:",
+        "profile.ambiguous_loose": ("No exact match for “{query}” - the board's search skips "
+                                    "symbols, so here is what “{loose}” found:"),
+        "profile.not_found": ("I can't find anyone called “{query}” on the leaderboard. Names have "
+                              "to match what the player uses in game; a STEAM_0:x:y:z id always "
+                              "works."),
+        "profile.no_snapshot": ("There's no snapshot for `{steamid}` yet - the board records a "
+                                "player after a few minutes on the server. Play a round and try "
+                                "again."),
+        "profile.title": "{name} ({country})",
+        "profile.headline_level": "Level {level}",
+        "profile.headline_rank": "{rank}",
+        "profile.headline_server_rank": "Server rank #{rank}",
+        "profile.headline_seen": "last seen {seen}",
+        "profile.field.xp": "XP",
+        "profile.field.kd": "K/D",
+        "profile.field.hs": "HS%",
+        "profile.field.playtime": "Playtime",
+        "profile.field.wins": "Wins",
+        "profile.field.mvp": "MVP",
+        "profile.field.also": "Also",
+        "profile.bp_title": "Battle Pass",
+        "profile.bp_next_rank": "Next rank",
+        "profile.footer": "{steamid} · {host}",
+        "profile.footer_others": "{n} other player(s) share this name · {steamid} · {host}",
+        "profile.lookup_title": "Profile · {query}",
+        "profile.lookup_title_plain": "Profile",
+        "profile.lookup_footer": "Ask again with the name exactly as shown, or the STEAM_0:x:y:z id",
+        "profile.timeout_title": "Leaderboard timeout",
+        "profile.timeout": "{base} didn't answer in time - try again in a moment.",
+        # events
+        "events.title": "Events",
+        "events.empty": ("Nothing scheduled right now. Events are published in this channel and "
+                         "in `events.json` - the schedule shows up here as soon as it is written."),
+        "events.marker.running": "🟢",
+        "events.marker.upcoming": "🕒",
+        "events.marker.ended": "⚪",
+        "events.marker.undated": "🗓",
+        "events.line": "{marker} **{title}** — {countdown}",
+        "events.countdown.running": "running now",
+        "events.countdown.running_until": "running now · ends in {delta}",
+        "events.countdown.upcoming": "in {delta}",
+        "events.countdown.ended": "ended {delta} ago",
+        "events.countdown.ended_plain": "ended",
+        "events.countdown.undated": "date to be confirmed",
+        "events.footer_running": "running now: {titles}",
+        "events.footer_next": "next: {title}",
+        "events.command_footer": ("Schedule: ~/.config/freenova-bot/events.json · times in your "
+                                  "timezone"),
+        "events.notice.start_title": "🟢 {title} starts now",
+        "events.notice.end_title": "⚪ {title} has ended",
+        "events.notice.ends": "Ends",
+        "events.notice.ends_value": "{time} (in {delta})",
+        "events.notice.footer": "FreeNova events · times in your local timezone",
+        # monitoring
+        "alert.down": "🔴 **{name}** is not answering ({fails} failed A2S probes in a row).",
+        "alert.up": "🟢 **{name}** is back (`{map}`, {players}/{max}).",
+        "alert.down_title": "Server went down",
+        "alert.up_title": "Server is back",
+        "alert.footer": "A2S probe · tools/discord-bot",
+        "digest.title": "Daily digest · {date}",
+        "digest.empty": "No player samples in the last 24 h, so there is nothing to summarise yet.",
+        "digest.peak": "Peak players",
+        "digest.peak_value": "**{peak}{max}**{at}",
+        "digest.average": "Average",
+        "digest.probes": "Probes",
+        "digest.probes_value": "{up} up / {total}",
+        "digest.map": "Map of the day",
+        "digest.map_value": "`{map}` · {share:.0%} of probes",
+        "digest.leader": "Leaderboard leader",
+        "digest.leader_value": "**{name}**{xp}",
+        "digest.footer": "{server} · last 24 h · A2S + public leaderboard",
+        # commands
+        "cmd.status.desc": "Live status of the FreeNova Classic server",
+        "cmd.status.map": "Map",
+        "cmd.status.players": "Players",
+        "cmd.status.next": "Next map",
+        "cmd.status.footer": "Updated {time} UTC",
+        "cmd.status.address": "`{host}:{port}`",
+        "cmd.players.desc": "Who is on the server right now",
+        "cmd.players.count": "How many players to list (default 20)",
+        "cmd.players.title": "{n} on {server}",
+        "cmd.players.empty_title": "{server} is empty",
+        "cmd.players.empty": "Nobody is on right now - the server is up and waiting for players.",
+        "cmd.players.footer": "showing {shown} of {total} · sorted by score",
+        "cmd.players.line": "`{rank:>2}.` **{name}** - {score} pts, {time}",
+        "cmd.map.desc": "The current map and what comes next",
+        "cmd.map.title": "Map · {map}",
+        "cmd.map.now": "**Now:** `{map}`",
+        "cmd.map.next": "Next",
+        "cmd.map.cycle": "In the cycle",
+        "cmd.map.no_cycle": "No mapcycle file configured - next map unknown",
+        "cmd.top.desc": "The leaderboard - all time, or by week/month",
+        "cmd.top.period": "Which board to show",
+        "cmd.top.count": "How many players (default 10, max 15)",
+        "cmd.top.choice.all": "All time",
+        "cmd.top.choice.week": "This week",
+        "cmd.top.choice.month": "This month",
+        "cmd.profile.desc": "A player's rank, XP, battle pass and playtime",
+        "cmd.profile.player": "Player name as used in game, or a STEAM_0:0:12345 id",
+        "cmd.events.desc": "The event schedule, with countdowns",
+        "cmd.events.count": "How many events to show (default 5)",
+        "cmd.help.desc": "What this bot can do",
+        "cmd.help.title": "What I can do",
+        "cmd.help.description": ("I watch **{server}** over A2S and the public leaderboard - no "
+                                 "panel needed."),
+        "cmd.help.option": "`{option}` · {description}",
+        "cmd.help.also_title": "Also",
+        "cmd.help.also": ("My status line shows the live map and player count, turns into "
+                          "*waiting for players* when the server is empty and *for the server to "
+                          "come back* when it is down.\nEvent notices and the daily digest are "
+                          "posted automatically."),
+        "cmd.help.footer": "Leaderboard: {host} · {language}",
+        # shared
+        "offline.title": "{server} is offline",
+        "offline.body": ("No answer from `{host}:{port}` on the last probe. The bot keeps trying; "
+                         "this is the game server, not the panel."),
+        "offline.footer": "A2S over UDP · checked just now",
+        "error.generic": ("Something went wrong on my side - the server and the leaderboard are "
+                          "still up. Try again in a moment."),
+    },
+    # "fr": {…} - drop a translation in here and set "language": "fr" in config.json
+}
+
+LANGUAGE = "en"
+LANGUAGE_NAMES = {"en": "English"}
+
+
+def t(key: str, **values: Any) -> str:
+    """One user-facing string, formatted. Unknown keys fall back to English, then to the key."""
+    table = STRINGS.get(LANGUAGE) or STRINGS["en"]
+    template = table.get(key)
+    if template is None:
+        template = STRINGS["en"].get(key, key)
+    try:
+        return template.format(**values)
+    except (KeyError, IndexError, ValueError):
+        log.warning("string %r could not be formatted with %s", key, sorted(values))
+        return template
+
+
+def set_language(name: str | None) -> str:
+    """Pick the language from config; unknown/absent means English."""
+    global LANGUAGE
+    LANGUAGE = name if name in STRINGS else "en"
+    return LANGUAGE
+
+
 # ----------------------------------------------------------------------- config
 DEFAULT_CONFIG: dict[str, Any] = {
     "token": "",
+    "language": "en",
     "guild_id": None,
     "channels": {},
     "server": {"name": "CS 1.6 Classic", "host": "127.0.0.1", "port": 27015},
@@ -135,11 +339,9 @@ def fmt_duration(seconds: int | float | None) -> str:
 
 def humanise_map(mapname: str | None) -> str:
     """`de_dust2` -> `de Dust2`; unknown/empty input degrades quietly."""
-    if not mapname:
-        return "unknown map"
+    if not mapname or not mapname.strip():
+        return t("map.unknown")
     name = mapname.strip()
-    if not name:
-        return "unknown map"
     for prefix, label in (("de_", "de "), ("cs_", "cs "), ("awp_", "awp "), ("aim_", "aim "),
                           ("fy_", "fy "), ("he_", "he "), ("surf_", "surf "), ("kz_", "kz "),
                           ("zm_", "zm "), ("deathrun_", "deathrun ")):
@@ -177,26 +379,26 @@ def map_pool(path: str | None) -> list[str]:
 # observable is the map, the population and the map type, so the presence tells
 # that story and rotates which part of it it shows.
 MAP_KINDS: tuple[tuple[str, str], ...] = (
-    ("deathrun_", "deathrun"),
-    ("surf_", "surf"),
-    ("kz_", "kreedz"),
-    ("zm_", "zombie"),
-    ("awp_", "AWP only"),
-    ("aim_", "aim"),
-    ("fy_", "iceworld"),
-    ("he_", "grenades only"),
-    ("de_", "defuse"),
-    ("cs_", "hostage rescue"),
+    ("deathrun_", "mapkind.deathrun"),
+    ("surf_", "mapkind.surf"),
+    ("kz_", "mapkind.kz"),
+    ("zm_", "mapkind.zombie"),
+    ("awp_", "mapkind.awp"),
+    ("aim_", "mapkind.aim"),
+    ("fy_", "mapkind.iceworld"),
+    ("he_", "mapkind.grenades"),
+    ("de_", "mapkind.defuse"),
+    ("cs_", "mapkind.hostage"),
 )
 
 
 def map_kind(mapname: str | None) -> str:
-    """Game mode implied by the map prefix; `custom` for anything else."""
+    """Game mode implied by the map prefix, as a translated label."""
     name = (mapname or "").lower()
-    for prefix, label in MAP_KINDS:
+    for prefix, key in MAP_KINDS:
         if name.startswith(prefix):
-            return label
-    return "custom"
+            return t(key)
+    return t("mapkind.custom")
 
 
 @dataclass(frozen=True)
@@ -219,7 +421,7 @@ def presence_for(info: dict | None, cycle: int = 0, event_title: str | None = No
     the line is informative without flickering faster than Discord likes.
     """
     if not info:
-        return Presence("offline", "watching", "for the server to come back", "idle")
+        return Presence("offline", "watching", t("presence.offline"), "idle")
 
     players = int(info.get("players") or 0)
     maxp = int(info.get("max") or 0)
@@ -228,13 +430,15 @@ def presence_for(info: dict | None, cycle: int = 0, event_title: str | None = No
     count = f"{players}/{maxp}" if maxp else str(players)
 
     if players <= 0:
-        return Presence("empty", "playing", f"{count} · waiting for players", "online")
+        return Presence("empty", "playing", t("presence.empty", count=count), "online")
     if maxp and players >= maxp:
-        return Presence("full", "playing", f"{label} · {count} · full house", "online")
+        return Presence("full", "playing", t("presence.full", map=label, count=count), "online")
 
-    hints = [map_kind(mapname), f"{maxp - players} free" if maxp else "", event_title or ""]
+    hints = [map_kind(mapname),
+             t("presence.free", n=maxp - players) if maxp else "",
+             event_title or ""]
     hint = hints[cycle % len(hints)] if hints else ""
-    text = f"{label} · {count}" + (f" · {hint}" if hint else "")
+    text = t("presence.live", map=label, count=count) + (f" · {hint}" if hint else "")
     return Presence("live", "playing", text, "online")
 
 
@@ -420,8 +624,12 @@ async def get_players(server: dict, fresh: bool = False) -> list[dict] | None:
 # answer 404/HTML). When the panel grows an endpoint, replace the body of
 # `_fetch_rows()` with a JSON call and every command keeps working.
 PERIODS = ("all", "week", "month")
-PERIOD_LABEL = {"all": "all time", "week": "this week", "month": "this month"}
-PERIOD_ADJ = {"all": "all-time", "week": "weekly", "month": "monthly"}
+PERIOD_LABEL = {"all": "period.all", "week": "period.week", "month": "period.month"}
+
+
+def period_label(period: str) -> str:
+    """`all time` / `this week` / `this month`, translated."""
+    return t(PERIOD_LABEL.get(period, "period.all"))
 
 # No period/weekly board is published yet, so asking for one says so instead of
 # inventing numbers. Flip this to True the moment the source can serve it.
@@ -473,13 +681,15 @@ class LeaderRow:
     extra: str = ""
 
     def line(self) -> str:
-        tail = " · ".join(part for part in (
-            f"{self.xp:,} XP" if self.xp is not None else "",
+        detail = " · ".join(part for part in (
+            t("board.xp", xp=self.xp) if self.xp is not None else "",
             self.rank_name or "",
             f"L{self.level}" if self.level else "",
             self.extra or "",
         ) if part)
-        return f"**{self.rank}.** {self.name}" + (f" - {tail}" if tail else "")
+        if not detail:
+            return t("board.row", rank=self.rank, name=self.name)
+        return t("board.row_detail", rank=self.rank, name=self.name, detail=detail)
 
 
 @dataclass(frozen=True)
@@ -548,7 +758,7 @@ def parse_top_html(body: str) -> list[LeaderRow]:
             xp=_int_of(block, r"class='metric'>\s*<span class='xp'>([\d,]+)</span>"),
             rank_name=_strip_tags(crest.group(1)) if crest else None,
             level=_int_of(block, r">\s*L(\d+)\b"),
-            extra=f"seen {seen.group(1)}" if seen else "",
+            extra=t("board.seen", seen=seen.group(1)) if seen else "",
         ))
 
     rows.sort(key=lambda row: row.rank)
@@ -571,20 +781,15 @@ def fetch_leaderboard(base: str, period: str = "all", limit: int = 10) -> Leader
         return Leaderboard(
             period=period,
             url=url,
-            note=("The board doesn't publish a " + PERIOD_ADJ[period]
-                  + " ranking yet - it only carries the season table, so I won't invent numbers. "
-                    "Weekly and monthly resets are agreed; as soon as the board serves them this "
-                    "command returns them."),
+            note=t("board.period_note", adj=t(f"period.adj.{period}")),
             note_kind="period",
         )
     rows = _fetch_rows(base, period)
     if rows is None:
         return Leaderboard(period=period, url=url,
-                           note=f"I couldn't reach {url} just now.", note_kind="unavailable")
+                           note=t("board.unreachable", url=url), note_kind="unavailable")
     if not rows:
-        return Leaderboard(period=period, url=url,
-                           note="The board is reachable but has no ranked players yet.",
-                           note_kind="empty")
+        return Leaderboard(period=period, url=url, note=t("board.empty"), note_kind="empty")
     return Leaderboard(period=period, rows=tuple(rows[:max(1, limit)]), url=url)
 
 
@@ -746,8 +951,7 @@ def lookup_profile(base: str, query: str) -> Lookup:
     """
     query = (query or "").strip()
     if not query:
-        return Lookup(query=query, note="Give me a player name or a STEAM_0:x:y:z id.",
-                      note_kind="not-found")
+        return Lookup(query=query, note=t("profile.need_query"), note_kind="not-found")
 
     steamid: str | None = normalise_steamid(query) if is_steamid(query) else None
     others = 0
@@ -755,7 +959,7 @@ def lookup_profile(base: str, query: str) -> Lookup:
         candidates = _search_candidates(base, query)
         if candidates is None:
             return Lookup(query=query, url=f"{base}/top15",
-                          note=f"I couldn't reach the leaderboard at {base} just now.",
+                          note=t("profile.unreachable", base=base),
                           note_kind="unreachable")
         exact = [c for c in candidates if c[1].casefold() == query.casefold()]
         if exact:
@@ -765,7 +969,7 @@ def lookup_profile(base: str, query: str) -> Lookup:
             others = len(exact) - 1
         elif candidates:
             return Lookup(query=query, candidates=tuple(candidates[:5]),
-                          note=f"No exact match for “{query}”. Closest players:",
+                          note=t("profile.ambiguous", query=query),
                           note_kind="ambiguous",
                           url=f"{base}/top15?q={urllib.parse.quote(query)}")
         else:
@@ -777,29 +981,23 @@ def lookup_profile(base: str, query: str) -> Lookup:
                 others = len(exact_near) - 1
             elif near:
                 return Lookup(query=query, candidates=tuple(near[:5]),
-                              note=(f"No exact match for “{query}” - the board's search skips "
-                                    f"symbols, so here is what “{loose}” found:"),
+                              note=t("profile.ambiguous_loose", query=query, loose=loose),
                               note_kind="ambiguous",
                               url=f"{base}/top15?q={urllib.parse.quote(loose or query)}")
             else:
                 return Lookup(query=query, url=f"{base}/top15?q={urllib.parse.quote(query)}",
-                              note=(f"I can't find anyone called “{query}” on the leaderboard. "
-                                    "Names have to match what the player uses in game; a "
-                                    "STEAM_0:x:y:z id always works."),
+                              note=t("profile.not_found", query=query),
                               note_kind="not-found")
 
     url = profile_url(base, steamid)
     body = _http_get(url)
     if body is None:
-        return Lookup(query=query, url=url,
-                      note=f"I couldn't reach the leaderboard at {base} just now.",
+        return Lookup(query=query, url=url, note=t("profile.unreachable", base=base),
                       note_kind="unreachable")
     profile = parse_profile_html(body, url)
     if profile is None:
         return Lookup(query=query, url=url,
-                      note=(f"There's no snapshot for `{steamid}` yet - the board records a player "
-                            "after a few minutes on the server. Play a round and try again."),
-                      note_kind="not-found")
+                      note=t("profile.no_snapshot", steamid=steamid), note_kind="not-found")
     if not profile.steamid:
         profile.steamid = steamid
     return Lookup(profile=profile, query=query, url=url, others=others)
@@ -808,56 +1006,61 @@ def lookup_profile(base: str, query: str) -> Lookup:
 def profile_embeds(profile: Profile, base: str, others: int = 0) -> list[discord.Embed]:
     """Two cards: the rank/career snapshot (mint) and the battle pass (gold)."""
     headline = " · ".join(part for part in (
-        f"Level {profile.level}" if profile.level is not None else "",
-        profile.rank_name,
-        f"Server rank #{profile.server_rank}" if profile.server_rank else "",
+        t("profile.headline_level", level=profile.level) if profile.level is not None else "",
+        t("profile.headline_rank", rank=profile.rank_name) if profile.rank_name else "",
+        t("profile.headline_server_rank", rank=profile.server_rank) if profile.server_rank else "",
         profile.state,
+        t("profile.headline_seen", seen=profile.seen) if profile.seen else "",
     ) if part)
-    if profile.seen:
-        headline += f" · last seen {profile.seen}"
 
-    main = discord.Embed(title=f"{profile.name}" + (f" ({profile.country})" if profile.country else ""),
-                         url=profile.url or None, colour=COLOUR_OK, description=headline or None)
+    title = (t("profile.title", name=profile.name, country=profile.country) if profile.country
+             else profile.name)
+    main = discord.Embed(title=title, url=profile.url or None, colour=COLOUR_OK,
+                         description=headline or None)
     if profile.crest:
         main.set_thumbnail(url=profile.crest if profile.crest.startswith("http")
                            else f"{base}{profile.crest}")
     if profile.xp is not None:
-        main.add_field(name="XP", value=f"**{profile.xp:,}**", inline=True)
-    for label, key in (("K/D", "K/D"), ("HS%", "HS%"), ("Playtime", "Playtime"),
-                       ("Wins", "Wins"), ("MVP", "MVP")):
-        value = profile.stats.get(key)
+        main.add_field(name=t("profile.field.xp"), value=f"**{profile.xp:,}**", inline=True)
+    for label_key, stat_key in (("profile.field.kd", "K/D"), ("profile.field.hs", "HS%"),
+                                ("profile.field.playtime", "Playtime"),
+                                ("profile.field.wins", "Wins"), ("profile.field.mvp", "MVP")):
+        value = profile.stats.get(stat_key)
         if value:
-            main.add_field(name=label, value=value, inline=True)
+            main.add_field(name=t(label_key), value=value, inline=True)
     extras = " · ".join(part for part in (profile.skill, profile.vip, profile.medals) if part)
     if extras:
-        main.add_field(name="Also", value=extras, inline=False)
+        main.add_field(name=t("profile.field.also"), value=extras, inline=False)
     if profile.steamid:
-        footer = f"{profile.steamid} · {base.replace('https://', '')}"
+        host = base.replace("https://", "")
         if others:
-            footer = f"{others} other player(s) share this name · " + footer
-        main.set_footer(text=footer)
+            main.set_footer(text=t("profile.footer_others", n=others, steamid=profile.steamid,
+                                   host=host))
+        else:
+            main.set_footer(text=t("profile.footer", steamid=profile.steamid, host=host))
 
     embeds = [main]
     if profile.bp_tier or profile.bp_xp:
-        bp = discord.Embed(title="Battle Pass", colour=COLOUR_BP,
+        bp = discord.Embed(title=t("profile.bp_title"), colour=COLOUR_BP,
                            description="\n".join(part for part in (profile.bp_tier,
                                                                    profile.bp_xp) if part))
         if profile.next_rank:
-            bp.add_field(name="Next rank", value=profile.next_rank, inline=False)
+            bp.add_field(name=t("profile.bp_next_rank"), value=profile.next_rank, inline=False)
         embeds.append(bp)
     return embeds
 
 
 def lookup_embed(result: Lookup) -> discord.Embed:
     """The honest answer when a lookup found nothing (or more than one player)."""
-    embed = discord.Embed(title=f"Profile · {result.query}" if result.query else "Profile",
-                          url=result.url or None,
+    title = (t("profile.lookup_title", query=result.query) if result.query
+             else t("profile.lookup_title_plain"))
+    embed = discord.Embed(title=title, url=result.url or None,
                           colour=COLOUR_WARN if result.note_kind != "ambiguous" else COLOUR_LIVE,
                           description=result.note)
     if result.candidates:
         embed.description = (result.note + "\n" + "\n".join(
             f"• **{name}** - `{steamid}`" for steamid, name in result.candidates))
-        embed.set_footer(text="Ask again with the name exactly as shown, or the STEAM_0:x:y:z id")
+        embed.set_footer(text=t("profile.lookup_footer"))
     return embed
 
 
@@ -868,9 +1071,6 @@ SAMPLE_PATH = os.path.join(HOME, ".local", "share", "freenova-bot", "samples.jso
 SAMPLE_KEEP = 7 * 86400
 WATCH_CONFIG = os.path.join(HOME, ".config", "freenova-watch", "watch.json")
 WATCH_STATE = os.path.join(HOME, ".local", "state", "freenova-watch", "state.json")
-
-UPCOMING_DOWN_TEXT = "🔴 **{name}** is not answering ({fails} failed A2S probes in a row)."
-DOWN_UP_TEXT = "🟢 **{name}** is back (`{map}`, {players}/{max})."
 
 
 def append_sample(path: str, now: datetime, info: dict | None, maxp: int = 0) -> None:
@@ -962,27 +1162,30 @@ def digest_embed(stats: dict[str, Any], server: dict, leader: Any = None,
                  now: datetime | None = None) -> discord.Embed:
     """The daily summary: peak players, map of the day, leaderboard leader."""
     now = now or datetime.now(timezone.utc)
-    embed = discord.Embed(title=f"Daily digest · {now.astimezone():%a %d %b}",
+    embed = discord.Embed(title=t("digest.title", date=f"{now.astimezone():%a %d %b}"),
                           colour=COLOUR_OK)
     if stats.get("peak") is None:
-        embed.description = ("No player samples in the last 24 h, so there is nothing to "
-                            "summarise yet.")
+        embed.description = t("digest.empty")
         embed.colour = COLOUR_DIM
         return embed
     free = f"/{stats['max']}" if stats.get("max") else ""
     peak_at = f" at <t:{int(stats['peak_at'].timestamp())}:t>" if stats.get("peak_at") else ""
-    embed.add_field(name="Peak players", value=f"**{stats['peak']}{free}**{peak_at}", inline=True)
-    embed.add_field(name="Average", value=f"{stats['average']:.1f}{free}", inline=True)
-    embed.add_field(name="Probes", value=f"{stats['up']} up / {stats['samples']}", inline=True)
+    embed.add_field(name=t("digest.peak"),
+                    value=t("digest.peak_value", peak=stats["peak"], max=free, at=peak_at),
+                    inline=True)
+    embed.add_field(name=t("digest.average"), value=f"{stats['average']:.1f}{free}", inline=True)
+    embed.add_field(name=t("digest.probes"),
+                    value=t("digest.probes_value", up=stats["up"], total=stats["samples"]),
+                    inline=True)
     if stats.get("map"):
-        embed.add_field(name="Map of the day",
-                        value=f"`{stats['map']}` · {stats['map_share']:.0%} of probes",
+        embed.add_field(name=t("digest.map"),
+                        value=t("digest.map_value", map=stats["map"], share=stats["map_share"]),
                         inline=True)
     if leader is not None:
         xp = f" · {leader.xp:,} XP" if getattr(leader, "xp", None) else ""
-        embed.add_field(name="Leaderboard leader",
-                        value=f"**{leader.name}**{xp}", inline=True)
-    embed.set_footer(text=f"{server['name']} · last 24 h · A2S + public leaderboard")
+        embed.add_field(name=t("digest.leader"),
+                        value=t("digest.leader_value", name=leader.name, xp=xp), inline=True)
+    embed.set_footer(text=t("digest.footer", server=server["name"]))
     return embed
 
 
@@ -1164,15 +1367,17 @@ def event_countdown(event: Event, now: datetime) -> str:
     state = event.state(now)
     if state == "running":
         if event.end is not None:
-            return f"running now · ends in {fmt_delta((event.end - now).total_seconds())}"
-        return "running now"
+            return t("events.countdown.running_until",
+                     delta=fmt_delta((event.end - now).total_seconds()))
+        return t("events.countdown.running")
     if state == "upcoming":
-        return f"in {fmt_delta((event.start - now).total_seconds())}"
+        return t("events.countdown.upcoming",
+                 delta=fmt_delta((event.start - now).total_seconds()))
     if state == "ended" and event.end is not None:
-        return f"ended {fmt_delta((now - event.end).total_seconds())} ago"
+        return t("events.countdown.ended", delta=fmt_delta((now - event.end).total_seconds()))
     if state == "ended":
-        return "ended"
-    return event.when or "date to be confirmed"
+        return t("events.countdown.ended_plain")
+    return event.when or t("events.countdown.undated")
 
 
 def select_events(events: list[Event], now: datetime, limit: int = 8) -> list[Event]:
@@ -1194,18 +1399,18 @@ def select_events(events: list[Event], now: datetime, limit: int = 8) -> list[Ev
 
 def events_embed(events: list[Event], now: datetime, limit: int = 8) -> discord.Embed:
     chosen = select_events(events, now, limit)
-    embed = discord.Embed(title="Events", colour=COLOUR_OK)
+    embed = discord.Embed(title=t("events.title"), colour=COLOUR_OK)
     if not chosen:
-        embed.description = ("Nothing scheduled right now. Events are published in this channel and "
-                             "in `events.json` - the schedule shows up here as soon as it is written.")
+        embed.description = t("events.empty")
         embed.colour = COLOUR_DIM
         return embed
     blocks = []
     for event in chosen:
         state = event.state(now)
-        marker = {"running": "🟢", "upcoming": "🕒", "ended": "⚪"}.get(state, "•")
-        head = f"{marker} **{event.title}** — {event_countdown(event, now)}"
-        lines = [head]
+        marker = t(f"events.marker.{state}" if state in ("running", "upcoming", "ended")
+                   else "events.marker.undated")
+        lines = [t("events.line", marker=marker, title=event.title,
+                   countdown=event_countdown(event, now))]
         if event.detail:
             lines.append(f"  {event.detail}")
         if event.start is not None:
@@ -1214,9 +1419,10 @@ def events_embed(events: list[Event], now: datetime, limit: int = 8) -> discord.
     embed.description = "\n\n".join(blocks)
     running = [e.title for e in chosen if e.state(now) == "running"]
     upcoming = [e for e in chosen if e.state(now) == "upcoming"]
-    footer = f"running now: {', '.join(running)}" if running else ""
+    footer = t("events.footer_running", titles=", ".join(running)) if running else ""
     if upcoming:
-        footer = (footer + " · " if footer else "") + f"next: {upcoming[0].title}"
+        nxt = t("events.footer_next", title=upcoming[0].title)
+        footer = (footer + " · " if footer else "") + nxt
     if footer:
         embed.set_footer(text=footer)
     return embed
@@ -1301,18 +1507,20 @@ def event_notice(event: Event, kind: str, now: datetime | None = None) -> discor
     """The one-off message posted when an event starts or ends."""
     now = now or datetime.now(timezone.utc)
     if kind == "started":
-        embed = discord.Embed(title=f"🟢 {event.title} starts now", colour=COLOUR_OK,
-                              description=event.detail or None)
+        embed = discord.Embed(title=t("events.notice.start_title", title=event.title),
+                              colour=COLOUR_OK, description=event.detail or None)
         if event.end is not None:
-            embed.add_field(name="Ends", value=f"<t:{int(event.end.timestamp())}:t> "
-                                               f"(in {fmt_delta((event.end - now).total_seconds())})",
+            embed.add_field(name=t("events.notice.ends"),
+                            value=t("events.notice.ends_value",
+                                    time=f"<t:{int(event.end.timestamp())}:t>",
+                                    delta=fmt_delta((event.end - now).total_seconds())),
                             inline=True)
     else:
-        embed = discord.Embed(title=f"⚪ {event.title} has ended", colour=COLOUR_DIM,
-                              description=event.detail or None)
+        embed = discord.Embed(title=t("events.notice.end_title", title=event.title),
+                              colour=COLOUR_DIM, description=event.detail or None)
     if event.start is not None:
         embed.timestamp = event.start
-    embed.set_footer(text="FreeNova events · times in your local timezone")
+    embed.set_footer(text=t("events.notice.footer"))
     return embed
 
 
@@ -1354,7 +1562,7 @@ def command_guard(ephemeral: bool = False):
                 await func(interaction, *args, **kwargs)
             except Exception:                  # noqa: BLE001 - one bad command must not kill the bot
                 log.exception("command %s failed", instrument(interaction))
-                await _reply(interaction, content=ERROR_TEXT, ephemeral=ephemeral)
+                await _reply(interaction, content=t("error.generic"), ephemeral=ephemeral)
             finally:
                 log.info("%s (%.2fs)", instrument(interaction), time.monotonic() - started)
         return wrapper
@@ -1362,45 +1570,37 @@ def command_guard(ephemeral: bool = False):
     return decorator
 
 
-ERROR_TEXT = "Something went wrong on my side - the server and the leaderboard are still up. Try again in a moment."
-
-
 def offline_embed(server: dict, detail: str = "") -> discord.Embed:
     """One red card for "the game server is not answering", used by every command."""
     embed = discord.Embed(
-        title=f"{server['name']} is offline",
+        title=t("offline.title", server=server["name"]),
         colour=COLOUR_WARN,
-        description=detail or (f"No answer from `{server['host']}:{server['port']}` on the last probe. "
-                               "The bot keeps trying; this is the game server, not the panel."),
+        description=detail or t("offline.body", host=server["host"], port=server["port"]),
     )
-    embed.set_footer(text="A2S over UDP · checked just now")
+    embed.set_footer(text=t("offline.footer"))
     return embed
 
 
 def help_embed(entries: list[tuple[str, str, list[tuple[str, str]]]], base: str,
                server_name: str) -> discord.Embed:
     """`/help` built from the live command table, so it cannot go stale."""
-    embed = discord.Embed(title="What I can do",
-                          description=(f"I watch **{server_name}** over A2S and the public "
-                                       "leaderboard - no panel needed."),
+    embed = discord.Embed(title=t("cmd.help.title"),
+                          description=t("cmd.help.description", server=server_name),
                           colour=COLOUR_OK)
     for name, description, options in entries:
         value = description or "-"
         for option, option_description in options:
-            value += f"\n`{option}` · {option_description}"
+            value += "\n" + t("cmd.help.option", option=option, description=option_description)
         embed.add_field(name=f"/{name}", value=value[:1024], inline=False)
-    embed.add_field(
-        name="Also",
-        value=("My status line shows the live map and player count, turns into *waiting for "
-               "players* when the server is empty and *for the server to come back* when it is "
-               "down.\nEvent notices and the daily digest are posted automatically."),
-        inline=False)
-    embed.set_footer(text=f"Leaderboard: {base.replace('https://', '')} · English only for now")
+    embed.add_field(name=t("cmd.help.also_title"), value=t("cmd.help.also"), inline=False)
+    embed.set_footer(text=t("cmd.help.footer", host=base.replace("https://", ""),
+                            language=LANGUAGE_NAMES.get(LANGUAGE, LANGUAGE)))
     return embed
 
 
 def build_bot(cfg: dict) -> commands.Bot:
     """Build a fresh bot instance (one per connection attempt)."""
+    set_language(cfg.get("language"))
     server = cfg["server"]
     base = str(cfg.get("leaderboard") or DEFAULT_CONFIG["leaderboard"]).rstrip("/")
     intents = discord.Intents.default()
@@ -1445,7 +1645,7 @@ def build_bot(cfg: dict) -> commands.Bot:
     @bot.tree.error
     async def on_app_error(interaction: discord.Interaction, error: Exception) -> None:
         log.exception("app command error in %s", instrument(interaction), exc_info=error)
-        await _reply(interaction, content=ERROR_TEXT)
+        await _reply(interaction, content=t("error.generic"))
 
     # ---------------------------------------------------------------- presence
     presence_state: dict[str, Any] = {"last": None, "cycle": 0}
@@ -1533,11 +1733,11 @@ def build_bot(cfg: dict) -> commands.Bot:
         current.update(new_state)
         store.save()
         if kind == "up":
-            await _alert("up", DOWN_UP_TEXT.format(name=server["name"], map=info["map"],
-                                                   players=info["players"], max=info["max"]))
+            await _alert("up", t("alert.up", name=server["name"], map=info["map"],
+                                 players=info["players"], max=info["max"]))
         elif kind == "down":
-            await _alert("down", UPCOMING_DOWN_TEXT.format(name=server["name"],
-                                                           fails=new_state["fails"]))
+            await _alert("down", t("alert.down", name=server["name"],
+                                   fails=new_state["fails"]))
 
     async def _alert(kind: str, text: str) -> None:
         on_duty = watcher_on_duty()
@@ -1546,9 +1746,9 @@ def build_bot(cfg: dict) -> commands.Bot:
                      "freenova-watch posts its own" if on_duty else "alerts.updown is off")
             return
         colour = COLOUR_OK if kind == "up" else COLOUR_WARN
-        embed = discord.Embed(title=("Server is back" if kind == "up" else "Server went down"),
+        embed = discord.Embed(title=t("alert.up_title" if kind == "up" else "alert.down_title"),
                               description=text, colour=colour)
-        embed.set_footer(text="A2S probe · tools/discord-bot")
+        embed.set_footer(text=t("alert.footer"))
         if await post("alerts", embed=embed):
             log.info("posted %s notice for %s", kind, server["name"])
 
@@ -1618,7 +1818,7 @@ def build_bot(cfg: dict) -> commands.Bot:
                  stats.get("map"), posted)
 
     # ---------------------------------------------------------------- commands
-    @bot.tree.command(name="status", description="Live status of the FreeNova Classic server")
+    @bot.tree.command(name="status", description=t("cmd.status.desc"))
     @command_guard()
     async def status_cmd(interaction: discord.Interaction) -> None:
         info = await get_info(server)
@@ -1627,16 +1827,19 @@ def build_bot(cfg: dict) -> commands.Bot:
             return
         nxt = next_map(map_pool(cfg.get("mapcycle")), info["map"])
         embed = discord.Embed(title=info["name"], colour=COLOUR_OK,
-                              description=f"`{server['host']}:{server['port']}`")
-        embed.add_field(name="Map", value=f"`{info['map']}`", inline=True)
-        embed.add_field(name="Players", value=f"**{info['players']}/{info['max']}**", inline=True)
-        embed.add_field(name="Next map", value=f"`{nxt}`" if nxt else "—", inline=True)
-        embed.set_footer(text=f"Updated {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
+                              description=t("cmd.status.address", host=server["host"],
+                                            port=server["port"]))
+        embed.add_field(name=t("cmd.status.map"), value=f"`{info['map']}`", inline=True)
+        embed.add_field(name=t("cmd.status.players"),
+                        value=f"**{info['players']}/{info['max']}**", inline=True)
+        embed.add_field(name=t("cmd.status.next"), value=f"`{nxt}`" if nxt else "—", inline=True)
+        embed.set_footer(text=t("cmd.status.footer",
+                                time=datetime.now(timezone.utc).strftime("%H:%M")))
         await _reply(interaction, embed=embed)
 
-    @bot.tree.command(name="players", description="Who is on the server right now")
+    @bot.tree.command(name="players", description=t("cmd.players.desc"))
     @command_guard()
-    @app_commands.describe(count="How many players to list (default 20)")
+    @app_commands.describe(count=t("cmd.players.count"))
     async def players_cmd(interaction: discord.Interaction,
                           count: app_commands.Range[int, 1, 32] = 20) -> None:
         players = await get_players(server)
@@ -1644,22 +1847,24 @@ def build_bot(cfg: dict) -> commands.Bot:
             await _reply(interaction, embed=offline_embed(server))
             return
         if not players:
-            embed = discord.Embed(title=f"{server['name']} is empty", colour=COLOUR_DIM,
-                                  description="Nobody is on right now - the server is up and "
-                                              "waiting for players.")
+            embed = discord.Embed(title=t("cmd.players.empty_title", server=server["name"]),
+                                  colour=COLOUR_DIM, description=t("cmd.players.empty"))
             await _reply(interaction, embed=embed)
             return
         players.sort(key=lambda p: (-p["score"], -p["seconds"]))
         shown = players[:int(count)]
-        lines = [f"`{i:>2}.` **{p['name'][:24]}** - {p['score']} pts, {fmt_duration(p['seconds'])}"
-                 for i, p in enumerate(shown, 1)]
-        embed = discord.Embed(title=f"{len(players)} on {server['name']}", colour=COLOUR_LIVE,
-                              description="\n".join(lines))
+        embed = discord.Embed(title=t("cmd.players.title", n=len(players), server=server["name"]),
+                              colour=COLOUR_LIVE,
+                              description="\n".join(
+                                  t("cmd.players.line", rank=index, name=player["name"][:24],
+                                    score=player["score"],
+                                    time=fmt_duration(player["seconds"]))
+                                  for index, player in enumerate(shown, 1)))
         if len(players) > len(shown):
-            embed.set_footer(text=f"showing {len(shown)} of {len(players)} · sorted by score")
+            embed.set_footer(text=t("cmd.players.footer", shown=len(shown), total=len(players)))
         await _reply(interaction, embed=embed)
 
-    @bot.tree.command(name="map", description="The current map and what comes next")
+    @bot.tree.command(name="map", description=t("cmd.map.desc"))
     @command_guard()
     async def map_cmd(interaction: discord.Interaction) -> None:
         info = await get_info(server)
@@ -1669,24 +1874,24 @@ def build_bot(cfg: dict) -> commands.Bot:
         if not current:
             await _reply(interaction, embed=offline_embed(server))
             return
-        embed = discord.Embed(title=f"Map · {humanise_map(current)}", colour=COLOUR_OK,
-                              description=f"**Now:** `{current}`")
+        embed = discord.Embed(title=t("cmd.map.title", map=humanise_map(current)),
+                              colour=COLOUR_OK, description=t("cmd.map.now", map=current))
         if nxt:
-            embed.add_field(name="Next", value=f"`{nxt}`", inline=True)
+            embed.add_field(name=t("cmd.map.next"), value=f"`{nxt}`", inline=True)
         if current in pool:
-            embed.add_field(name="In the cycle", value=f"{pool.index(current) + 1}/{len(pool)}",
-                            inline=True)
+            embed.add_field(name=t("cmd.map.cycle"),
+                            value=f"{pool.index(current) + 1}/{len(pool)}", inline=True)
         if not pool:
-            embed.set_footer(text="No mapcycle file configured - next map unknown")
+            embed.set_footer(text=t("cmd.map.no_cycle"))
         await _reply(interaction, embed=embed)
 
-    @bot.tree.command(name="top", description="The leaderboard - all time, or by week/month")
+    @bot.tree.command(name="top", description=t("cmd.top.desc"))
     @command_guard()
-    @app_commands.describe(period="Which board to show", count="How many players (default 10, max 15)")
+    @app_commands.describe(period=t("cmd.top.period"), count=t("cmd.top.count"))
     @app_commands.choices(period=[
-        app_commands.Choice(name="All time", value="all"),
-        app_commands.Choice(name="This week", value="week"),
-        app_commands.Choice(name="This month", value="month"),
+        app_commands.Choice(name=t("cmd.top.choice.all"), value="all"),
+        app_commands.Choice(name=t("cmd.top.choice.week"), value="week"),
+        app_commands.Choice(name=t("cmd.top.choice.month"), value="month"),
     ])
     async def top_cmd(interaction: discord.Interaction,
                       period: app_commands.Choice[str] | None = None,
@@ -1697,32 +1902,32 @@ def build_bot(cfg: dict) -> commands.Bot:
         board = await _in_thread(fetch_leaderboard, base, chosen, count, budget=HTTP_TIMEOUT + 1)
         if board is None:                      # budget blown: answer anyway
             board = Leaderboard(chosen, url=f"{base}/top15",
-                                note=f"The leaderboard at {base}/top15 didn't answer in time.",
+                                note=t("board.unreachable_title", url=f"{base}/top15"),
                                 note_kind="unavailable")
-        title = f"Top {len(board.rows)} · {PERIOD_LABEL[chosen]}" if board.ok else \
-            f"Leaderboard · {PERIOD_LABEL[chosen]}"
+        label = period_label(chosen)
+        title = (t("board.title", n=len(board.rows), period=label) if board.ok
+                 else t("board.title_plain", period=label))
         colour = COLOUR_BP if board.ok else (
             COLOUR_DIM if board.note_kind == "period" else COLOUR_WARN)
         embed = discord.Embed(title=title, url=board.url, colour=colour)
         if board.ok:
             embed.description = "\n".join(row.line() for row in board.rows)
-            embed.set_footer(text=f"Source: {board.url.replace('https://', '')}")
+            embed.set_footer(text=t("board.source", host=board.url.replace("https://", "")))
         else:
             embed.description = board.note
             if board.note_kind == "period":
-                embed.set_footer(text="Weekly and monthly boards are not live yet - all-time is.")
+                embed.set_footer(text=t("board.period_footer"))
         await _reply(interaction, embed=embed)
 
-    @bot.tree.command(name="profile", description="A player's rank, XP, battle pass and playtime")
+    @bot.tree.command(name="profile", description=t("cmd.profile.desc"))
     @command_guard(ephemeral=True)
-    @app_commands.describe(player="Player name as used in game, or a STEAM_0:0:12345 id")
+    @app_commands.describe(player=t("cmd.profile.player"))
     async def profile_cmd(interaction: discord.Interaction, player: str) -> None:
         result = await _in_thread(lookup_profile, base, player, budget=HTTP_TIMEOUT * 2 + 1)
         if result is None:
             await _reply(interaction, embed=discord.Embed(
-                title="Leaderboard timeout", colour=COLOUR_WARN,
-                description=f"{base} didn't answer in time - try again in a moment."),
-                ephemeral=True)
+                title=t("profile.timeout_title"), colour=COLOUR_WARN,
+                description=t("profile.timeout", base=base)), ephemeral=True)
             return
         if not result.ok:
             await _reply(interaction, embed=lookup_embed(result), ephemeral=True)
@@ -1730,17 +1935,17 @@ def build_bot(cfg: dict) -> commands.Bot:
         await _reply(interaction, embeds=profile_embeds(result.profile, base, result.others),
                      ephemeral=True)
 
-    @bot.tree.command(name="events", description="The event schedule, with countdowns")
+    @bot.tree.command(name="events", description=t("cmd.events.desc"))
     @command_guard()
-    @app_commands.describe(count="How many events to show (default 5)")
+    @app_commands.describe(count=t("cmd.events.count"))
     async def events_cmd(interaction: discord.Interaction,
                          count: app_commands.Range[int, 1, 10] = 5) -> None:
         now = datetime.now(timezone.utc)
         embed = events_embed(refresh_events(), now, limit=count)
-        embed.set_footer(text="Schedule: ~/.config/freenova-bot/events.json · times in your timezone")
+        embed.set_footer(text=t("events.command_footer"))
         await _reply(interaction, embed=embed)
 
-    @bot.tree.command(name="help", description="What this bot can do")
+    @bot.tree.command(name="help", description=t("cmd.help.desc"))
     @command_guard()
     async def help_cmd(interaction: discord.Interaction) -> None:
         entries = []

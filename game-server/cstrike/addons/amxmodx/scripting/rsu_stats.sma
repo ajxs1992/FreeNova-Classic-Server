@@ -19,12 +19,13 @@
 // This file used to carry a second, UNREGISTERED copy of that surface
 // (CmdProfile / CmdStatsMe / CmdRankStats / CmdStatsMenu + inspect menus).
 // Nothing ever registered those publics to a say command, so they were dead
-// code: no command pointed at them, and the live plugins.ini does not load
-// rsu_stats either. Re-registering them here would have made both handlers
-// fire on the same say line (double menus), so they were deleted instead of
-// re-registered. The plugin keeps only register_plugin + the module
-// registration so rsu_module_list / rsu_register_module keeps working if the
-// shim is ever loaded again.
+// code: no command pointed at them. (REVIEW.md 5.5: this comment used to
+// claim the live plugins.ini does not load rsu_stats either - it does, at
+// configs/plugins.ini:67.) Re-registering them here would have made both
+// handlers fire on the same say line (double menus), so they were deleted
+// instead of re-registered. What is loaded is a shim: register_plugin plus
+// the module registration, so rsu_module_list / rsu_register_module keep
+// working without owning any command surface.
 // ============================================================================
 
 public plugin_init()

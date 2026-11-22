@@ -135,8 +135,20 @@ function discordPingParts(raw) {
   }
 }
 
+// The signed string contains the request path, and the plugin signs whatever
+// fnweb_path is set to (freenova_sync.sma:210). Deriving it from the request -
+// normalised exactly as index.js routes it - means an operator who edits
+// fnweb_path keeps a working signature instead of 401-ing every push.
+function signedPath(request, fallback) {
+  try {
+    return new URL(request.url).pathname.replace(/\/+$/, "") || "/"
+  } catch {
+    return fallback
+  }
+}
+
 export async function handleAdminCall(request, env) {
-  const verified = await verifyGamePost(request, env, "/api/v1/server/admin-call")
+  const verified = await verifyGamePost(request, env, signedPath(request, "/api/v1/server/admin-call"))
   if (!verified.ok) return verified.response
 
   let payload
@@ -193,7 +205,7 @@ export async function handleAdminCall(request, env) {
 }
 
 async function handleSync(request, env) {
-  const verified = await verifyGamePost(request, env, "/api/v1/server/stats")
+  const verified = await verifyGamePost(request, env, signedPath(request, "/api/v1/server/stats"))
   if (!verified.ok) return verified.response
   const body = verified.body
   const serverId = verified.serverId
@@ -826,8 +838,10 @@ async function writeServerMeta(env, server, nowSec) {
       metaUpsert(env, "server_uptime", num(server.uptime)),
       metaUpsert(env, "server_round", num(server.round)),
       metaUpsert(env, "happy_hour", Number.isFinite(hh) && hh > 1 ? "1" : "0"),
-      metaUpsert(env, "event_xp",    num(server.event_xp)),
-      metaUpsert(env, "event_coins", num(server.event_coins))
+      // xp/coins multipliers are floats (sync.sma:547 sends %.2f). num() is
+      // parseInt, which turned a 1.5x event into 1x on the admin pages.
+      metaUpsert(env, "event_xp",    multNum(server.event_xp)),
+      metaUpsert(env, "event_coins", multNum(server.event_coins))
     )
   }
   await env.DB.batch(rows)

@@ -29,6 +29,7 @@ case "$TARGET" in
       "$ROOT/game-server/cstrike/addons/amxmodx/configs|cstrike/addons/amxmodx/configs"
       "$ROOT/game-server/cstrike/addons/amxmodx/scripting/include|cstrike/addons/amxmodx/scripting/include"
       "$ROOT/game-server/cstrike/mapcycle.txt|cstrike/mapcycle.txt"
+      "$ROOT/game-server/cstrike/motd.txt|cstrike/motd.txt"
     )
     ;;
   panel)
@@ -106,6 +107,34 @@ while IFS=$'\t' read -r rel remote localf; do
     echo "$remote"$'\t'"$localf"$'\t'"CHANGED($rsize->$size)"$'\t'"$size" >> /tmp/deploy-plan.tsv
   fi
 done < /tmp/deploy-local.filtered.tsv
+
+# Same size does not mean same content (a swapped invite code is the same
+# length). Fetch every same-size candidate and compare the bytes.
+: > /tmp/deploy-samesize.tsv
+while IFS=$'\t' read -r rel remote localf; do
+  size=$(stat -c%s "$localf")
+  rsize=$(awk -F'\t' -v p="$remote" '$1==p {print $2; exit}' /tmp/deploy-remote.tsv)
+  [ "$rsize" = "$size" ] && printf '%s\t%s\t%s\n' "$remote" "$localf" "$size" >> /tmp/deploy-samesize.tsv
+done < /tmp/deploy-local.filtered.tsv
+
+if [ -s /tmp/deploy-samesize.tsv ]; then
+  rm -rf /tmp/deploy-cmp && mkdir -p /tmp/deploy-cmp
+  { while IFS=$'\t' read -r remote localf size; do
+      [ "$size" -le 262144 ] && echo "get $(printf '%s' "$remote" | sed 's/ /\\ /g') /tmp/deploy-cmp/$(echo "$remote" | tr '/' '_')"
+    done < /tmp/deploy-samesize.tsv; } | sftp_run > /dev/null 2>&1
+  same=0; diffc=0
+  while IFS=$'\t' read -r remote localf size; do
+    [ "$size" -gt 262144 ] && continue
+    tmp="/tmp/deploy-cmp/$(echo "$remote" | tr '/' '_')"
+    if [ -f "$tmp" ] && ! cmp -s "$localf" "$tmp"; then
+      printf '%s\t%s\t%s\t%s\n' "$remote" "$localf" "CONTENT-DIFF($size)" "$size" >> /tmp/deploy-plan.tsv
+      diffc=$((diffc+1))
+    else
+      same=$((same+1))
+    fi
+  done < /tmp/deploy-samesize.tsv
+  echo "== same-size files compared by content: $same identical, $diffc differ"
+fi
 
 count=$(wc -l < /tmp/deploy-plan.tsv)
 if [ "$count" -eq 0 ]; then echo "== $TARGET: nothing to deploy (remote matches the repo)"; exit 0; fi

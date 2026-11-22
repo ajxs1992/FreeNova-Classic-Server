@@ -285,3 +285,22 @@ One line per change, with the verification that was actually run. Newest last.
   Map of the day de_dust2 · 78% of probes, Leaderboard leader ajxs · 24,889 XP`,
   footer `CS 1.6 Classic · last 24 h · A2S + public leaderboard`, colour
   `#36DEAB`; `state.json` then held `digest.last_day = 2026-11-22`.
+
+- **`/status` reads the panel's public API** (`bot.py`): new API layer
+  (`api_get`/`get_api` with a TTL cache, `ApiResult` carrying the panel's own
+  error code, 429/5xx/timeouts never cached) and `server_state_from_api()`
+  parsing `/api/public/status` defensively. `/status` now shows the panel's
+  `map`/`players`/`max`/`online` and the running event, computes `next_map`
+  from the mapcycle (the API always sends `null`), and states the source in the
+  footer: `panel API · game push 12s ago`. A stale push is never smoothed over:
+  the players field says the count is unknown while the push is stale, a
+  `Panel data: 10 m old` field carries the age, and the A2S probe fills the
+  count in (`panel API · 10 m old · player count from the A2S probe`). With no
+  panel answer the card falls back to A2S and says why (`A2S probe · panel API
+  is rate-limiting me` / `didn't answer`). Presence still uses A2S only.
+  *Verified against production:* `GET /api/public/status` observed `200` with
+  `{server:{name:"FreeNova CS 1.6 | fn-gaming.net",map:"de_dust2",online:true,
+  players:1,max:32,next_map:null,last_push:1795376528,stale:false},events:{now:
+  [],next:null},updated:1795376555}`; the real `/status` callback rendered
+  `Map de_dust2 · Players 0/32 · Next map de_inferno · Peak (24 h) 10/32`,
+  footer `panel API · game push 7s ago`; tests 71 → 72.

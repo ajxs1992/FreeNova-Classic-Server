@@ -19,6 +19,7 @@ import struct
 import sys
 import time
 import traceback
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -113,6 +114,163 @@ SEARCH_HTML = """<table class='champ'><tr><td><span class='cplace'>1</span>
 SEARCH_EMPTY_HTML = """<table class='board'><tbody><tr><td colspan='8' class='empty'>No player matches “ghost”.</td></tr></tbody></table>"""
 
 
+# ------------------------------------------------------------- public API fixtures
+# Shapes copied from live answers of GET /api/public/* (see docs/PUBLIC-API.md).
+NOW_TS = int(NOW.timestamp())
+
+API_STATUS_FRESH = {
+    "server": {"name": "FreeNova CS 1.6 | fn-gaming.net", "map": "de_dust2", "online": True,
+               "players": 9, "max": 32, "next_map": None, "last_push": NOW_TS - 12,
+               "stale": False},
+    "events": {"now": [{"title": "Double XP Weekend", "starts_at": NOW_TS - 3600,
+                        "ends_at": NOW_TS + 3600, "detail": "2x XP", "state": "active"}],
+               "next": None},
+    "updated": NOW_TS,
+}
+
+API_STATUS_STALE = {
+    "server": {"name": "FreeNova CS 1.6 | fn-gaming.net", "map": "de_nuke", "online": False,
+               "players": None, "max": None, "next_map": None, "last_push": NOW_TS - 600,
+               "stale": True},
+    "events": {"now": [], "next": "Happy Hour"},
+    "updated": NOW_TS,
+}
+
+API_STATUS_OFFLINE = {
+    "server": {"name": "FreeNova CS 1.6 | fn-gaming.net", "map": None, "online": False,
+               "players": 0, "max": 32, "next_map": None, "last_push": NOW_TS - 5,
+               "stale": False},
+    "events": {"now": [], "next": None},
+    "updated": NOW_TS,
+}
+
+API_TOP_WEEK = {
+    "period": "week", "metric": "xp", "limit": 3, "key": "2026-W47",
+    "window": {"key": "2026-W47", "start": NOW_TS - 604800, "end": NOW_TS,
+               "tz": "Europe/Paris", "label": "Week 47 · 2026"},
+    "rows": [
+        {"rank": 1, "steamid": "STEAM_2:0:1537328478", "name": "zerbou3I", "value": 950,
+         "metric": "xp", "period": "week"},
+        {"rank": 2, "steamid": "STEAM_0:1:799106783", "name": "NPC_Leaders", "value": 500,
+         "metric": "xp", "period": "week"},
+    ],
+    "total": 2,
+    "coverage": {"observed_players": 15, "first_seen": NOW_TS - 1800, "complete": False},
+    "updated": NOW_TS,
+}
+
+API_TOP_EMPTY_WEEK = {
+    "period": "week", "metric": "xp", "limit": 10, "key": "2026-W47",
+    "window": {"key": "2026-W47", "start": NOW_TS - 604800, "end": NOW_TS,
+               "tz": "Europe/Paris", "label": "Week 47 · 2026"},
+    "rows": [], "total": 0,
+    "coverage": {"observed_players": 16, "first_seen": NOW_TS - 120, "complete": False},
+    "updated": NOW_TS,
+}
+
+API_TOP_ALL = {
+    "period": "all", "metric": "xp", "limit": 10, "key": "all",
+    "window": {"key": "all", "start": None, "end": None, "tz": "UTC", "label": "Lifetime"},
+    "rows": [
+        {"rank": 1, "steamid": "STEAM_0:0:683671116", "name": "ajxs", "value": 24889,
+         "metric": "xp", "period": "all"},
+        {"rank": 2, "steamid": "STEAM_0:1:799106783", "name": "NPC_Leaders", "value": 12463,
+         "metric": "xp", "period": "all"},
+        {"rank": 3, "steamid": "STEAM_2:0:1537328478", "name": "zerbou3I", "value": 90,
+         "metric": "xp", "period": "all"},
+    ],
+    "total": 12,
+    "coverage": {"observed_players": 12, "first_seen": 0, "complete": True},
+    "updated": NOW_TS,
+}
+
+API_PLAYER = {
+    "steamid": "STEAM_0:0:683671116", "name": "ajxs", "rank": 1,
+    "bp_tier": 18, "bp_xp": 17889, "bp_next_xp": 111, "bp_progress": 889,
+    "bp_tier_xp": 1000, "bp_max_tier": 60, "coins": 2400,
+    "playtime_minutes": 447,
+    "badges": [{"kind": "weekly_champion", "period": "2026-W46",
+                "label": "Weekly #1 · Week 46 · 2026"},
+               {"kind": "weekly_top3", "period": "2026-W45", "label": "Weekly top 3 · Week 45 · 2026"}],
+    "updated": NOW_TS,
+}
+
+API_PLAYER_UNRANKED = {
+    "steamid": "STEAM_0:0:1", "name": "Fresh", "rank": None,
+    "bp_tier": 1, "bp_xp": 0, "bp_next_xp": 1000, "bp_progress": 0,
+    "bp_tier_xp": 1000, "bp_max_tier": 60, "coins": 0, "playtime_minutes": 3,
+    "badges": [], "updated": NOW_TS,
+}
+
+API_PLAYER_404 = {"error": "player_not_found",
+                  "message": "the panel has no snapshot for this steamid yet",
+                  "steamid": "STEAM_0:0:999999999"}
+API_BAD_STEAMID = {"error": "bad_steamid",
+                   "message": "steamid must look like STEAM_0:0:123 or 0-0-123",
+                   "given": "garbage"}
+API_RATE_LIMITED = {"error": "rate_limited", "message": "more than 120 requests in a minute"}
+
+API_EVENTS = {
+    "events": [
+        {"title": "Double XP Weekend", "starts_at": NOW_TS - 3600, "ends_at": NOW_TS + 3600,
+         "detail": "2x XP on every kill.", "state": "active"},
+        {"title": "Happy Hour", "starts_at": NOW_TS + 7200, "ends_at": NOW_TS + 10800,
+         "detail": "Bonus coins.", "state": "scheduled"},
+        {"title": "Overdue cup", "starts_at": NOW_TS - 7200, "ends_at": NOW_TS + 1800,
+         "detail": "scheduler never started it", "state": "overdue"},
+        {"title": "Kill Race", "starts_at": 0, "ends_at": 0,
+         "detail": "First to 1,000 kills.", "state": "unscheduled"},
+    ],
+    "now": 1, "next": "Happy Hour", "updated": NOW_TS, "source": "panel",
+}
+
+
+class stub_api:
+    """Replace `bot.api_get` for a block: path -> (status, payload) or ApiResult."""
+
+    def __init__(self, routes: dict[str, object]):
+        self.routes = routes
+        self.calls: list[str] = []
+
+    def __enter__(self):
+        self._original = bot.api_get
+
+        def fake(base, path, params=None, timeout=bot.HTTP_TIMEOUT):
+            key = path
+            if params:
+                key += "?" + urllib.parse.urlencode(sorted(params.items()))
+            self.calls.append(key)
+            value = self.routes.get(key, self.routes.get(path))
+            if value is None:
+                return bot.ApiResult(0, error="unreachable")
+            if isinstance(value, bot.ApiResult):
+                return value
+            status, payload = value                    # type: ignore[misc]
+            if status == 200:
+                return bot.ApiResult(200, payload)
+            error = payload.get("error", "") if isinstance(payload, dict) else ""
+            return bot.ApiResult(status, payload, error=error)
+
+        bot.api_get = fake
+        bot.API_CACHE.clear()
+        return self
+
+    def __exit__(self, *exc):
+        bot.api_get = self._original
+        bot.API_CACHE.clear()
+        return False
+
+
+def call_command(name: str, *args, api: dict[str, object] | None = None,
+                 cfg: dict | None = None) -> "FakeInteraction":
+    """Drive one real command callback with the API stubbed (unreachable by default)."""
+    instance = bot.build_bot(cfg or sample_cfg())
+    interaction = FakeInteraction()
+    with stub_api(api or {}):
+        asyncio.run(instance.tree.get_command(name).callback(interaction, *args))
+    return interaction
+
+
 class stub_http:
     """Replace `bot._http_get` for the duration of a `with` block."""
 
@@ -201,6 +359,14 @@ def test_fmt_duration():
     assert bot.fmt_duration(45) == "45s"
     assert bot.fmt_duration(90) == "1m"
     assert bot.fmt_duration(3727) == "1h 02m"
+
+
+def test_fmt_age():
+    assert bot.fmt_age(None) == "?"
+    assert bot.fmt_age(12) == "12s"
+    assert bot.fmt_age(89) == "89s"
+    assert bot.fmt_age(600) == "10 m"
+    assert bot.fmt_age(7200) == "2 h"
 
 
 def test_fmt_delta():
@@ -896,12 +1062,10 @@ def test_status_shows_the_peak_from_samples():
         path = os.path.join(tmp, "samples.jsonl")
         cfg = sample_cfg()
         cfg["samples_path"] = path
-        instance = bot.build_bot(cfg)
         original = bot.get_info
         bot.get_info = fake_info
         try:
-            empty = FakeInteraction()
-            asyncio.run(instance.tree.get_command("status").callback(empty))
+            empty = call_command("status", cfg=cfg)          # API stubbed as unreachable
             names = [field.name for field in empty.answer["embeds"][0].fields]
             assert bot.t("cmd.status.peak") not in names, "no samples, no peak field"
 
@@ -909,12 +1073,198 @@ def test_status_shows_the_peak_from_samples():
             for minutes, players in ((5, 12), (15, 21)):
                 bot.append_sample(path, now - timedelta(minutes=minutes),
                                   {"players": players, "map": "de_dust2", "max": 32})
-            busy = FakeInteraction()
-            asyncio.run(instance.tree.get_command("status").callback(busy))
+            busy = call_command("status", cfg=cfg)
             fields = {field.name: field.value for field in busy.answer["embeds"][0].fields}
             assert fields[bot.t("cmd.status.peak")].startswith("**21/32**")
         finally:
             bot.get_info = original
+
+
+# ------------------------------------------------------------------ /status + API
+def test_api_result_parsing():
+    """`api_get` turns status codes and bodies into one honest result."""
+    original = bot._http_json
+    try:
+        bot._http_json = lambda url, timeout=bot.HTTP_TIMEOUT: (200, '{"ok": true}')
+        assert bot.api_get("https://x", "/status").ok
+        bot._http_json = lambda url, timeout=bot.HTTP_TIMEOUT: (404, json.dumps(API_PLAYER_404))
+        result = bot.api_get("https://x", "/player/STEAM_0:0:999999999")
+        assert result.status == 404 and result.not_found and result.error == "player_not_found"
+        bot._http_json = lambda url, timeout=bot.HTTP_TIMEOUT: (429, json.dumps(API_RATE_LIMITED))
+        result = bot.api_get("https://x", "/top")
+        assert result.rate_limited and result.error == "rate_limited"
+        bot._http_json = lambda url, timeout=bot.HTTP_TIMEOUT: (400, json.dumps(API_BAD_STEAMID))
+        assert bot.api_get("https://x", "/player/garbage").error == "bad_steamid"
+        bot._http_json = lambda url, timeout=bot.HTTP_TIMEOUT: (0, "")
+        result = bot.api_get("https://x", "/status")
+        assert result.status == 0 and result.error == "unreachable" and not result.ok
+        bot._http_json = lambda url, timeout=bot.HTTP_TIMEOUT: (200, "<html>challenge</html>")
+        result = bot.api_get("https://x", "/status")
+        assert not result.ok and result.error == "bad_json"
+    finally:
+        bot._http_json = original
+
+
+def test_api_get_caches_but_not_errors():
+    calls = {"n": 0}
+
+    def fake(base, path, params=None, timeout=bot.HTTP_TIMEOUT):
+        calls["n"] += 1
+        if path == "/rate":
+            return bot.ApiResult(429, error="rate_limited")
+        return bot.ApiResult(200, {"hello": "world"})
+
+    original = bot.api_get
+    bot.api_get = fake
+    bot.API_CACHE.clear()
+    try:
+        first = asyncio.run(bot.get_api("https://x", "/status"))
+        second = asyncio.run(bot.get_api("https://x", "/status"))
+        assert first.ok and second.ok and calls["n"] == 1, "a 200 is cached"
+        asyncio.run(bot.get_api("https://x", "/rate"))
+        asyncio.run(bot.get_api("https://x", "/rate"))
+        assert calls["n"] == 3, "a 429 is never cached"
+        bot.API_CACHE.clear()
+    finally:
+        bot.api_get = original
+        bot.API_CACHE.clear()
+
+
+def test_server_state_from_api():
+    state = bot.server_state_from_api(API_STATUS_FRESH, NOW)
+    assert state is not None
+    assert state.map == "de_dust2" and state.players == 9 and state.max == 32
+    assert state.online and not state.stale and state.has_players
+    assert state.push_age == 12
+    assert state.active_events == ("Double XP Weekend",)
+    assert state.next_event is None
+
+    stale = bot.server_state_from_api(API_STATUS_STALE, NOW)
+    assert stale is not None and stale.stale and not stale.has_players
+    assert stale.players is None and stale.map == "de_nuke" and stale.next_event == "Happy Hour"
+    assert stale.push_age == 600
+
+    # tolerant: junk, missing blocks, "—" map, null last_push
+    assert bot.server_state_from_api(None, NOW) is None
+    assert bot.server_state_from_api({}, NOW) is None
+    assert bot.server_state_from_api({"server": "nope"}, NOW) is None
+    odd = bot.server_state_from_api({"server": {"map": "—", "players": None, "max": None,
+                                               "last_push": None, "stale": True}}, NOW)
+    assert odd is not None and odd.map is None and odd.push_age is None and odd.stale
+
+
+def test_status_uses_the_api_when_fresh():
+    import tempfile
+
+    async def boom(server, fresh=False):
+        raise AssertionError("a fresh panel answer must not need an A2S probe")
+
+    original = bot.get_info
+    bot.get_info = boom
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            cycle = os.path.join(tmp, "mapcycle.txt")
+            with open(cycle, "w") as fh:
+                fh.write("de_dust2\nde_inferno\nde_nuke\n")
+            cfg = sample_cfg()
+            cfg["mapcycle"] = cycle
+            interaction = call_command("status", api={"/status": (200, API_STATUS_FRESH)}, cfg=cfg)
+    finally:
+        bot.get_info = original
+    embed = interaction.answer["embeds"][0]
+    fields = {field.name: field.value for field in embed.fields}
+    assert embed.title == "FreeNova CS 1.6 | fn-gaming.net"
+    assert fields["Map"] == "`de_dust2`"
+    assert fields["Players"] == "**9/32**"
+    assert fields["Next map"] == "`de_inferno`", "next map comes from the mapcycle"
+    assert fields[bot.t("cmd.status.event")] == "Double XP Weekend"
+    assert embed.footer.text == "panel API · game push 12s ago"
+
+
+def test_status_stale_shows_the_age_and_the_a2s_count():
+    async def fake_info(server, fresh=False):
+        return {"name": "FreeNova CS 1.6", "map": "de_nuke", "players": 7, "max": 32}
+
+    original = bot.get_info
+    bot.get_info = fake_info
+    try:
+        interaction = call_command("status", api={"/status": (200, API_STATUS_STALE)})
+    finally:
+        bot.get_info = original
+    embed = interaction.answer["embeds"][0]
+    fields = {field.name: field.value for field in embed.fields}
+    assert fields["Players"] == "**7/32**", "the A2S probe fills in while the push is stale"
+    assert fields[bot.t("cmd.status.panel_data")] == "**10 m old**"
+    assert fields["Map"] == "`de_nuke`"
+    assert "panel API · 10 m old · player count from the A2S probe" in embed.footer.text
+
+
+def test_status_stale_without_a2s_says_the_count_is_unknown():
+    async def no_info(server, fresh=False):
+        return None
+
+    original = bot.get_info
+    bot.get_info = no_info
+    try:
+        interaction = call_command("status", api={"/status": (200, API_STATUS_STALE)})
+    finally:
+        bot.get_info = original
+    embed = interaction.answer["embeds"][0]
+    players = [field.value for field in embed.fields if field.name == bot.t("cmd.status.players")]
+    assert players[0] == bot.t("cmd.status.unknown")
+    assert players[-1] == bot.t("cmd.status.panel_players_unknown")
+    assert "player count unknown" in embed.footer.text
+    assert embed.colour.value == bot.COLOUR_DIM
+
+
+def test_status_rate_limited_falls_back_to_a2s():
+    async def fake_info(server, fresh=False):
+        return {"name": "FreeNova CS 1.6", "map": "de_aztec", "players": 3, "max": 32}
+
+    original = bot.get_info
+    bot.get_info = fake_info
+    try:
+        interaction = call_command("status",
+                                   api={"/status": (429, API_RATE_LIMITED)})
+    finally:
+        bot.get_info = original
+    embed = interaction.answer["embeds"][0]
+    fields = {field.name: field.value for field in embed.fields}
+    assert fields["Players"] == "**3/32**" and fields["Map"] == "`de_aztec`"
+    assert embed.footer.text == "A2S probe · panel API is rate-limiting me"
+    assert embed.colour.value == bot.COLOUR_OK
+
+
+def test_status_panel_says_offline():
+    async def no_info(server, fresh=False):
+        return None
+
+    original = bot.get_info
+    bot.get_info = no_info
+    try:
+        interaction = call_command("status", api={"/status": (200, API_STATUS_OFFLINE)})
+    finally:
+        bot.get_info = original
+    embed = interaction.answer["embeds"][0]
+    assert embed.colour.value == bot.COLOUR_WARN
+    assert embed.description.startswith("The panel says the server is offline.")
+    fields = {field.name: field.value for field in embed.fields}
+    assert fields["Map"] == bot.t("cmd.status.unknown")
+
+
+def test_status_nothing_answers_is_the_offline_card():
+    async def no_info(server, fresh=False):
+        return None
+
+    original = bot.get_info
+    bot.get_info = no_info
+    try:
+        interaction = call_command("status")          # API unreachable by default
+    finally:
+        bot.get_info = original
+    embed = interaction.answer["embeds"][0]
+    assert embed.colour.value == bot.COLOUR_WARN
+    assert "offline" in embed.title.lower()
 
 
 def test_digest_attempt_result():

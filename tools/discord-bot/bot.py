@@ -209,10 +209,24 @@ STRINGS: dict[str, dict[str, str]] = {
         "cmd.status.map": "Map",
         "cmd.status.players": "Players",
         "cmd.status.next": "Next map",
-        "cmd.status.footer": "Updated {time} UTC",
         "cmd.status.address": "`{host}:{port}`",
         "cmd.status.peak": "Peak (24 h)",
         "cmd.status.peak_value": "**{peak}{max}**{at}",
+        "cmd.status.unknown": "—",
+        "cmd.status.event": "Event now",
+        "cmd.status.panel_data": "Panel data",
+        "cmd.status.panel_age": "**{age} old**",
+        "cmd.status.panel_offline": "The panel says the server is offline.",
+        "cmd.status.panel_players_unknown": "count unknown while the push is stale",
+        "cmd.status.source.panel": "panel API · game push {age} ago",
+        "cmd.status.source.panel_none": "panel API · the game has not pushed yet",
+        "cmd.status.source.panel_stale": "panel API · {age} old · player count unknown",
+        "cmd.status.source.panel_stale_a2s": ("panel API · {age} old · player count from the A2S "
+                                              "probe"),
+        "cmd.status.source.a2s": "A2S probe · panel API {reason}",
+        "cmd.status.reason.unreachable": "didn't answer",
+        "cmd.status.reason.rate_limited": "is rate-limiting me",
+        "cmd.status.reason.error": "answered {status}",
         "cmd.players.desc": "Who is on the server right now",
         "cmd.players.count": "How many players to list (default 20)",
         "cmd.players.title": "{n} on {server}",
@@ -625,12 +639,172 @@ async def get_players(server: dict, fresh: bool = False) -> list[dict] | None:
     return players
 
 
+# ------------------------------------------------------------------- panel API
+# The panel publishes read-only JSON under /api/public (§ docs/PUBLIC-API.md).
+# This is the primary source for the boards, the profile and the status card.
+# Every call is cached, because the endpoint is limited to 120 requests/minute
+# per client address and answers `Cache-Control: no-store`.
+API_PREFIX = "/api/public"
+API_UA = "FreeNovaBot/1.0 (+FreeNova Discord bot)"
+API_CACHE = TTLCache(ttl=30.0)
+
+STATUS_TTL = 20.0        # /api/public/status
+TOP_TTL = 30.0           # /api/public/top
+PLAYER_TTL = 60.0        # /api/public/player/<steamid>
+EVENTS_TTL = 300.0       # /api/public/events (5 minutes, as agreed)
+
+
+@dataclass
+class ApiResult:
+    """One public-API answer: a 200 with JSON, or the panel's own error body."""
+
+    status: int                   # HTTP status; 0 when the request never landed
+    data: Any = None              # decoded JSON for 200
+    error: str = ""               # panel error code, or "unreachable"/"bad_json"
+    message: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.status == 200 and isinstance(self.data, (dict, list))
+
+    @property
+    def not_found(self) -> bool:
+        return self.status == 404
+
+    @property
+    def rate_limited(self) -> bool:
+        return self.status == 429
+
+
+def _http_json(url: str, timeout: float = HTTP_TIMEOUT) -> tuple[int, str]:
+    """GET a URL; returns (status, body). Status 0 means the request failed."""
+    req = urllib.request.Request(url, headers={"User-Agent": API_UA,
+                                               "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", "replace")
+        except Exception:                      # noqa: BLE001 - an error page is not worth dying for
+            body = ""
+        return exc.code, body
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        log.warning("GET %s failed: %s", url, exc)
+        return 0, ""
+
+
+def api_get(base: str, path: str, params: dict | None = None,
+            timeout: float = HTTP_TIMEOUT) -> ApiResult:
+    """One blocking call to the public API (run it in a thread)."""
+    query = ("?" + urllib.parse.urlencode(params)) if params else ""
+    url = f"{base}{API_PREFIX}{path}{query}"
+    status, body = _http_json(url, timeout)
+    if status == 0:
+        return ApiResult(0, error="unreachable")
+    data: Any = None
+    if body:
+        try:
+            data = json.loads(body)
+        except ValueError:
+            log.warning("API %s answered %s with non-JSON: %.80s", path, status, body)
+            return ApiResult(status, error="bad_json", message=body[:120])
+    if status != 200:
+        error = str(data.get("error") or f"http_{status}") if isinstance(data, dict) else f"http_{status}"
+        message = str(data.get("message") or "") if isinstance(data, dict) else ""
+        return ApiResult(status, data, error=error, message=message)
+    return ApiResult(status, data)
+
+
+async def get_api(base: str, path: str, params: dict | None = None,
+                  ttl: float = TOP_TTL) -> ApiResult:
+    """Cached `api_get`. A 429/5xx/timeout is never cached, a 404 is."""
+    key = f"api:{path}:{urllib.parse.urlencode(sorted((params or {}).items()))}"
+    cached = API_CACHE.get(key)
+    if cached is not MISS:
+        return cached
+    result = await _in_thread(api_get, base, path, params, budget=HTTP_TIMEOUT + 1)
+    if not isinstance(result, ApiResult):
+        result = ApiResult(0, error="unreachable")
+    if result.ok or result.status in (400, 404):
+        API_CACHE.put(key, result, ttl)
+    elif result.rate_limited:
+        log.warning("panel API rate-limited the bot on %s", path)
+    return result
+
+
+# ------------------------------------------------------------- panel server state
+@dataclass
+class ServerState:
+    """The panel's `/api/public/status` server block, parsed defensively."""
+
+    name: str = ""
+    map: str | None = None
+    online: bool = False
+    players: int | None = None
+    max: int | None = None
+    next_map: str | None = None
+    last_push: int | None = None
+    stale: bool = True
+    push_age: float | None = None
+    updated: int | None = None
+    active_events: tuple[str, ...] = ()
+    next_event: str | None = None
+
+    @property
+    def has_players(self) -> bool:
+        return self.players is not None and not self.stale
+
+
+def _opt_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def server_state_from_api(payload: Any, now: datetime | None = None) -> ServerState | None:
+    """Parse `/api/public/status`. `None` when the shape is not usable."""
+    if not isinstance(payload, dict):
+        return None
+    block = payload.get("server")
+    if not isinstance(block, dict):
+        return None
+    now = now or datetime.now(timezone.utc)
+    last_push = _opt_int(block.get("last_push"))
+    updated = _opt_int(payload.get("updated"))
+    # age against the panel's own clock, so a skewed bot clock cannot invent staleness
+    reference = updated if updated is not None else int(now.timestamp())
+    push_age = float(max(0, reference - last_push)) if last_push else None
+
+    events = payload.get("events") if isinstance(payload.get("events"), dict) else {}
+    raw_now = events.get("now") if isinstance(events.get("now"), list) else []
+    active = tuple(str(event["title"]) for event in raw_now
+                   if isinstance(event, dict) and event.get("title"))
+    raw_next = events.get("next")
+
+    mapname = block.get("map")
+    next_map_name = block.get("next_map")
+    return ServerState(
+        name=str(block.get("name") or ""),
+        map=str(mapname) if isinstance(mapname, str) and mapname and mapname != "—" else None,
+        online=bool(block.get("online")),
+        players=_opt_int(block.get("players")),
+        max=_opt_int(block.get("max")),
+        next_map=str(next_map_name) if isinstance(next_map_name, str) and next_map_name else None,
+        last_push=last_push,
+        stale=bool(block.get("stale", True)),
+        push_age=push_age,
+        updated=updated,
+        active_events=active,
+        next_event=str(raw_next) if isinstance(raw_next, str) and raw_next else None,
+    )
+
+
 # ------------------------------------------------------------------ leaderboard
-# One seam for the leaderboard source: `fetch_leaderboard()` is the only place
-# that knows how the numbers are obtained. Today it parses the public HTML
-# board at <base>/top15 (there is no JSON API: /api/* and ?format=json all
-# answer 404/HTML). When the panel grows an endpoint, replace the body of
-# `_fetch_rows()` with a JSON call and every command keeps working.
+# One seam for the board: `fetch_leaderboard()` is the only place that knows
+# where the numbers come from - `/api/public/top` today. The HTML board page is
+# still used for one thing the API does not do: resolving a player *name* to a
+# steamid (see `_search_candidates`).
 PERIODS = ("all", "week", "month")
 PERIOD_LABEL = {"all": "period.all", "week": "period.week", "month": "period.month"}
 
@@ -639,8 +813,9 @@ def period_label(period: str) -> str:
     """`all time` / `this week` / `this month`, translated."""
     return t(PERIOD_LABEL.get(period, "period.all"))
 
-# No period/weekly board is published yet, so asking for one says so instead of
-# inventing numbers. Flip this to True the moment the source can serve it.
+
+# The HTML board page only carries the lifetime table - these flags are for the
+# legacy `fetch_leaderboard` path and disappear when /top moves to /api/public/top.
 PERIOD_DATA_AVAILABLE = {"all": True, "week": False, "month": False}
 
 
@@ -1406,6 +1581,15 @@ def fmt_delta(seconds: float | int) -> str:
     return "<1 m"
 
 
+def fmt_age(seconds: float | int | None) -> str:
+    """How old a panel push is: `12s` under a minute and a half, then `10 m`."""
+    if seconds is None:
+        return "?"
+    if seconds < 90:
+        return f"{int(seconds)}s"
+    return fmt_delta(seconds)
+
+
 def event_countdown(event: Event, now: datetime) -> str:
     """`running now`, `in 2 h 15 m`, `ended 40 m ago`, or the file's own `when`."""
     state = event.state(now)
@@ -1650,6 +1834,82 @@ def command_guard(ephemeral: bool = False, rate: int = 0, per: float = 60.0):
         return wrapper
 
     return decorator
+
+
+def api_source_reason(api: ApiResult | None) -> str:
+    """Why the panel API was not used, in player words."""
+    if api is None:
+        return t("cmd.status.reason.unreachable")
+    if api.rate_limited:
+        return t("cmd.status.reason.rate_limited")
+    if api.status == 0:
+        return t("cmd.status.reason.unreachable")
+    return t("cmd.status.reason.error", status=api.status)
+
+
+def status_embed(cfg_server: dict, state: ServerState | None, info: dict | None,
+                 pool: list[str], api: ApiResult | None = None,
+                 now: datetime | None = None) -> discord.Embed:
+    """The `/status` card: the panel's numbers when it has fresh ones, A2S otherwise.
+
+    Staleness is shown, never smoothed over: a stale push means the panel does
+    not know the player count, so the field says so and the A2S probe fills in
+    if it answered.
+    """
+    now = now or datetime.now(timezone.utc)
+    name = (state.name if state and state.name else cfg_server["name"])
+    mapname = state.map if state else None
+    players = state.players if state and state.has_players else None
+    maxp = state.max if state and state.has_players else None
+    source = "a2s"
+    if state is not None:
+        source = "panel" if not state.stale else "panel_stale"
+    if info:
+        mapname = mapname or info.get("map")
+        if players is None:
+            players, maxp = info.get("players"), info.get("max")
+            source = "panel_stale_a2s" if state and state.stale else "a2s"
+    nxt = (state.next_map if state and state.next_map else None) or next_map(pool, mapname)
+
+    colour = COLOUR_OK
+    description = t("cmd.status.address", host=cfg_server["host"], port=cfg_server["port"])
+    if state is not None and not state.stale and not state.online:
+        colour = COLOUR_WARN
+        description = t("cmd.status.panel_offline") + "\n" + description
+    elif players is None:
+        colour = COLOUR_DIM
+
+    embed = discord.Embed(title=name, colour=colour, description=description)
+    embed.add_field(name=t("cmd.status.map"),
+                    value=f"`{mapname}`" if mapname else t("cmd.status.unknown"), inline=True)
+    embed.add_field(name=t("cmd.status.players"),
+                    value=f"**{players}/{maxp}**" if players is not None else t("cmd.status.unknown"),
+                    inline=True)
+    embed.add_field(name=t("cmd.status.next"),
+                    value=f"`{nxt}`" if nxt else t("cmd.status.unknown"), inline=True)
+    if state is not None and state.active_events:
+        embed.add_field(name=t("cmd.status.event"),
+                        value=" · ".join(state.active_events), inline=False)
+    if state is not None and state.stale:
+        if state.push_age is not None:
+            embed.add_field(name=t("cmd.status.panel_data"),
+                            value=t("cmd.status.panel_age", age=fmt_age(state.push_age)),
+                            inline=True)
+        if players is None:
+            embed.add_field(name=t("cmd.status.players"),
+                            value=t("cmd.status.panel_players_unknown"), inline=True)
+
+    if source == "panel":
+        footer = (t("cmd.status.source.panel", age=fmt_age(state.push_age))
+                  if state and state.push_age is not None else t("cmd.status.source.panel_none"))
+    elif source == "panel_stale":
+        footer = t("cmd.status.source.panel_stale", age=fmt_age(state.push_age or 0))
+    elif source == "panel_stale_a2s":
+        footer = t("cmd.status.source.panel_stale_a2s", age=fmt_age(state.push_age or 0))
+    else:
+        footer = t("cmd.status.source.a2s", reason=api_source_reason(api))
+    embed.set_footer(text=footer)
+    return embed
 
 
 def offline_embed(server: dict, detail: str = "") -> discord.Embed:
@@ -1912,20 +2172,18 @@ def build_bot(cfg: dict) -> commands.Bot:
     @bot.tree.command(name="status", description=t("cmd.status.desc"))
     @command_guard()
     async def status_cmd(interaction: discord.Interaction) -> None:
-        info = await get_info(server)
-        if not info:
+        now = datetime.now(timezone.utc)
+        api = await get_api(base, "/status", ttl=STATUS_TTL)
+        state = server_state_from_api(api.data, now) if api.ok else None
+        # the A2S probe is the fallback and the tie-breaker while the push is stale
+        info = None
+        if state is None or state.stale:
+            info = await get_info(server)
+        if state is None and info is None:
             await _reply(interaction, embed=offline_embed(server))
             return
-        nxt = next_map(map_pool(cfg.get("mapcycle")), info["map"])
-        embed = discord.Embed(title=info["name"], colour=COLOUR_OK,
-                              description=t("cmd.status.address", host=server["host"],
-                                            port=server["port"]))
-        embed.add_field(name=t("cmd.status.map"), value=f"`{info['map']}`", inline=True)
-        embed.add_field(name=t("cmd.status.players"),
-                        value=f"**{info['players']}/{info['max']}**", inline=True)
-        embed.add_field(name=t("cmd.status.next"), value=f"`{nxt}`" if nxt else "—", inline=True)
+        embed = status_embed(server, state, info, map_pool(cfg.get("mapcycle")), api, now)
         # "when is it busiest?" - straight from our own probe samples
-        now = datetime.now(timezone.utc)
         samples = await asyncio.to_thread(load_samples, samples_path, now.timestamp() - 86400)
         stats = digest_stats(samples, now)
         if stats.get("peak") is not None:
@@ -1934,8 +2192,6 @@ def build_bot(cfg: dict) -> commands.Bot:
             embed.add_field(name=t("cmd.status.peak"),
                             value=t("cmd.status.peak_value", peak=stats["peak"], max=free, at=at),
                             inline=True)
-        embed.set_footer(text=t("cmd.status.footer",
-                                time=datetime.now(timezone.utc).strftime("%H:%M")))
         await _reply(interaction, embed=embed)
 
     @bot.tree.command(name="players", description=t("cmd.players.desc"))

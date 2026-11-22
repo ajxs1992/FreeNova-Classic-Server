@@ -1,6 +1,5 @@
 #include <amxmodx>
 #include <amxmisc>
-#include <cromchat>
 #include <csx>
 #include <csstats_const>
 #include <fakemeta>

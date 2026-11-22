@@ -432,8 +432,15 @@ public cmdConfirm(id, level, cid)
 	if (!c[0]) { console_print(id, "[FN] usage: fn_confirm <case>"); return PLUGIN_HANDLED; }
 	if (!LibraryExists("fn_audit", LibType_Library)) { console_print(id, "[FN] audit unavailable"); return PLUGIN_HANDLED; }
 	new s[40], p[32], ms[12], r[96];
-	log_amx("[FN-BANS] confirm failed case=%s", c);
-	if (!fn_confirm_do(id, c, s, 39, p, 31, ms, 11, r, 95)) { console_print(id, "[FN] confirm failed (wrong case, expired, or other admin)"); return PLUGIN_HANDLED; }
+	// REVIEW.md 5.5: this log line sat *before* the attempt, so every successful
+	// confirm wrote "confirm failed" to the AMXX log and the case id there was
+	// never the one that failed. Log it in the failure branch, where it is true.
+	if (!fn_confirm_do(id, c, s, 39, p, 31, ms, 11, r, 95))
+	{
+		log_amx("[FN-BANS] confirm failed case=%s", c);
+		console_print(id, "[FN] confirm failed (wrong case, expired, or other admin)");
+		return PLUGIN_HANDLED;
+	}
 	new m = str_to_num(ms);
 	new cap2 = banCap();
 	if (cap2 > 0 && m > cap2) { m = cap2; log_amx("[FN-BANS] confirmed clamped to amx_tempban_maxtime %d", cap2); }

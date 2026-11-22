@@ -761,7 +761,9 @@ public Cmd_Info(id, level, cid)
         formatex(szLine, charsmax(szLine),
             "[ZG-7] slot=%d name=%s alive=%d flag=%d tier=%d eligible=%d holder=%d wpn=%d",
             i, szPName, bAlive, bFlag, bTier, bElig, bHold, iWpn);
-        client_print(id, print_chat, szLine);
+        // Format string is the literal, not the built line: a name with '%' in
+        // it would otherwise be read as a conversion spec. REVIEW.md §5.5.
+        client_print(id, print_chat, "%s", szLine);
         ZLog(szLine);
     }
 
@@ -941,5 +943,5 @@ stock ZLog(const szMsg[])
 {
     new szOut[352];
     formatex(szOut, charsmax(szOut), "[ZG-7] %s", szMsg);
-    log_amx(szOut);
+    log_amx("%s", szOut);
 }

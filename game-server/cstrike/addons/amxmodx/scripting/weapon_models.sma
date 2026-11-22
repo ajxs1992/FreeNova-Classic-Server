@@ -2121,7 +2121,11 @@ public CustomOrderMenuHandler(id, menu, item)
         {
             if (is_user_connected(i) && (get_user_flags(i) & (ADMIN_RCON | ADMIN_BAN | ADMIN_IMMUNITY)))
             {
-                client_printcolor(i, szAdminMsg);
+                // Never pass the built line as the format: a CS 1.6 name may
+                // contain '%', and client_printcolor vformats its argument, so a
+                // player named "%s" reads garbage cells as string pointers in
+                // every admin's client. REVIEW.md §5.5.
+                client_printcolor(i, "%s", szAdminMsg);
             }
         }
 

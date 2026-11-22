@@ -448,3 +448,94 @@ on their next kill.
 * `ACH_COINS_10000` ("Coin Magnet") tests the player's **current balance**, not
   coins ever earned, so a player who spends below 10 000 before the next check
   can miss it. Changing that is a design call about what the medal means.
+
+---
+
+## 5. Competitive / season scoring and the `/tournament` page
+
+### What it scores
+
+`freenova_competitive.amxx` is a monthly points ladder. It only scores while
+`fnc_enabled 1`, outside knife rounds, and with at least `fnc_min_players` (2)
+humans connected.
+
+| Event | Points | Key |
+|---|---|---|
+| kill | +10 | `fnc_kill_points` |
+| headshot kill | +5 on top | `fnc_headshot_bonus` |
+| bomb plant | +10 | `fnc_plant_points` |
+| bomb defuse | +15 | `fnc_defuse_points` |
+| round win (every player on the winning team) | +20 | `fnc_round_win_points` |
+| round MVP | +25 | `fnc_mvp_points` |
+| teamkill | −15, floor 0 | `fnc_teamkill_penalty` |
+| daily competitive missions (auto-claim) | +120 / +130 / +100 / +150 | targets 25 kills / 20 HS / 10 wins / 3 MVP |
+
+So `comp_points = 10·kills + 5·headshots + 10·plants + 15·defuses + 20·wins +
+25·MVP − 15·teamkills + mission bonuses`. Plants, defuses, teamkills and the
+mission bonuses have **no column of their own** (neither in SQL nor on the
+page), so a player's points can never be reconciled from the numbers the web
+shows.
+
+The season key is the calendar month (`%Y-%m`), rolled over lazily by the 60 s
+autosave, which saves the old month first, re-keys and zeroes the season
+counters; a career lifetime total (`fn_comp_career`) survives. Daily missions
+reset at midnight. Published fields, all read by `freenova_sync` and stored in
+the `players` table: `comp_season`, `comp_points`, `comp_lifetime`, `comp_kills`,
+`comp_hs`, `comp_wins`, `comp_mvp`, `comp_msn_k/h/w/m`, `comp_msn_done`.
+**Every field the panel reads is published** — nothing renders blank.
+
+### Does `/tournament` agree?
+
+Mostly. The page (`web-panel/src/competitive.js`) reads `comp_points`,
+`comp_kills`, `comp_wins`, `comp_mvp` (and selects `comp_hs` without rendering
+it), sorts by points then kills, shows a top-10 ladder, the local player's
+position and prize tier, the daily missions and the prize table. The prize tiers,
+the mission targets and the mission bits all match the plugin.
+
+### Fixed in this round
+
+* **The champion prize was free.** `ComputeSeasonPrize()` ranked by
+  `CompRank()` alone, and `CompRank()` reports rank 1 whenever nothing outranks
+  the player — including when the rank cache is empty (the start of every month)
+  or the player has never scored. `ClaimSeasonPrize()` only refused on
+  `CompRank == 0 && (points > 0 || wins > 0)`, so a player with 0 points and 0
+  wins was offered "Claim season prize - 10000c" and paid it. The web panel
+  refuses exactly that player (`comp_points > 0 || comp_wins > 0`), and
+  `freenova_sync`'s own refusal message is literally "You need tournament points
+  or wins to claim prizes!" — the plugin was the only half that did not check.
+  The rank tiers now require one point or one win (wins are checked too because
+  teamkill penalties clamp points at 0). Nothing else about the ladder changed.
+
+### Listed, not fixed (design or panel-side)
+
+* **Rank tie-break disagreement.** The plugin ranks by points then kills
+  (`CompRank`, and the DB query behind `/ctop`). The panel's position is
+  `COUNT(*) + 1 WHERE comp_points > ?` — points only, no tie-break. Two players
+  level on points both read `#1` on the web, both see the champion tier, and the
+  second claim is rejected by `freenova_sync` with "invalid prize tier". Making
+  the plugin points-only would mint duplicate champions, so this needs an owner
+  ruling; the panel's query is out of scope for this branch either way.
+* **The web ladder has no season filter.** It reads `comp_points` for all rows,
+  so a player who has not reconnected since the rollover keeps last month's
+  points and keeps ranking. The plugin's own queries are season-scoped.
+* **Board size.** The web shows a top 10; the in-game `/ctop` and the prize
+  ladder say TOP 15.
+* **`comp_history` is never written.** `web-panel/src/sync.js` inserts into it
+  from `payload.season_history`, and no plugin emits that field, so final
+  standings are not preserved anywhere: the "final standings" view reconstructs
+  a finished season from `players` rows that the next connection overwrites.
+* **The daily mission is called RIFLEMAN in game and FRAG HUNTER on the web**
+  (same metric, same 25 kills). Cosmetic; the name lives in
+  `freenova_comp.inc` too, which this branch does not own.
+* **`comp_hs` is published and stored but the live page never renders it** (only
+  the unused `pageTournament` in `pages.js` does). `comp_lifetime` is shown
+  nowhere live.
+* **Wording:** the panel's prize tiers say "match wins" where the plugin counts
+  round wins.
+* **No library guard in `freenova_sync`**: if `freenova_competitive` were ever
+  removed from `plugins.ini`, the `fncomp_*` calls in the sync payload would
+  silently publish zeroes instead of failing loudly. (Not changed: `plugins.ini`
+  and `freenova_sync.sma` are out of scope for this branch.)
+* **Bot guard.** The kill path does not test `is_user_bot()` (the death and damage
+  paths do); "kills involving bots score nothing" rests on the ranking provider,
+  not on this plugin.

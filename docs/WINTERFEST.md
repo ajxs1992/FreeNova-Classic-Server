@@ -8,20 +8,30 @@ between the feature wish-list and what a GoldSrc server can actually do. Read
 
 ## 1. The two hard constraints
 
-### 1.1 Anything the client must download is blocked
-FastDL points at `https://fastdl.fn-gaming.net/cstrike/`, which is a **separate
-copy we cannot write** (see `docs/MAPS.md`). Consequences, no exceptions:
+### 1.1 Client downloads: **they work**, slowly (updated 2026-11-22)
+The owner joined the live server while its client fetched VIP models: with
+`sv_allowdownload 1`, GoldSrc **falls back to downloading straight from the game
+port** when the fastdl mirror 404s a file. So the gate is open — with a cost:
 
-| blocked until fastdl works | why |
-| --- | --- |
-| Christmas player models (Santa, Grinch, Elf, Reindeer) | `.mdl` per client |
-| Christmas weapon skins (AK/M4/AWP/Deagle/Glock/USP/knife, frozen, candy cane, golden) | `.mdl` + `.bmp` per client |
-| Christmas sounds, ambient music, gift-opening audio | `.wav`/`.mp3` per client |
-| Snow-covered / winter maps, map decorations, Christmas lights on maps | `.bsp` + `.wad` per client |
-| Custom snow / sparkle / sleigh sprites | `.spr` per client |
+* **Speed.** No mirror means the engine's own throttle: a 5 MB map is minutes, not
+  seconds, and the player stares at the loading screen while it happens.
+* **First impression.** Every byte a player must fetch before they can play is a
+  reason to leave. Small props (30-100 KB) are invisible; player models and sound
+  packs (5 MB+) are not.
+* **The mirror is still the right answer.** `https://fastdl.fn-gaming.net/cstrike/`
+  is a static copy that serves what it already has (`awp_india.bsp` = 200) and
+  404s anything new (`de_tuscan.bsp` = 404). Fixing it turns minutes into
+  seconds; until then, direct download is a working fallback.
 
-This is ~60 % of the visual wish-list. It is a hosting problem, not a coding
-problem: the day fastdl is fixed, all of it becomes a two-day upload.
+Practical rules that follow:
+1. **Ship small first.** Props and sprites (presents, tree, snowmen, candy) are
+   fine to add now: tens of KB each. Hats (5.1 MB for seven models) and sound
+   packs (3.5 MB) should be bundled behind an explicit action, not forced on
+   arrival.
+2. **Never force a large download on a map change** for a player who did not ask
+   for it — that is how a Christmas surprise becomes a quit.
+3. **Announce it.** "This model is downloading from the server, one moment" beats
+   a silent stall.
 
 ### 1.2 What GoldSrc genuinely cannot do
 Stated once so nobody plans around it:

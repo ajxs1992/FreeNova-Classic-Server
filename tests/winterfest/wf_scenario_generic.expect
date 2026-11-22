@@ -1,0 +1,56 @@
+# tests/winterfest/wf_scenario_generic.expect
+#
+# The same scenario as wf_scenario.expect, run against a map that has NO rows in
+# winterfest.ini's [presents]: fy_snow (a light map with player spawns and no
+# generated present rows).
+#
+#   ./scripts/test-plugin.sh /path/to/tests/winterfest/wf_scenario.sma \
+#       --profile freenova --bots 1 --map fy_snow \
+#       --expect /path/to/tests/winterfest/wf_scenario_generic.expect
+#
+# What this proves that the dust2 run cannot: the generic '*' fallback really is
+# used when a map has no entry of its own, and it resolves to `@t`/`@ct` spawn
+# references rather than to nothing.
+
+\[WF-TEST\] PASS season-open
+\[WF-TEST\] PASS reset-clean
+\[WF-TEST\] PASS gb-add
+\[WF-TEST\] PASS grant-once
+\[WF-TEST\] PASS grant-second-key
+\[WF-TEST\] PASS gb-legacy-alias
+\[WF-TEST\] PASS spins-consume
+\[WF-TEST\] PASS pass-natives
+\[WF-TEST\] PASS ornament-once
+\[WF-TEST\] PASS tree-slot
+\[WF-TEST\] PASS tree-slot-refused
+\[WF-TEST\] PASS tree-clear
+\[WF-TEST\] PASS visual-data
+\[WF-TEST\] PASS visual-model-gated
+\[WF-TEST\] PASS gift-once
+\[WF-TEST\] PASS gift-instance
+\[WF-TEST\] PASS open-once
+\[WF-TEST\] PASS open-second-pays
+\[WF-TEST\] PASS advent-today
+\[WF-TEST\] PASS advent-late
+\[WF-TEST\] PASS advent-locked
+\[WF-TEST\] PASS pass-xp
+\[WF-TEST\] summary pass=[0-9]+ fail=0
+
+\[WF\] config: 3 rarities, 30 ornaments, 6 sets, 24 advent days, 30 pass tiers
+\[WF\] spins: enabled, [0-9]+ free per day
+\[WF\] daily spin granted to id [0-9]+
+\[WF\] [0-9]+ visual id\(s\) configured, 6 prop slot\(s\) bound \(models gated
+
+# The documented rule: a map with no rows of its own gets the generic set, and
+# the count still has to land inside 6-10 (the '*' block is 8).
+\[WF-GIFTS\] [0-9]+ present spot\(s\) on fy_snow from generic \* rows - ok \(rule: 6-10, default 8\)
+\[WF-GIFTS\] season is closed - [0-9]+ spot\(s\) parsed, not spawned
+\[WF-GIFTS\] spawned [0-9]+/[0-9]+ present glow\(s\)
+
+\[WF\] admin [0-9]+ gave .* what=snowflakes .*code 1
+\[WF\] admin [0-9]+ reloaded .*winterfest\.ini
+\[WF-GIFTS\] player spawns on fy_snow
+
+!\[WF-TEST\] FAIL
+!Run time error
+!bad load

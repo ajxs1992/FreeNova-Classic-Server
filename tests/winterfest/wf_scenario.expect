@@ -1,0 +1,72 @@
+# tests/winterfest/wf_scenario.expect
+#
+# Consumed by cs16-linux-base's test-plugin.sh: one POSIX extended regex per
+# line, every one must appear in the server console log; a line starting with
+# '!' must NOT appear. Run on de_dust2 (map-specific present rows):
+#
+#   ./scripts/test-plugin.sh /path/to/tests/winterfest/wf_scenario.sma \
+#       --profile freenova --bots 1
+#
+# The sibling wf_scenario_generic.expect is the same scenario on a map with no
+# present rows of its own (fy_snow), and asserts the generic '*' fallback.
+
+# One line per assertion, in order, so a regression names itself.
+\[WF-TEST\] PASS season-open
+\[WF-TEST\] PASS reset-clean
+\[WF-TEST\] PASS gb-add
+\[WF-TEST\] PASS grant-once
+\[WF-TEST\] PASS grant-second-key
+\[WF-TEST\] PASS gb-legacy-alias
+\[WF-TEST\] PASS spins-consume
+\[WF-TEST\] PASS pass-natives
+\[WF-TEST\] PASS ornament-once
+\[WF-TEST\] PASS tree-slot
+\[WF-TEST\] PASS tree-slot-refused
+\[WF-TEST\] PASS tree-clear
+\[WF-TEST\] PASS visual-data
+\[WF-TEST\] PASS visual-model-gated
+\[WF-TEST\] PASS gift-once
+\[WF-TEST\] PASS gift-instance
+\[WF-TEST\] PASS open-once
+\[WF-TEST\] PASS open-second-pays
+\[WF-TEST\] PASS advent-today
+\[WF-TEST\] PASS advent-late
+\[WF-TEST\] PASS advent-locked
+\[WF-TEST\] PASS pass-xp
+\[WF-TEST\] summary pass=[0-9]+ fail=0
+
+# The three plugins report themselves loaded, and the core read the merged
+# config: the content pack's catalogues (30 ornaments / 6 sets / 24 days / 30
+# tiers) plus the rarity, tree and reward-pool blocks this module owns.
+\[FreeNova winterfest_core\] ready
+\[FreeNova winterfest_gifts\] ready
+\[FreeNova winterfest_menu\] ready
+\[WF\] vault 'freenova_wf' open
+\[WF\] config: 3 rarities, 30 ornaments, 6 sets, 24 advent days, 30 pass tiers
+\[WF\] tree styles configured: 3
+\[WF\] spins: enabled, [0-9]+ free per day
+\[WF\] daily spin granted to id [0-9]+
+# The look of every prop is config data, and models are gated in Phase 1.
+\[WF\] [0-9]+ visual id\(s\) configured, 6 prop slot\(s\) bound \(models gated
+
+# The present-count rule (owner decision §6.4: 6-10 per map, default 8). dust2
+# has its own generated rows and the plugin says whether they satisfy the rule.
+\[WF-GIFTS\] [0-9]+ present spot\(s\) on [a-z_0-9]+ from map rows - ok \(rule: 6-10, default 8\)
+
+# A closed season spawns nothing (this is the boot: the window starts on
+# 1 December), and the same map spawns its presents once the season is open.
+\[WF-GIFTS\] season is closed - [0-9]+ spot\(s\) parsed, not spawned
+\[WF-GIFTS\] spawned [0-9]+/[0-9]+ present glow\(s\)
+
+# The console half of the brief: the admin path really ran
+# (tests/winterfest/wf_scenario.commands).
+\[WF\] admin [0-9]+ gave .* what=snowflakes .*code 1
+\[WF\] season 'Winterfest[^']*' year 2026 .*open=yes vault=ok
+\[WF\] admin [0-9]+ reloaded .*winterfest\.ini
+\[WF\] no client matched 'nobody-at-all'
+\[WF-GIFTS\] player spawns on [a-z_0-9]+
+
+# And nothing failed or threw at run time.
+!\[WF-TEST\] FAIL
+!Run time error
+!bad load

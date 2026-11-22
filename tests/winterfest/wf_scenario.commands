@@ -1,0 +1,16 @@
+# tests/winterfest/wf_scenario.commands
+#
+# Console commands cs16-linux-base sends after the map starts, one per line,
+# 0.4 s apart. This is the operator/admin half of the brief: the same commands a
+# person would type on the server console.
+#
+# The scenario plugin proves the ledger logic through natives; these lines prove
+# the console path reaches the same functions and says so in the log (the
+# wf_scenario.expect file asserts each of these lines).
+
+wf_force_open 1
+wf_give all snowflakes 0 40
+wf_state all
+wf_give nobody-at-all snowflakes 0 5
+wf_reload
+wf_dump_spawns

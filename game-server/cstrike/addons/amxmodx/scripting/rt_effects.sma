@@ -268,7 +268,11 @@ stock Float:parseHEXColor(const value[])
 {
 	new Float:result[3];
 
-	if(value[0] != '#' && strlen(value) != 7)
+	// REVIEW.md 5.5: this was `&&`, so "#12" (starts with # but too short) and
+	// "1234567" (seven chars, no #) both got through and parse16bit() read the
+	// digits either past the NUL or from the wrong offsets. A colour is valid
+	// only when it starts with # AND is exactly seven characters.
+	if(value[0] != '#' || strlen(value) != 7)
 		return result;
 
 	result[0] = parse16bit(value[1], value[2]);

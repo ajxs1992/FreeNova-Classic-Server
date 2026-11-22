@@ -145,6 +145,18 @@ new g_iAdvType[WF_MAX_ADVENT + 1];
 new g_iAdvRid[WF_MAX_ADVENT + 1];
 new g_iAdvCount;
 
+// Entitlement catalogue (owner decision §6.5/§7). Product ids are strings and
+// live in the ini, so the panel and the game cannot disagree about what exists.
+#define WF_MAX_PRODUCTS 8
+new g_iEntCount;
+new g_szProdId[WF_MAX_PRODUCTS][40];
+new g_szProdLabel[WF_MAX_PRODUCTS][48];
+new g_szProdKind[WF_MAX_PRODUCTS][16];
+
+// The premium track: same tiers, same thresholds as [pass], its own reward rows.
+new g_iPremType[WF_MAX_TIERS + 1];
+new g_iPremRid[WF_MAX_TIERS + 1];
+
 new g_iTierXp[WF_MAX_TIERS + 1];      // cumulative XP that opens the tier
 new g_iTierType[WF_MAX_TIERS + 1];
 new g_iTierRid[WF_MAX_TIERS + 1];
@@ -170,6 +182,7 @@ new g_szGifts[MAX_PLAYERS + 1][192];     // "instance:rarity,instance:rarity"
 new g_szOrn[MAX_PLAYERS + 1][320];       // "1,4,7" (ornament ids owned)
 new g_szAdv[MAX_PLAYERS + 1][128];       // "1,2,3" (advent days claimed)
 new g_szTitles[MAX_PLAYERS + 1][128];    // "1,3"   (ornament-set ids completed)
+new g_szEnts[MAX_PLAYERS + 1][160];      // "product@source,..." (entitlements)
 new g_szPlace[MAX_PLAYERS + 1][224];     // "3:7,4:12" - slot:ornament on the 24-slot grid
 new g_iStyle[MAX_PLAYERS + 1];           // tree style, 1..g_iStyleCount
 new bool:g_bLoaded[MAX_PLAYERS + 1];
@@ -180,9 +193,15 @@ new g_iLoadTries[MAX_PLAYERS + 1];
 // ============================================================
 // Plugin lifecycle
 // ============================================================
+// One optional foreign native: BattlePass coins, used only by a premium reward
+// row that pays coins. Declared here and filtered below, so a server without
+// battlepass_core loads this plugin normally instead of bad-loading it.
+native menabp_add_coins_once(id, amount, const awardId[]);
+
 public plugin_natives()
 {
 	register_library("winterfest_core");
+	set_native_filter("WfCoreNativeFilter");
 
 	register_native("wf_season_open", "native_season_open");
 	register_native("wf_season_name", "native_season_name");
@@ -230,7 +249,16 @@ public plugin_natives()
 	register_native("wf_pass_max_tier", "native_pass_max_tier");
 	register_native("wf_pass_tier_xp", "native_pass_tier_xp");
 	register_native("wf_pass_tier_reward", "native_pass_tier_reward");
+	register_native("wf_pass_tier_reward_premium", "native_pass_tier_reward_premium");
+	register_native("wf_claim_pass_tier", "native_claim_pass_tier");
+	register_native("wf_pass_premium_unlocked", "native_pass_premium_unlocked");
+	register_native("wf_has_entitlement", "native_has_entitlement");
+	register_native("wf_grant_entitlement", "native_grant_entitlement");
+	register_native("wf_entitlement_count", "native_entitlement_count");
+	register_native("wf_entitlement_name", "native_entitlement_name");
+	register_native("wf_entitlement_label", "native_entitlement_label");
 	register_native("wf_advent_today", "native_advent_today");
+	register_native("wf_advent_state", "native_advent_state");
 	register_native("wf_advent_claim", "native_advent_claim");
 	register_native("wf_advent_claimed", "native_advent_claimed");
 	register_native("wf_gift_count", "native_gift_count");
@@ -244,6 +272,15 @@ public plugin_natives()
 	register_native("wf_visual_colour", "native_visual_colour");
 	register_native("wf_visual_scale", "native_visual_scale");
 	register_native("wf_visual_count", "native_visual_count");
+}
+
+// A missing wf_* is a real bug; a missing menabp_* is a supported configuration
+// (no BattlePass on this server), so only the foreign family is filtered.
+public WfCoreNativeFilter(const name[], index, trap)
+{
+	if (!trap && contain(name, "menabp_") == 0 && !LibraryExists("menabp", LibType_Library))
+		return PLUGIN_HANDLED
+	return PLUGIN_CONTINUE
 }
 
 public plugin_init()
@@ -265,8 +302,10 @@ public plugin_init()
 	register_concmd("wf_state", "cmdState", ADMIN_CFG, "<target|all> - print Winterfest state")
 	register_concmd("wf_reset", "cmdReset", ADMIN_CFG, "<target> - wipe current-season Winterfest data")
 	register_concmd("wf_reload", "cmdReload", ADMIN_CFG, "- re-read configs/freenova/winterfest.ini")
+	register_concmd("wf_ent", "cmdEnt", ADMIN_CFG, "<target|all> <product> [source] - grant an entitlement (bp_premium_2026, advent_pass_2026)")
 
 	server_print("[FreeNova winterfest_core] ready (build 3, %d features)", 52)
+	WfLogClock()
 
 	loadConfig()
 
@@ -286,6 +325,8 @@ public plugin_init()
 	log_amx("[WF] config: %d rarities, %d ornaments, %d sets, %d advent days, %d pass tiers",
 		g_iRarCount, g_iOrnCount, g_iSetCount, g_iAdvCount, g_iTierCount)
 	log_amx("[WF] spins: %s, %d free per day", g_bSpinsEnabled ? "enabled" : "disabled", g_iSpinsFree)
+	log_amx("[WF] %d product(s) in the entitlement catalogue; premium track: %s",
+		g_iEntCount, WfPremiumRowCount() > 0 ? "configured" : "absent")
 }
 
 public plugin_end()
@@ -390,6 +431,12 @@ loadConfig()
 	g_iVisCount = 0
 	g_iSpinsFree = 1
 	g_bSpinsEnabled = true
+	g_iEntCount = 0
+	for (new i = 0; i <= WF_MAX_TIERS; i++)
+	{
+		g_iPremType[i] = WF_REWARD_NONE
+		g_iPremRid[i] = 0
+	}
 	for (new s = 0; s <= WF_MAX_STYLES; s++)
 		g_szStyleName[s][0] = 0
 	for (new p = 0; p < WF_PROP_SLOTS; p++)
@@ -487,6 +534,10 @@ loadConfig()
 			parseProps(line)
 		else if (equal(section, "spins"))
 			parseSpins(line)
+		else if (equal(section, "entitlement"))
+			parseEntitlement(line)
+		else if (equal(section, "pass_premium"))
+			parsePassPremium(line)
 		// [presents] belongs to winterfest_gifts.amxx - it reads the same file
 		// for its own section, and this plugin never touches it.
 	}
@@ -900,6 +951,69 @@ stock bool:WfVisualUsable(idx)
 	return true
 }
 
+// [entitlement] product_id | display name | kind
+//
+// The catalogue of things a player can OWN (owner decision §6.5, §7). Gameplay
+// only ever asks "does this player own product X"; the panel sells it, an admin
+// grants it, and later Stripe fulfils an order into the same table. Putting the
+// ids here means wf_has_entitlement() cannot be called with a typo that silently
+// answers "no" forever.
+parseEntitlement(const line[])
+{
+	if (g_iEntCount >= WF_MAX_PRODUCTS)
+	{
+		log_amx("[WF] [entitlement] more than %d products - extra rows ignored", WF_MAX_PRODUCTS)
+		return
+	}
+	new id[40]
+	WfField(line, 0, id, charsmax(id))
+	if (!id[0])
+	{
+		log_amx("[WF] [entitlement] row without a product id - skipped")
+		return
+	}
+	copy(g_szProdId[g_iEntCount], charsmax(g_szProdId[]), id)
+	WfField(line, 1, g_szProdLabel[g_iEntCount], charsmax(g_szProdLabel[]))
+	if (!g_szProdLabel[g_iEntCount][0])
+		copy(g_szProdLabel[g_iEntCount], charsmax(g_szProdLabel[]), id)
+	WfField(line, 2, g_szProdKind[g_iEntCount], charsmax(g_szProdKind[]))
+	g_iEntCount++
+}
+
+// [pass_premium] tier | reward kind | id | amount
+//
+// The paid track (owner decision §6.2). It reuses the [pass] thresholds: tier n
+// of the premium track unlocks at the same XP as tier n of the free track, and
+// its claim key is separate (`pass:<n>:premium`), so the two tracks can never
+// pay each other's reward. Nothing here is granted without the entitlement.
+parsePassPremium(const line[])
+{
+	new tier = WfFieldInt(line, 0, 0)
+	if (tier < 1 || tier > WF_MAX_TIERS)
+	{
+		log_amx("[WF] [pass_premium] tier %d out of range 1..%d - row skipped", tier, WF_MAX_TIERS)
+		return
+	}
+	new type = WfRewardFromName(WfFieldStr(line, 1))
+	new rid = resolveRid(type, WfFieldInt(line, 2, 0), WfFieldInt(line, 3, 0))
+	if (!WfRewardUsable(type, rid))
+	{
+		log_amx("[WF] [pass_premium] tier %d has an unusable reward - row skipped", tier)
+		return
+	}
+	g_iPremType[tier] = type
+	g_iPremRid[tier] = rid
+}
+
+stock WfPremiumRowCount()
+{
+	new n = 0
+	for (new t = 1; t <= WF_MAX_TIERS; t++)
+		if (g_iPremType[t] != WF_REWARD_NONE)
+			n++
+	return n
+}
+
 // A `[advent]`/`[pass]`/`[open]` row names a reward kind by name and then gives
 // an id and an amount; snow and pass XP carry the amount as the "reward id",
 // the other kinds carry a catalogue id. Doing the mapping in ONE place means the
@@ -908,7 +1022,7 @@ stock resolveRid(type, id, amount)
 {
 	switch (type)
 	{
-		case WF_REWARD_SNOWFLAKES, WF_REWARD_PASS_XP:
+		case WF_REWARD_SNOWFLAKES, WF_REWARD_PASS_XP, WF_REWARD_SPINS, WF_REWARD_COINS:
 			return max(0, amount)
 		case WF_REWARD_GIFT:
 		{
@@ -932,6 +1046,10 @@ stock WfRewardFromName(const name[])
 		return WF_REWARD_GIFT
 	if (equal(name, "pass") || equal(name, "xp"))
 		return WF_REWARD_PASS_XP
+	if (equal(name, "spins") || equal(name, "spin"))
+		return WF_REWARD_SPINS
+	if (equal(name, "coins") || equal(name, "coin"))
+		return WF_REWARD_COINS
 	if (equal(name, "title"))
 		return WF_REWARD_TITLE
 	return WF_REWARD_NONE
@@ -959,6 +1077,32 @@ stock WfDateKey(const s[])
 			break
 	}
 	return out
+}
+
+// Europe/Paris is the single clock (owner decision §6.4 final): the daily spin,
+// the Advent unlock and the pass rollover all read the SERVER's local date. The
+// host must run TZ=Europe/Paris, and this line makes a wrong host visible in the
+// boot log instead of showing up later as reset times that are an hour or two
+// off. It is a diagnostic, not a gate - nothing behaves differently because of
+// the number it prints.
+WfLogClock()
+{
+	new local[32]
+	get_time("%Y-%m-%d %H:%M", local, charsmax(local))
+	new epoch = get_systime()
+	new utc_hour = (epoch / 3600) % 24
+	new hour[8]
+	get_time("%H", hour, charsmax(hour))
+	new local_hour = str_to_num(hour)
+	new offset = local_hour - utc_hour
+	if (offset < -12) offset += 24
+	if (offset > 12) offset -= 24
+	if (offset >= 0)
+		log_amx("[WF] clock: local %s, UTC+%d (Europe/Paris is +1 in winter, +2 in summer - the host must run TZ=Europe/Paris)",
+			local, offset)
+	else
+		log_amx("[WF] clock: local %s, UTC%d (Europe/Paris is +1 in winter, +2 in summer - the host must run TZ=Europe/Paris)",
+			local, offset)
 }
 
 stock WfToday()
@@ -1084,6 +1228,7 @@ WfClearMem(id)
 	g_szOrn[id][0] = 0
 	g_szAdv[id][0] = 0
 	g_szTitles[id][0] = 0
+	g_szEnts[id][0] = 0
 	g_szPlace[id][0] = 0
 	g_iStyle[id] = 1
 	g_bLoaded[id] = false
@@ -1122,6 +1267,7 @@ WfLoad(id)
 		WfLoadStr(id, "advent", g_szAdv[id], charsmax(g_szAdv[]))
 		WfLoadStr(id, "titles", g_szTitles[id], charsmax(g_szTitles[]))
 		WfLoadStr(id, "slots", g_szPlace[id], charsmax(g_szPlace[]))
+		WfLoadStr(id, "ents", g_szEnts[id], charsmax(g_szEnts[]))
 		g_iSpins[id] = max(0, WfLoadInt(id, "spins", 0))
 		g_iPending[id] = max(0, WfLoadInt(id, "pending", 0))
 	}
@@ -1159,6 +1305,7 @@ stock bool:WfSave(id, bool:force)
 	if (!WfSaveStr(id, "advent", g_szAdv[id])) ok = 0
 	if (!WfSaveStr(id, "titles", g_szTitles[id])) ok = 0
 	if (!WfSaveStr(id, "slots", g_szPlace[id])) ok = 0
+	if (!WfSaveStr(id, "ents", g_szEnts[id])) ok = 0
 
 	if (!ok)
 		log_amx("[WF] WARNING: at least one nvault_set failed for id %d - record may be partial", id)
@@ -1374,6 +1521,36 @@ bool:WfApplyReward(id, type, rid, bool:announce)
 			WfSyncTiers(id, announce)
 			return true
 		}
+		case WF_REWARD_SPINS:
+		{
+			if (rid <= 0)
+				return false
+			WfAddSpins(id, rid)
+			formatex(text, charsmax(text), "+%d spin%s  \d(balance %d)", rid, (rid == 1) ? "" : "s", g_iSpins[id])
+			changed = true
+		}
+		case WF_REWARD_COINS:
+		{
+			// Coins belong to The BattlePass. Pay them through its own
+			// once-only path (so its ledger also has the award), and fall back to
+			// GingerBread if that plugin is not loaded - a premium tier must never
+			// pay nothing.
+			if (rid <= 0)
+				return false
+			if (LibraryExists("menabp", LibType_Library))
+			{
+				new award[64]
+				formatex(award, charsmax(award), "wf:coins:%d", rid)
+				menabp_add_coins_once(id, rid, award)
+				formatex(text, charsmax(text), "+%d Coins", rid)
+			}
+			else
+			{
+				WfAddGb(id, rid)
+				formatex(text, charsmax(text), "+%d %s \d(no BattlePass loaded - paid as the soft currency)", rid, WF_CURRENCY_NAME)
+			}
+			changed = true
+		}
 		case WF_REWARD_TITLE:
 		{
 			if (rid < 1 || rid > g_iSetCount)
@@ -1453,7 +1630,7 @@ stock bool:WfRewardUsable(type, rid)
 {
 	switch (type)
 	{
-		case WF_REWARD_SNOWFLAKES, WF_REWARD_PASS_XP:
+		case WF_REWARD_SNOWFLAKES, WF_REWARD_PASS_XP, WF_REWARD_SPINS, WF_REWARD_COINS:
 			return rid > 0 ? true : false
 		case WF_REWARD_GIFT:
 			return (rid >= 0 && rid < WF_RARITY_MAX) ? true : false
@@ -1490,24 +1667,42 @@ WfSyncTiers(id, bool:announce)
 		return
 	g_bInTierSync[id] = true
 
+	// Two tracks, two claim keys: pass:<t>:free and pass:<t>:premium. They can
+	// never collide, and the premium one only ever runs for a player who owns the
+	// premium product.
 	new tier = WfTierFromXp(g_iPassXp[id])
+	new bool:premium = WfEntHas(id, WF_PRODUCT_BP_PREMIUM)
+
 	for (new t = 1; t <= tier; t++)
 	{
-		if (!WfRewardUsable(g_iTierType[t], g_iTierRid[t]))
-			continue
-		new key[24]
-		formatex(key, charsmax(key), "tier#%d", t)
-		new type = g_iTierType[t]
-		new rid = g_iTierRid[t]
-		WfSubstituteOwned(id, type, rid)
-		if (WfGrantIdem(id, type, rid, key, announce) == WF_GRANT_OK)
+		if (WfRewardUsable(g_iTierType[t], g_iTierRid[t]))
 		{
-			if (announce)
+			new key[32]
+			formatex(key, charsmax(key), "pass:%d:free", t)
+			new type = g_iTierType[t]
+			new rid = g_iTierRid[t]
+			WfSubstituteOwned(id, type, rid)
+			if (WfGrantIdem(id, type, rid, key, announce) == WF_GRANT_OK && announce)
 			{
 				new line[96]
 				formatex(line, charsmax(line), "winter pass tier %d reached", t)
 				WfSay(id, line)
 			}
+		}
+
+		if (!premium || !WfRewardUsable(g_iPremType[t], g_iPremRid[t]))
+			continue
+
+		new pkey[32]
+		formatex(pkey, charsmax(pkey), "pass:%d:premium", t)
+		new ptype = g_iPremType[t]
+		new prid = g_iPremRid[t]
+		WfSubstituteOwned(id, ptype, prid)
+		if (WfGrantIdem(id, ptype, prid, pkey, announce) == WF_GRANT_OK && announce)
+		{
+			new line[96]
+			formatex(line, charsmax(line), "premium tier %d reward claimed", t)
+			WfSay(id, line)
 		}
 	}
 
@@ -1917,42 +2112,162 @@ WfOpenGift(id, instance)
 }
 
 // ============================================================
-// Advent
+// Entitlements (owner decision §6.5, model in §7)
 // ============================================================
-WfAdventClaim(id, day)
+// An entitlement is the only thing gameplay reads when it asks "does this player
+// own the premium track / the Advent Pass?". Money never calls in here: the panel
+// (or, later, a Stripe webhook) fulfils an order by calling
+// wf_grant_entitlement() with a source and a claim key, and this plugin records
+// ownership. Stored as one string per player: "product@source,product@source".
+stock WfProdIndex(const product[])
+{
+	for (new i = 0; i < g_iEntCount; i++)
+		if (equali(g_szProdId[i], product))
+			return i
+	return -1
+}
+
+stock bool:WfEntHas(id, const product[])
+{
+	if (!WfReady(id) || !product[0])
+		return false
+	new len = strlen(g_szEnts[id]), start = 0
+	for (new i = 0; i <= len; i++)
+	{
+		if (i < len && g_szEnts[id][i] != ',')
+			continue
+		new buf[48], c = i - start
+		if (c > 0 && c < charsmax(buf))
+		{
+			for (new k = 0; k < c; k++)
+				buf[k] = g_szEnts[id][start + k]
+			buf[c] = 0
+			new at = contain(buf, "@")
+			if (at > 0)
+				buf[at] = 0
+			if (equali(buf, product))
+				return true
+		}
+		start = i + 1
+	}
+	return false
+}
+
+stock bool:WfEntAdd(id, const product[], const source[])
+{
+	if (WfEntHas(id, product))
+		return false
+	new entry[64]
+	formatex(entry, charsmax(entry), "%s@%s", product, source[0] ? source : "unknown")
+	if (!g_szEnts[id][0])
+		copy(g_szEnts[id], charsmax(g_szEnts[]), entry)
+	else
+	{
+		add(g_szEnts[id], charsmax(g_szEnts[]), ",")
+		add(g_szEnts[id], charsmax(g_szEnts[]), entry)
+	}
+	WfTouch(id)
+	return true
+}
+
+// The one entitlement-granting path: the native and the wf_ent command both come
+// through here, so "who owns what" has exactly one writer.
+stock WfGrantEntitlement(id, const product[], const source[], const claim[], bool:announce)
 {
 	if (!WfReady(id))
 		return WF_GRANT_NOTLOADED
-	if (!WfSeasonActive())
+	if (WfProdIndex(product) < 0)
+	{
+		log_amx("[WF] refused entitlement grant: '%s' is not in the [entitlement] catalogue", product)
 		return WF_GRANT_INVALID
+	}
+
+	if (claim[0])
+	{
+		if (WfClaimExists(id, claim))
+			return WF_GRANT_DUPLICATE
+		WfClaimMark(id, claim)
+	}
+
+	if (!WfEntAdd(id, product, source))
+		return WF_GRANT_DUPLICATE
+
+	log_amx("[WF] id %d now owns '%s' (source '%s', claim '%s')", id, product, source, claim)
+
+	// A premium entitlement pays the premium tiers the player has ALREADY reached
+	// (a purchase mid-season is not a downgrade), and each claim key keeps that
+	// to once per tier.
+	if (equali(product, WF_PRODUCT_BP_PREMIUM))
+		WfSyncTiers(id, announce)
+
+	if (announce)
+	{
+		new line[96]
+		new idx = WfProdIndex(product)
+		formatex(line, charsmax(line), "unlocked: %s", (idx >= 0) ? g_szProdLabel[idx] : product)
+		WfSay(id, line)
+	}
+	return WF_GRANT_OK
+}
+
+// ============================================================
+// Advent
+// ============================================================
+// A strict one-day window (owner decision §6.3, final): day n unlocks on its
+// date, is claimable THAT DAY ONLY in Europe/Paris, and afterwards it is
+// expired, not discounted. The half-value catch-up is gone.
+//
+// The Advent Pass entitlement (product advent_pass_2026) unlocks every day at
+// once, which is how a late joiner buys the calendar at the end of the season.
+// The claim keys do not change (`advent#<day>`), so owning the pass can never
+// pay a day twice - it only moves days from expired/locked to claimable.
+WfAdventState(id, day)
+{
 	if (day < 1 || day > WF_MAX_ADVENT || g_iAdvType[day] == WF_REWARD_NONE)
-		return WF_GRANT_INVALID
+		return WF_ADVENT_INVALID
+	if (!WfSeasonActive())
+		return WF_ADVENT_INVALID
 
-	// 24 calendar days, unlocked on their own date (owner decision §6.3):
-	//   day > today          -> still locked
-	//   day == today         -> full value
-	//   day < today          -> missed, claimable at half value until the
-	//                           advent deadline (advent_end in the ini)
 	new today = WfDayOfMonth()
-	if (today <= 0 || day > today)
-		return WF_GRANT_INVALID
-	if (g_iAdventEnd && WfToday() > g_iAdventEnd)
-		return WF_GRANT_INVALID
+	if (today <= 0)
+		return WF_ADVENT_INVALID
 
-	new bool:late = (day != today) ? true : false
-	new type = g_iAdvType[day]
-	new rid = WfHalfValue(type, g_iAdvRid[day], late)
-	WfSubstituteOwned(id, type, rid)
+	if (id > 0 && WfReady(id) && WfListHas(g_szAdv[id], day))
+		return WF_ADVENT_CLAIMED
 
+	// The pass unlocks the whole calendar, including days that have not arrived.
+	if (id > 0 && WfEntHas(id, WF_PRODUCT_ADVENT_PASS))
+		return WF_ADVENT_UNLOCKED
+
+	if (day == today)
+		return WF_ADVENT_TODAY
+	if (day < today)
+		return WF_ADVENT_EXPIRED
+	return WF_ADVENT_LOCKED
+}
+
+WfAdventClaim(id, day)
+{
+	if (!WfReady(id))
+		return WF_ADVENT_CLAIM_INVALID
+
+	new day_state = WfAdventState(id, day)
+	switch (day_state)
+	{
+		case WF_ADVENT_CLAIMED: return WF_ADVENT_CLAIM_CLAIMED
+		case WF_ADVENT_EXPIRED: return WF_ADVENT_CLAIM_EXPIRED
+		case WF_ADVENT_LOCKED:  return WF_ADVENT_CLAIM_LOCKED
+		case WF_ADVENT_INVALID: return WF_ADVENT_CLAIM_INVALID
+	}
+
+	// TODAY or UNLOCKED. The claim key is written before the reward, like every
+	// other payoff, so a reconnect or a double click cannot pay twice.
 	new key[24]
 	formatex(key, charsmax(key), "advent#%d", day)
-
-	if (WfListHas(g_szAdv[id], day) || WfClaimExists(id, key))
+	if (WfClaimExists(id, key))
 	{
-		// Repair a claim that exists without the day in the list (crash between
-		// the two writes): the reward stays paid once, the UI stops offering it.
 		WfListAdd(g_szAdv[id], charsmax(g_szAdv[]), day)
-		return WF_GRANT_DUPLICATE
+		return WF_ADVENT_CLAIM_CLAIMED
 	}
 
 	WfClaimMark(id, key)
@@ -1960,33 +2275,13 @@ WfAdventClaim(id, day)
 		log_amx("[WF] advent list full for id %d - day %d not recorded", id, day)
 	WfTouch(id)
 
-	if (late)
-	{
-		new line[64]
-		formatex(line, charsmax(line), "day %d was missed - claiming it late at half value", day)
-		WfSay(id, line)
-	}
+	new type = g_iAdvType[day]
+	new rid = g_iAdvRid[day]
+	WfSubstituteOwned(id, type, rid)
+	if (day_state == WF_ADVENT_UNLOCKED)
+		log_amx("[WF] id %d claimed advent day %d through the Advent Pass", id, day)
 	WfApplyReward(id, type, rid, true)
-	return WF_GRANT_OK
-}
-
-// Half value for a late advent claim: floor(amount / 2) with a floor of 1, and
-// only for the numeric rewards. An ornament, a present or a title has no smaller
-// unit, so it is paid as-is - the day still pays exactly once either way
-// (owner decision §6.3; the rule lives in code, the amounts live in the ini).
-stock WfHalfValue(type, rid, bool:late)
-{
-	if (!late)
-		return rid
-	switch (type)
-	{
-		case WF_REWARD_SNOWFLAKES, WF_REWARD_PASS_XP:
-		{
-			new half = rid / 2
-			return (half < 1) ? 1 : half
-		}
-	}
-	return rid
+	return WF_ADVENT_CLAIM_OK
 }
 
 // ============================================================
@@ -2396,6 +2691,12 @@ public native_advent_today(plugin, params)
 	return WfDayOfMonth()
 }
 
+public native_advent_state(plugin, params)
+{
+	#pragma unused plugin, params
+	return WfAdventState(get_param(1), get_param(2))
+}
+
 public native_advent_claim(plugin, params)
 {
 	#pragma unused plugin, params
@@ -2443,6 +2744,128 @@ public native_open_gift(plugin, params)
 {
 	#pragma unused plugin, params
 	return WfOpenGift(get_param(1), get_param(2))
+}
+
+public native_has_entitlement(plugin, params)
+{
+	#pragma unused plugin, params
+	new id = get_param(1)
+	new product[40]
+	get_string(2, product, charsmax(product))
+	if (WfProdIndex(product) < 0)
+		return WF_ENT_UNKNOWN
+	if (!WfReady(id))
+		return WF_ENT_NO
+	return WfEntHas(id, product) ? WF_ENT_YES : WF_ENT_NO
+}
+
+// The one door ownership comes through: a paid order, a manual admin grant or an
+// automatic in-game grant all end up here, with a source and a claim key. The
+// claim key is the idempotency record (order id, admin action id, ...), so a
+// replayed fulfilment cannot grant twice.
+public native_grant_entitlement(plugin, params)
+{
+	#pragma unused plugin, params
+	new id = get_param(1)
+	new product[40], source[32], claim[64]
+	get_string(2, product, charsmax(product))
+	get_string(3, source, charsmax(source))
+	get_string(4, claim, charsmax(claim))
+
+	// announce: the player sees one line. A panel-driven fulfilment also sees it,
+	// which is the point - ownership should never appear silently.
+	return WfGrantEntitlement(id, product, source, claim, true)
+}
+
+public native_entitlement_count(plugin, params)
+{
+	#pragma unused plugin, params
+	return g_iEntCount
+}
+
+public native_entitlement_name(plugin, params)
+{
+	#pragma unused plugin, params
+	new idx = get_param(1)
+	new out[40]
+	if (idx >= 0 && idx < g_iEntCount)
+		copy(out, charsmax(out), g_szProdId[idx])
+	else
+		out[0] = 0
+	set_string(2, out, get_param(3))
+}
+
+public native_entitlement_label(plugin, params)
+{
+	#pragma unused plugin, params
+	new idx = get_param(1)
+	new out[48]
+	if (idx >= 0 && idx < g_iEntCount)
+		copy(out, charsmax(out), g_szProdLabel[idx])
+	else
+		out[0] = 0
+	set_string(2, out, get_param(3))
+}
+
+public native_pass_tier_reward_premium(plugin, params)
+{
+	#pragma unused plugin, params
+	new tier = get_param(1)
+	new out[96]
+	out[0] = 0
+	if (tier >= 1 && tier <= WF_MAX_TIERS && g_iPremType[tier] != WF_REWARD_NONE)
+		WfRewardText(g_iPremType[tier], g_iPremRid[tier], out, charsmax(out))
+	set_string(2, out, get_param(3))
+}
+
+public native_pass_premium_unlocked(plugin, params)
+{
+	#pragma unused plugin, params
+	new id = get_param(1)
+	return WfEntHas(id, WF_PRODUCT_BP_PREMIUM) ? 1 : 0
+}
+
+// Explicit tier claim. The free track already pays itself on tier-up; this exists
+// for the premium track (which needs the entitlement), for a panel button, and
+// for a retry after an entitlement arrives late. Idempotent per (tier, track).
+public native_claim_pass_tier(plugin, params)
+{
+	#pragma unused plugin, params
+	new id = get_param(1)
+	new tier = get_param(2)
+	new bool:premium = get_param(3) ? true : false
+
+	if (!WfReady(id) || tier < 1 || tier > g_iTierCount)
+		return WF_GRANT_INVALID
+	// Not reached yet: nothing to claim.
+	if (WfTierFromXp(g_iPassXp[id]) < tier)
+		return WF_GRANT_INVALID
+
+	new type, rid
+	new key[32]
+	if (premium)
+	{
+		// The entitlement is the gate, and it is checked here as well as in the
+		// sync so a caller cannot pay a premium tier by calling the native.
+		if (!WfEntHas(id, WF_PRODUCT_BP_PREMIUM))
+			return WF_GRANT_INVALID
+		if (!WfRewardUsable(g_iPremType[tier], g_iPremRid[tier]))
+			return WF_GRANT_INVALID
+		type = g_iPremType[tier]
+		rid = g_iPremRid[tier]
+		formatex(key, charsmax(key), "pass:%d:premium", tier)
+	}
+	else
+	{
+		if (!WfRewardUsable(g_iTierType[tier], g_iTierRid[tier]))
+			return WF_GRANT_INVALID
+		type = g_iTierType[tier]
+		rid = g_iTierRid[tier]
+		formatex(key, charsmax(key), "pass:%d:free", tier)
+	}
+
+	WfSubstituteOwned(id, type, rid)
+	return WfGrantIdem(id, type, rid, key, true)
 }
 
 public native_rarity_name(plugin, params)
@@ -2545,6 +2968,10 @@ stock WfRewardText(type, rid, out[], len)
 			formatex(out, len, "%s present", (rid >= 0 && rid < g_iRarCount) ? g_szRarName[rid] : "?")
 		case WF_REWARD_PASS_XP:
 			formatex(out, len, "%d winter pass XP", rid)
+		case WF_REWARD_SPINS:
+			formatex(out, len, "%d spin%s", rid, (rid == 1) ? "" : "s")
+		case WF_REWARD_COINS:
+			formatex(out, len, "%d Coins", rid)
 		case WF_REWARD_TITLE:
 			formatex(out, len, "collector title: %s", (rid >= 1 && rid <= g_iSetCount) ? g_szSetTitle[rid] : "?")
 		default:
@@ -2706,12 +3133,14 @@ public cmdState(id, level, cid)
 		new p = targets[t]
 		new pname[MAX_NAME_LENGTH]
 		get_user_name(p, pname, charsmax(pname))
-		console_print(id, "[WF] %s (%d) loaded=%s gb=%d spins=%d pending=%d gifts=%d ornaments=%d/%d tree=%d pass=%d xp(t%d) advent=%s titles=%s",
+		console_print(id, "[WF] %s (%d) loaded=%s gb=%d spins=%d pending=%d gifts=%d ornaments=%d/%d tree=%d pass=%d xp(t%d) premium=%s ents=%s advent=%s titles=%s",
 			pname, p,
 			g_bLoaded[p] ? "yes" : "no",
 			g_iGb[p], g_iSpins[p], g_iPending[p],
 			WfGiftCount(p), WfOrnOwnedCount(p), g_iOrnCount,
 			g_iTree[p], g_iPassXp[p], WfTierFromXp(g_iPassXp[p]),
+			WfEntHas(p, WF_PRODUCT_BP_PREMIUM) ? "yes" : "no",
+			g_szEnts[p][0] ? g_szEnts[p] : "-",
 			g_szAdv[p][0] ? g_szAdv[p] : "-",
 			g_szTitles[p][0] ? g_szTitles[p] : "-")
 	}
@@ -2767,7 +3196,7 @@ stock WfResetPlayer(id)
 		static const bases[][] =
 		{
 			"gb", "snow", "pass", "tree", "gseq", "gifts", "orn", "advent", "titles",
-			"style", "slots", "spins", "pending"
+			"style", "slots", "spins", "pending", "ents"
 		}
 		new key[MAX_KEY], val[16]
 		for (new i = 0; i < sizeof(bases); i++)
@@ -2782,6 +3211,50 @@ stock WfResetPlayer(id)
 
 	g_bDirty[id] = false
 	WfSave(id, true)
+}
+
+// Manual grant, the in-game twin of the panel's admin action (§6.5, §7). The
+// claim key is per (player, product), so running it twice is a no-op and the
+// first grant's source is what stays recorded.
+public cmdEnt(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 3))
+		return PLUGIN_HANDLED
+
+	new arg_target[40], arg_product[40], arg_source[24]
+	read_argv(1, arg_target, charsmax(arg_target))
+	read_argv(2, arg_product, charsmax(arg_product))
+	read_argv(3, arg_source, charsmax(arg_source))
+	if (!arg_source[0])
+		copy(arg_source, charsmax(arg_source), "admin")
+
+	new targets[MAX_PLAYERS], tnum
+	WfResolveTargets(arg_target, targets, tnum, MAX_PLAYERS)
+	if (!tnum)
+	{
+		console_print(id, "[WF] no client matched '%s'", arg_target)
+		return PLUGIN_HANDLED
+	}
+	if (WfProdIndex(arg_product) < 0)
+	{
+		console_print(id, "[WF] unknown product '%s' - the catalogue is in [entitlement]", arg_product)
+		return PLUGIN_HANDLED
+	}
+
+	for (new t = 0; t < tnum; t++)
+	{
+		new p = targets[t]
+		new pname[MAX_NAME_LENGTH], key[64]
+		get_user_name(p, pname, charsmax(pname))
+		// One claim per player per product for a manual grant: the entitlement is
+		// ownership, not a consumable.
+		formatex(key, charsmax(key), "ent#%s", arg_product)
+		new code = WfGrantEntitlement(p, arg_product, arg_source, key, true)
+		console_print(id, "[WF] entitlement %s -> %s (%d): code %d", arg_product, pname, p, code)
+		log_amx("[WF] admin %d granted entitlement '%s' to %s (%d) source=%s => %d",
+			id, arg_product, pname, p, arg_source, code)
+	}
+	return PLUGIN_HANDLED
 }
 
 public cmdReload(id, level, cid)

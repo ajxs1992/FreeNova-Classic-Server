@@ -14,6 +14,27 @@ an ornament or a present spot without opening a `.sma`.
 
 Three plugins, one config file, zero client assets.
 
+**Two decisions landed after the first cut and are in this build** (authority:
+`docs/WINTERFEST.md` §6, rewritten, and §7):
+
+* **Advent is a strict one-day window.** Day *n* is claimable on its date only;
+  afterwards it is *expired*, not discounted (the half-value catch-up is
+  withdrawn). The **Advent Pass** entitlement unlocks the whole calendar at once.
+* **The Battle Pass has a premium track.** It is an **entitlement**, never a
+  gameplay grant: `[pass_premium]` carries the rewards, `[entitlement]` carries
+  the product ids, and nothing pays without ownership.
+
+**The clock is Europe/Paris, everywhere** (owner decision §6.4): the daily spin,
+the Advent unlock, the pass rollover and the day boundaries all read the
+*server's* local date, so the host must run `TZ=Europe/Paris`. The core prints the
+offset at boot so a wrong host is obvious immediately:
+
+```
+[WF] clock: local 2026-11-22 21:05, UTC+1 (Europe/Paris is +1 in winter, +2 in summer - the host must run TZ=Europe/Paris)
+```
+
+There is no per-player timezone and no UTC fallback: one constant, one clock.
+
 **The currency is GingerBread** (owner naming, 2026-11-22; id `gb`). It was
 called *snowflakes* earlier in the same week: `wf_get_gingerbread` /
 `wf_add_gingerbread` are the canonical natives, `wf_get_snowflakes` /
@@ -133,6 +154,8 @@ Reward kinds (`reward_id` meaning in brackets):
 | `WF_REWARD_GIFT` | 3 | present rarity 0..2 |
 | `WF_REWARD_PASS_XP` | 4 | how much pass XP |
 | `WF_REWARD_TITLE` | 5 | ornament-set id |
+| `WF_REWARD_SPINS` | 6 | how many spins |
+| `WF_REWARD_COINS` | 7 | how many Coins — paid through BattlePass' own once-only path (`menabp_add_coins_once`, guarded by `LibraryExists("menabp")`); with no BattlePass it pays GingerBread and logs why |
 
 Claim keys in use today (all of them are composed by the caller and hashed by the
 core, so they can be long and readable):
@@ -142,9 +165,11 @@ core, so they can be long and readable):
 | present pickup | `spot#<map>#<spot>#<round>` |
 | present opening | `open#<present instance>` |
 | snowflake pouch | `pouch#<pouch id>` |
-| advent day | `advent#<day>` |
+| advent day | `advent#<day>` (same key with and without the Advent Pass) |
 | daily spin | `spin#<YYYYMMDD>` |
-| pass tier | `tier#<n>` |
+| free pass tier | `pass:<tier>:free` |
+| premium pass tier | `pass:<tier>:premium` |
+| entitlement | the caller's claim key (e.g. `order:<order_id>`) |
 | set completion | `set#<set id>` (title), `setbx#<set id>` (snow) |
 | ornament ownership | `orn#own` |
 
@@ -173,7 +198,9 @@ re-reads it live (and asks `winterfest_gifts` to re-spawn its spots).
 | `[open]` | core | what is inside a present, per rarity |
 | `[pouch]` | gifts | death-drop pouch: snow, life, enable |
 | `[presents]` | gifts | present spots per map |
-| `[advent]` | core | 24 calendar days |
+| `[advent]` | core | 24 calendar days, a strict one-day window each |
+| `[pass_premium]` | core | the paid track: 30 tiers, its own rewards |
+| `[entitlement]` | core | the product catalogue (premium track, Advent Pass) |
 | `[pass]` | core | 30 free tiers |
 
 ### 4.1 Content-pack merge
@@ -325,7 +352,77 @@ The model paths the engine is told about live in one table in
 already in it, so no recompile is needed for any of them. A *new* model file is
 one line in that table plus one `[visual]` row.
 
-### 4.5 How to change the reward pools, advent days, pass tiers, tree layout
+### 4.5 Advent: a strict one-day window, and the Advent Pass
+
+Day *n* unlocks on its Europe/Paris date, is claimable **that day only**, and
+after midnight it is **expired** — not discounted (the half-value catch-up that
+was in the first cut is withdrawn). `wf_advent_state(id, day)` answers honestly:
+
+| value | meaning |
+| --- | --- |
+| `WF_ADVENT_TODAY` | today is its date: claimable now |
+| `WF_ADVENT_EXPIRED` | its date has passed and it was not claimed |
+| `WF_ADVENT_LOCKED` | its date has not arrived |
+| `WF_ADVENT_CLAIMED` | already claimed |
+| `WF_ADVENT_UNLOCKED` | claimable now because the player owns the Advent Pass |
+
+`wf_advent_claim()` returns the same truth (`WF_ADVENT_CLAIM_OK / _CLAIMED /
+_EXPIRED / _LOCKED / _INVALID`), so a caller never has to guess why a claim was
+refused. The record of what was missed is kept — the claimed-day list plus the
+stored date is enough for the panel's illustrated village and for the Advent Pass
+to show the whole track.
+
+**The Advent Pass** (`advent_pass_2026` in `[entitlement]`) makes every day
+claimable at once, including days that have not arrived. The claim key is still
+`advent#<day>`, so a day pays at most once whether it was claimed on time or
+through the pass. Nothing buys it in game — the panel sells it, and it arrives as
+an entitlement (§4.6).
+
+### 4.6 The premium track, and what an entitlement is
+
+`[pass]` is the **free** track and is unchanged. `[pass_premium]` is the paid one:
+the same 30 tiers and the same XP thresholds, its own reward rows, its own claim
+key (`pass:<tier>:premium` vs `pass:<tier>:free` — they can never collide).
+
+Premium is an **entitlement**, not a flag and not a column:
+
+* `[entitlement]` lists the products (`product id | display name | kind`):
+  `bp_premium_2026`, `advent_pass_2026`. Gameplay only ever asks
+  `wf_has_entitlement(id, "bp_premium_2026")`; it never asks how the player got
+  it, and it never charges anything.
+* `wf_grant_entitlement(id, product, source, claim_key)` is the **only** door
+  ownership comes through — a paid order, a manual admin grant, or an automatic
+  in-game grant. The claim key is the idempotency record (`order:<order_id>` for
+  a fulfilment), so a replayed push cannot grant twice.
+* A premium tier is refused (`WF_GRANT_INVALID`) while the entitlement is missing,
+  and paid once when it is there. **Buying mid-season back-pays every premium tier
+  already reached** — a purchase is not a downgrade — and each claim key keeps
+  that to one payment per tier.
+* Storage is one string per player: `wf_ents_s<year>#<auth>` =
+  `product@source,...`. The source is kept so an operator can answer "who gave
+  this player the pass, and when".
+
+In game, `wf_ent <target|all> <product> [source]` is the manual grant (admin
+level, logged, idempotent per player+product).
+
+**What the panel must push for ownership to appear in game.** Two halves, and
+only the second one touches this module:
+
+1. the panel's own `entitlements` row (`steamid, product_id, season, granted_at,
+   source, order_id`) is the display record — that is `docs/WINTERFEST.md` §7, and
+   it is the panel's business;
+2. the game server has to *learn* about it, because ownership lives in the game's
+   per-player vault. The push is one call per product:
+   `wf_grant_entitlement(id, "<product id>", "panel", "order:<order_id>")`, made by
+   whatever bridge already runs panel actions — or, until that bridge exists, by
+   an operator with `wf_ent`. An entitlement granted while the player is offline
+   cannot be written in game (there is no player to write it for), so the bridge
+   must queue the call and make it when that steamid connects; the claim key makes
+   a repeated push harmless. A product id that is not in `[entitlement]` is
+   refused with a log line, which is the guard against a panel typo silently
+   owning nothing.
+
+### 4.7 How to change the reward pools, advent days, pass tiers, tree layout
 
 * `[open]` — `rarity | kind | id | min | max | weight`. `min`/`max` are the roll
   range for `snow` and `pass`; `id` is the catalog id for `ornament`/`gift`/
@@ -341,7 +438,7 @@ one line in that table plus one `[visual]` row.
   box; 24 slots per style. A fourth style needs `WF_MAX_STYLES` bumped in the
   include plus 24 rows.
 
-### 4.6 Season rollover (December 2027)
+### 4.8 Season rollover (December 2027)
 
 1. `[season]`: `year = 2027`, `start`/`end`/`advent_end` to the new window.
 2. Nothing else. Every vault key and every claim key is stamped with `year`, so
@@ -374,6 +471,7 @@ truncated key would silently alias another player's record.
 | `gb` | GingerBread balance | int (`0..2 000 000 000`, clamped). A record written before the rename lives under `snow` and is read as a fallback |
 | `spins` | spin balance | int |
 | `pending` | reserved for the envelope (workstream 15) | int, round-tripped, written by the envelope |
+| `ents` | entitlements owned: `product@source,product@source` | csv, max 8 products |
 | `pass` | Winter Pass XP | int |
 | `tree` | tree level = 1 + completed sets | int |
 | `gseq` | present instance counter | int |
@@ -421,8 +519,9 @@ this is the map of what exists and why.
 | ornaments | `wf_grant_ornament`, `wf_has_ornament`, `wf_ornament_count`, `wf_ornament_total`, `wf_ornament_name`, `wf_ornament_rarity`, `wf_ornament_set` |
 | tree | `wf_tree_level`, `wf_tree_style`, `wf_tree_set_style`, `wf_tree_slot`, `wf_tree_set_slot`, `wf_tree_filled`, `wf_tree_slots`, `wf_tree_next_set`, `wf_tree_style_count`, `wf_tree_style_name`, `wf_tree_slot_x`, `wf_tree_slot_y` |
 | sets | `wf_set_count`, `wf_set_name`, `wf_set_title`, `wf_set_owned`, `wf_set_total` |
-| pass | `wf_get_pass_xp`, `wf_get_pass_tier` (canonical, workstream 14), `wf_pass_next_xp`, `wf_pass_max_tier`, `wf_pass_tier_xp`, `wf_pass_tier_reward`, plus the aliases `wf_pass_xp` / `wf_pass_tier` |
-| advent | `wf_advent_today`, `wf_advent_claim`, `wf_advent_claimed` |
+| pass | `wf_get_pass_xp`, `wf_get_pass_tier` (canonical, workstream 14), `wf_pass_next_xp`, `wf_pass_max_tier`, `wf_pass_tier_xp`, `wf_pass_tier_reward`, `wf_pass_tier_reward_premium`, `wf_claim_pass_tier`, `wf_pass_premium_unlocked`, plus the aliases `wf_pass_xp` / `wf_pass_tier` |
+| advent | `wf_advent_today`, `wf_advent_state`, `wf_advent_claim`, `wf_advent_claimed` |
+| entitlements | `wf_has_entitlement`, `wf_grant_entitlement`, `wf_entitlement_count`, `wf_entitlement_name`, `wf_entitlement_label` |
 | presents | `wf_gift_count`, `wf_gift_instance`, `wf_gift_rarity`, `wf_open_gift` |
 | names | `wf_rarity_name` |
 | visuals | `wf_visual_id`, `wf_visual_is_model`, `wf_visual_asset`, `wf_visual_colour`, `wf_visual_scale`, `wf_visual_count` |
@@ -534,8 +633,11 @@ winterfest: {
   ornaments:[ { id, name, rarity, set, owned, hidden } ]
   sets:     [ { id, name, title, owned, total, complete } ]
   tree:     { style, style_name, level, filled, slots: [ {slot, ornament_id, x, y} ] }
-  advent:   [ { day, reward_text, claimed, claimable, late_half_value } ]
-  pass:     { tier, xp, next_xp, max_tier, tiers: [ {tier, xp, reward_text, claimed} ] }
+  advent:   [ { day, reward_text, claimed, state } ]   /* state = the wf_advent_state() value */
+  pass:     { tier, xp, next_xp, max_tier, premium_owned,
+              tiers: [ {tier, xp, free_reward_text, free_claimed,
+                        premium_reward_text, premium_claimed} ] }
+  entitlements: [ { product_id, label, owned, source, granted_at } ]
   titles:   [ set_id ]
   pending:  { count }                  /* the envelope's counter (workstream 15) */
 }
@@ -555,7 +657,7 @@ built here** — these are the seams, and each one is deliberately small.
 | workstream | what it gets from the core | what it owns (not here) |
 | --- | --- | --- |
 | 13 — Spin Wheel | `wf_get_spins`, `wf_add_spins`, `wf_consume_spin`; one free spin per player per day granted at connect (claim key `spin#<YYYYMMDD>`, idempotent); `[spins] free_per_day` / `enabled` in the ini; a `spins` counter in the vault | the wheel UI, the prize table, the table of outcomes, anything that *pays* a prize. `wf_add_spins` is the only way it can top a player up |
-| 14 — Levels page | `wf_get_pass_xp`, `wf_get_pass_tier` (canonical; `wf_pass_xp`/`wf_pass_tier` are aliases), and the whole threshold table by iterating `t = 1..wf_pass_max_tier()` over `wf_pass_tier_xp(t)` and `wf_pass_tier_reward(t, out, len)`; `wf_pass_next_xp` for the bar | the page itself. There is no premium track and no "buy a level" path anywhere in the schema |
+| 14 — Levels page | `wf_get_pass_xp`, `wf_get_pass_tier` (canonical; `wf_pass_xp`/`wf_pass_tier` are aliases), the whole threshold table by iterating `t = 1..wf_pass_max_tier()` over `wf_pass_tier_xp(t)` / `wf_pass_tier_reward(t, …)` / `wf_pass_tier_reward_premium(t, …)`, `wf_pass_next_xp` for the bar, and `wf_pass_premium_unlocked` to draw the two tracks | the page itself. The free track has no purchase path; premium is `bp_premium_2026` in `[entitlement]` (§4.6) and the page only *reads* ownership |
 | 15 — Envelope (inbox) | a reserved per-player counter: vault key `pending` (base `wf_pending_s<year>#<auth>`), exposed read-only as `wf_get_pending(id)`, round-tripped by the normal save path so it survives relogs | writing it (the envelope's own channel), the messages, the UI. The core assigns it no behaviour, which is why there is nothing to rip out if the feature changes shape |
 
 If a spin, a level and an envelope notification ever need to be paid *in the
@@ -570,7 +672,7 @@ key, never a second counter.
 | --- | --- |
 | panel pages (`/winter`, `/winter/tree`, …) | another workstream; the data model is §9 |
 | the drag UI for the tree | panel surface (owner decision §6.1); in game the tree is a summary |
-| premium pass track | owner decision §6.2: none, not even a column |
+| selling premium / the Advent Pass | the *gameplay* half is in this build (§4.5, §4.6); the store page, orders, Stripe and the action bridge are the panel's (`docs/WINTERFEST.md` §7) |
 | seasonal missions, 12 Days windows | Phase 2 (`missions.ini`, `events.ini` — existing owners) |
 | leaderboards, community goal, Secret Santa | Phase 2, on the existing `boards.js` |
 | Christmas shop | Phase 2 (`/christmashop` says so instead of opening an empty menu) |
@@ -628,7 +730,12 @@ What those two runs prove, with nobody at the keyboard:
 | `tree-slot`, `tree-slot-refused`, `tree-clear` | the 24-slot grid accepts an owned ornament, refuses one you do not own, and clears a slot |
 | `gift-once`, `gift-instance` | a present is added once and carries its rarity |
 | `open-once`, `open-second-pays` | **the anti-dupe rule**: the same present opened twice in the same tick pays once and leaves the bag unchanged; a different present still opens |
-| `advent-today`, `advent-late`, `advent-locked` | today's day pays once, a missed day is claimable late, a future day is refused |
+| `advent-today`, `advent-expired`, `advent-locked` | today's day pays once; **yesterday answers `expired`** (there is no catch-up) and today+1 answers `locked` |
+| `advent-pass` | the Advent Pass entitlement makes a missed day claimable, once, and granting it twice is a duplicate |
+| `premium-locked` | a premium tier is refused while the entitlement is missing |
+| `pass-free-claim` | the free track pays once and then refuses (independent of premium) |
+| `premium-entitled` | granting the entitlement back-pays the reached premium tiers exactly once (GingerBread and spins both move), the explicit claim then answers "already paid", and the free key is untouched |
+| `entitlement-unknown` | an unknown product id is refused rather than silently owned |
 | `pass-xp` | one claim key moves pass XP once and the tier follows |
 | `season is closed … not spawned` | a closed window spawns no presents (the boot is in November) |
 | `spawned N/N present glow(s)` | once the window is open, the spots really resolve and spawn |
@@ -663,6 +770,7 @@ The harness has no human client, so these are **not** machine-verified:
 | `wf_state <target\|all>` | season window, vault state, and one line per player: snow, presents, ornaments, tree, pass XP/tier, advent days, titles |
 | `wf_give <target\|all> <gingerbread\|spins\|ornament\|gift> <id> <n>` | grants through the same path players use, logged as an operator action. `id` is the ornament id / present rarity (0 and ignored for gingerbread and spins). `snowflakes`/`snow` are still accepted |
 | `wf_reset <target\|all>` | wipes the **current season** for that player, bumps the reset epoch so nothing can be re-claimed, logs it |
+| `wf_ent <target\|all> <product> [source]` | grants an entitlement (`bp_premium_2026`, `advent_pass_2026`), logged with its source, idempotent per player and product |
 | `wf_reload` | re-reads `winterfest.ini` and asks `winterfest_gifts` to re-spawn its spots |
 | `wf_gifts_reload` (server) | the gifts half of the above, on its own |
 | `wf_dump_spawns` (server) | prints the current map's player spawns as ready-to-paste `[presents]` rows |

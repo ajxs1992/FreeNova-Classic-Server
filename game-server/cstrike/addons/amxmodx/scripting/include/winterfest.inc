@@ -30,12 +30,18 @@
 //   WF_REWARD_GIFT        reward_id = rarity index (0..WF_RARITY_MAX-1)
 //   WF_REWARD_PASS_XP     reward_id = how much Winter Pass XP
 //   WF_REWARD_TITLE       reward_id = ornament-set id (1..wf_set_count())
+//   WF_REWARD_SPINS       reward_id = how many spins (the wheel's currency)
+//   WF_REWARD_COINS       reward_id = how many Coins, paid through BattlePass
+//                                     (menabp_add_coins_once); with no BattlePass
+//                                     it pays GingerBread instead and says so
 #define WF_REWARD_NONE        0
 #define WF_REWARD_GINGERBREAD 1
 #define WF_REWARD_ORNAMENT    2
 #define WF_REWARD_GIFT        3
 #define WF_REWARD_PASS_XP     4
 #define WF_REWARD_TITLE       5
+#define WF_REWARD_SPINS       6
+#define WF_REWARD_COINS       7
 
 // Deprecated alias, kept for one season: the currency was originally called
 // "snowflakes" in the code, the ini (`snow`), the vault key (`wf_snow_...`) and
@@ -55,6 +61,40 @@
 #define WF_OPEN_OK            1
 #define WF_OPEN_NOTHING       0   // nothing carried, or this instance was opened
 #define WF_OPEN_INVALID      -1
+
+// ---------------------------------------------------------------------------
+// Advent: a strict one-day window (owner decision §6.3, final - the half-value
+// catch-up is withdrawn). Day n unlocks on its date, is claimable THAT DAY ONLY
+// in Europe/Paris, and afterwards it is expired, not discounted.
+// ---------------------------------------------------------------------------
+#define WF_ADVENT_LOCKED   0   // not its day yet
+#define WF_ADVENT_TODAY    1   // claimable now, because today is its day
+#define WF_ADVENT_EXPIRED  2   // its day has passed and it was not claimed
+#define WF_ADVENT_CLAIMED  3   // claimed already
+#define WF_ADVENT_UNLOCKED 4   // claimable now because the player owns the Advent Pass
+#define WF_ADVENT_INVALID -1   // no such day / the calendar is shut
+
+// wf_advent_claim() results. It answers with the same truth wf_advent_state()
+// reports, so a caller never has to guess why a claim was refused.
+#define WF_ADVENT_CLAIM_OK        1
+#define WF_ADVENT_CLAIM_CLAIMED   0
+#define WF_ADVENT_CLAIM_EXPIRED  -1
+#define WF_ADVENT_CLAIM_LOCKED   -2
+#define WF_ADVENT_CLAIM_INVALID  -3
+
+// ---------------------------------------------------------------------------
+// Entitlements (owner decision §6.5/§7): the only thing gameplay reads when it
+// asks "does this player own the premium track / the Advent Pass?". Product ids
+// are strings and live in winterfest.ini [entitlement], so the game and the
+// panel cannot disagree about what is on sale.
+// ---------------------------------------------------------------------------
+#define WF_PRODUCT_BP_PREMIUM   "bp_premium_2026"
+#define WF_PRODUCT_ADVENT_PASS  "advent_pass_2026"
+
+// wf_has_entitlement() / wf_grant_entitlement() results.
+#define WF_ENT_NO       0
+#define WF_ENT_YES      1
+#define WF_ENT_UNKNOWN -1   // product id not in the catalogue (the call is refused)
 
 // ---------------------------------------------------------------------------
 // Limits. These are the sizes of the fixed arrays in winterfest_core.sma and
@@ -190,12 +230,30 @@ native wf_pass_tier(id);                      // alias of wf_get_pass_tier
 native wf_pass_next_xp(id);                   // cumulative XP of the next tier
 native wf_pass_max_tier();
 native wf_pass_tier_xp(tier);                 // cumulative XP that opens `tier`
-native wf_pass_tier_reward(tier, output[], len);
+native wf_pass_tier_reward(tier, output[], len);          // the free track's reward text
+native wf_pass_tier_reward_premium(tier, output[], len);  // the premium track's reward text
+// Claim a tier explicitly. The free track pays itself on tier-up; this is for
+// the premium track (which needs the entitlement) and for a panel that wants to
+// (re)try a claim. Keys are `pass:<tier>:free` and `pass:<tier>:premium`, so the
+// two tracks can never collide. Returns WF_GRANT_OK / _DUPLICATE / _INVALID.
+native wf_claim_pass_tier(id, tier, bool:premium);
+native wf_pass_premium_unlocked(id);          // 1 when the player owns the premium product
 
-// Advent calendar.
+// Advent calendar. A day is claimable on its own Europe/Paris date only, unless
+// the player owns the Advent Pass - then every day is claimable at once. The
+// claim keys are `advent#<day>` either way, so nothing can pay twice.
 native wf_advent_today();                     // day of month, 0 when the season is shut
-native wf_advent_claim(id, day);
+native wf_advent_state(id, day);              // WF_ADVENT_LOCKED / _TODAY / _EXPIRED / _CLAIMED / _UNLOCKED
+native wf_advent_claim(id, day);              // WF_ADVENT_CLAIM_* (never pays twice)
 native wf_advent_claimed(id, day);
+
+// Entitlements: what the player OWNS (premium track, Advent Pass). Gameplay reads
+// these; nothing here is a gameplay grant and nothing here charges anything.
+native wf_has_entitlement(id, const product[]);                          // WF_ENT_YES / WF_ENT_NO / WF_ENT_UNKNOWN
+native wf_grant_entitlement(id, const product[], const source[], const claim_key[]);  // WF_GRANT_OK / _DUPLICATE / _INVALID
+native wf_entitlement_count();                                           // products in the [entitlement] catalogue
+native wf_entitlement_name(index, output[], len);                        // product id by 0-based index
+native wf_entitlement_label(index, output[], len);                       // its display name
 
 // Presents (gift instances: each one is opened exactly once).
 native wf_gift_count(id);

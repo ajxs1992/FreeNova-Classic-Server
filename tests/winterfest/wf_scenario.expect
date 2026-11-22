@@ -30,8 +30,13 @@
 \[WF-TEST\] PASS open-once
 \[WF-TEST\] PASS open-second-pays
 \[WF-TEST\] PASS advent-today
-\[WF-TEST\] PASS advent-late
 \[WF-TEST\] PASS advent-locked
+\[WF-TEST\] PASS advent-expired
+\[WF-TEST\] PASS advent-pass
+\[WF-TEST\] PASS premium-locked
+\[WF-TEST\] PASS pass-free-claim
+\[WF-TEST\] PASS premium-entitled
+\[WF-TEST\] PASS entitlement-unknown
 \[WF-TEST\] PASS pass-xp
 \[WF-TEST\] summary pass=[0-9]+ fail=0
 
@@ -45,6 +50,8 @@
 \[WF\] config: 3 rarities, 30 ornaments, 6 sets, 24 advent days, 30 pass tiers
 \[WF\] tree styles configured: 3
 \[WF\] spins: enabled, [0-9]+ free per day
+\[WF\] clock: local .*UTC[+-][0-9]+
+\[WF\] [0-9]+ product\(s\) in the entitlement catalogue
 \[WF\] daily spin granted to id [0-9]+
 # The look of every prop is config data, and models are gated in Phase 1.
 \[WF\] [0-9]+ visual id\(s\) configured, 6 prop slot\(s\) bound \(models gated

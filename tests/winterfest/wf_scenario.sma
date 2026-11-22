@@ -114,6 +114,16 @@ run(bot)
 
 	report("season-open", wf_season_open() ? true : false, "wf_force_open did not open the season")
 
+	// The free track pays independently of the premium one (same tier, other
+	// claim key). This is the first pass action in the run: nothing has paid tier
+	// 1 yet, so the first claim is a real payment (a present can roll pass XP
+	// later, and that pays reached free tiers automatically).
+	new free1 = wf_claim_pass_tier(bot, 1, false)
+	new free2 = wf_claim_pass_tier(bot, 1, false)
+	report("pass-free-claim",
+		(free1 == WF_GRANT_OK && free2 == WF_GRANT_DUPLICATE) ? true : false,
+		"the free tier must pay once and then refuse")
+
 	// The presents are spawned by winterfest_gifts when the season is open. At
 	// boot it was closed (the window starts on 1 December), so this is the
 	// operator path that brings them into the world: wf_reload re-reads the
@@ -158,11 +168,6 @@ run(bot)
 	report("spins-consume",
 		(spin0 == 0 && c1s == 1 && c2s == 1 && c3s == 0 && wf_get_spins(bot) == 0) ? true : false,
 		"two spins must be consumable and the third must be refused")
-
-	// ---- 1c. the Levels page's names are the canonical ones ----------------
-	report("pass-natives",
-		(wf_get_pass_xp(bot) == wf_pass_xp(bot) && wf_get_pass_tier(bot) == wf_pass_tier(bot)) ? true : false,
-		"wf_get_pass_xp/wf_get_pass_tier must agree with their aliases")
 
 	// ---- 2. ornament + the tree grid --------------------------------------
 	new o0 = wf_ornament_count(bot)
@@ -242,50 +247,102 @@ run(bot)
 	report("open-second-pays", (q3 == WF_GRANT_OK && inst2 > 0 && p3 == WF_OPEN_OK) ? true : false,
 		"a different present must open")
 
-	// ---- 4. advent ---------------------------------------------------------
+	// ---- 4. advent: a strict one-day window -------------------------------
+	// Day n is claimable on its date only; after that it is EXPIRED, not
+	// discounted (owner decision 2026-11-22 §6.3, final). The Advent Pass
+	// entitlement unlocks every day at once, and the claim keys stay the same.
 	new today = wf_advent_today()
 	if (today > 0)
 	{
 		new d1 = wf_advent_claim(bot, today)
 		new d2 = wf_advent_claim(bot, today)
-		report("advent-today", (d1 == WF_GRANT_OK && d2 < WF_GRANT_OK) ? true : false,
-			"today's day must pay once and then refuse")
+		report("advent-today",
+			(d1 == WF_ADVENT_CLAIM_OK && d2 == WF_ADVENT_CLAIM_CLAIMED) ? true : false,
+			"today's day must pay once and then answer 'claimed'")
 
 		if (today > 1)
 		{
-			new d3 = wf_advent_claim(bot, today - 1)
-			new d4 = wf_advent_claim(bot, today - 1)
-			report("advent-late", (d3 == WF_GRANT_OK && d4 < WF_GRANT_OK) ? true : false,
-				"a missed day must be claimable late, once")
+			new e1 = wf_advent_state(bot, today - 1)
+			new e2 = wf_advent_claim(bot, today - 1)
+			report("advent-expired",
+				(e1 == WF_ADVENT_EXPIRED && e2 == WF_ADVENT_CLAIM_EXPIRED) ? true : false,
+				"yesterday must answer 'expired' - there is no half-value catch-up")
 		}
 
 		if (today < 24)
 		{
-			new d5 = wf_advent_claim(bot, today + 1)
-			report("advent-locked", (d5 == WF_GRANT_INVALID) ? true : false,
-				"a future day must be refused")
+			new l1 = wf_advent_state(bot, today + 1)
+			new l2 = wf_advent_claim(bot, today + 1)
+			report("advent-locked",
+				(l1 == WF_ADVENT_LOCKED && l2 == WF_ADVENT_CLAIM_LOCKED) ? true : false,
+				"tomorrow must answer 'locked'")
 		}
+
+		// The Advent Pass: one missed day becomes claimable, once.
+		new target = (today > 1) ? today - 1 : 24
+		new ent1 = wf_grant_entitlement(bot, WF_PRODUCT_ADVENT_PASS, "test", "wftest#ent-advent")
+		new ent2 = wf_grant_entitlement(bot, WF_PRODUCT_ADVENT_PASS, "test", "wftest#ent-advent")
+		new u1 = wf_advent_state(bot, target)
+		new c1 = wf_advent_claim(bot, target)
+		new c2 = wf_advent_claim(bot, target)
+		report("advent-pass",
+			(ent1 == WF_GRANT_OK && ent2 == WF_GRANT_DUPLICATE && u1 == WF_ADVENT_UNLOCKED
+			 && c1 == WF_ADVENT_CLAIM_OK && c2 == WF_ADVENT_CLAIM_CLAIMED) ? true : false,
+			"the Advent Pass must unlock a missed day, once, and the grant itself must be idempotent")
 	}
 	else
 	{
 		report("advent-today", false, "wf_advent_today() is 0 while the season is forced open")
 	}
 
-	// ---- 5. winter pass ----------------------------------------------------
+	// ---- 5. winter pass: free + premium -----------------------------------
+	// A premium tier pays ONLY with the entitlement, the two tracks use separate
+	// claim keys, and both are idempotent (owner decision §6.2, final).
 	new x1 = wf_get_pass_xp(bot)
-	new tier1 = wf_get_pass_tier(bot)
 	new gx1 = wf_grant(bot, WF_REWARD_PASS_XP, 400, "wftest#xp-a")
 	new x2 = wf_get_pass_xp(bot)
-	new tier2 = wf_get_pass_tier(bot)
 	new gx2 = wf_grant(bot, WF_REWARD_PASS_XP, 400, "wftest#xp-a")
 	new x3 = wf_get_pass_xp(bot)
 	report("pass-xp",
-		(gx1 == WF_GRANT_OK && gx2 == WF_GRANT_DUPLICATE && x2 > x1 && tier2 >= tier1 && x3 == x2) ? true : false,
+		(gx1 == WF_GRANT_OK && gx2 == WF_GRANT_DUPLICATE && x2 > x1 && x3 == x2) ? true : false,
 		"pass XP must move once for one claim key")
 
-	server_print("[WF-TEST] sample bot=%d snow=%d gifts=%d ornaments=%d tree=%d passxp=%d tier=%d",
-		bot, wf_get_gingerbread(bot), wf_gift_count(bot), wf_ornament_count(bot),
-		wf_tree_level(bot), wf_get_pass_xp(bot), wf_get_pass_tier(bot))
+	report("premium-locked",
+		(wf_pass_premium_unlocked(bot) == 0 && wf_claim_pass_tier(bot, 1, true) == WF_GRANT_INVALID) ? true : false,
+		"a premium tier must be refused while the entitlement is missing")
+
+	// Buying the premium track back-pays every tier already reached: tier 1 pays
+	// 150 GingerBread and tier 2 pays 2 spins (see [pass_premium]), so the grant
+	// must move both counters. The explicit claim then answers "already paid",
+	// which is the idempotency working, and the free key is untouched by it.
+	new gb_pre = wf_get_gingerbread(bot)
+	new spins_pre = wf_get_spins(bot)
+	new bent1 = wf_grant_entitlement(bot, WF_PRODUCT_BP_PREMIUM, "test", "wftest#ent-premium")
+	new bent2 = wf_grant_entitlement(bot, WF_PRODUCT_BP_PREMIUM, "test", "wftest#ent-premium")
+	new prem1 = wf_claim_pass_tier(bot, 1, true)
+	new prem2 = wf_claim_pass_tier(bot, 1, true)
+	// The free claim above must NOT have been consumed by the premium one.
+	new free3 = wf_claim_pass_tier(bot, 1, false)
+	new gb_post = wf_get_gingerbread(bot)
+	new spins_post = wf_get_spins(bot)
+	report("premium-entitled",
+		(bent1 == WF_GRANT_OK && bent2 == WF_GRANT_DUPLICATE && wf_pass_premium_unlocked(bot) == 1
+		 && prem1 == WF_GRANT_DUPLICATE && prem2 == WF_GRANT_DUPLICATE && free3 == WF_GRANT_DUPLICATE
+		 && gb_post - gb_pre >= 150 && spins_post - spins_pre >= 2) ? true : false,
+		"the entitlement must pay the reached premium tiers once, and the two tracks must not share a key")
+
+	report("entitlement-unknown",
+		(wf_has_entitlement(bot, "no_such_product") == WF_ENT_UNKNOWN
+		 && wf_grant_entitlement(bot, "no_such_product", "test", "wftest#ent-bad") == WF_GRANT_INVALID) ? true : false,
+		"an unknown product id must be refused, not silently granted")
+
+	report("pass-natives",
+		(wf_get_pass_xp(bot) == wf_pass_xp(bot) && wf_get_pass_tier(bot) == wf_pass_tier(bot)) ? true : false,
+		"wf_get_pass_xp/wf_get_pass_tier must agree with their aliases")
+
+	server_print("[WF-TEST] sample bot=%d gb=%d spins=%d gifts=%d ornaments=%d tree=%d passxp=%d tier=%d premium=%d",
+		bot, wf_get_gingerbread(bot), wf_get_spins(bot), wf_gift_count(bot), wf_ornament_count(bot),
+		wf_tree_level(bot), wf_get_pass_xp(bot), wf_get_pass_tier(bot), wf_pass_premium_unlocked(bot))
 }
 
 report(const name[], bool:ok, const note[])

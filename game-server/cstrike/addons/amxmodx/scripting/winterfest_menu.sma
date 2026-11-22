@@ -546,23 +546,34 @@ adventPage(id, page)
 			claimed++
 
 	new title[80]
-	formatex(title, charsmax(title), "\yAdvent \r| \wday %d \d(claimed %d, page %d/%d)", today, claimed, page + 1, pages)
+	if (wf_has_entitlement(id, WF_PRODUCT_ADVENT_PASS) == WF_ENT_YES)
+		formatex(title, charsmax(title), "\yAdvent \r| \wday %d \d(claimed %d, Advent Pass - all open)", today, claimed)
+	else
+		formatex(title, charsmax(title), "\yAdvent \r| \wday %d \d(claimed %d, page %d/%d)", today, claimed, page + 1, pages)
 	new menu = menu_create(title, "adventHandler")
 
 	new first = page * PAGE_SIZE + 1
 	new last = min(first + PAGE_SIZE - 1, days)
 	new row[96], data[12]
 
+	// One row per day, and the row says the truth: claimed, open today, expired
+	// (it was missed - no discount), locked (not its day yet), or unlocked by the
+	// Advent Pass (every day is claimable at once).
 	for (new day = first; day <= last; day++)
 	{
-		if (wf_advent_claimed(id, day))
-			formatex(row, charsmax(row), "\dDay %d \d- claimed", day)
-		else if (day == today)
-			formatex(row, charsmax(row), "\wDay %d \y- open now (full value)", day)
-		else if (day < today)
-			formatex(row, charsmax(row), "\wDay %d \d- missed, claim at half value", day)
-		else
-			formatex(row, charsmax(row), "\dDay %d \d- locked", day)
+		switch (wf_advent_state(id, day))
+		{
+			case WF_ADVENT_CLAIMED:
+				formatex(row, charsmax(row), "\dDay %d \d- claimed", day)
+			case WF_ADVENT_TODAY:
+				formatex(row, charsmax(row), "\wDay %d \y- open today", day)
+			case WF_ADVENT_EXPIRED:
+				formatex(row, charsmax(row), "\dDay %d \d- expired", day)
+			case WF_ADVENT_UNLOCKED:
+				formatex(row, charsmax(row), "\wDay %d \y- open (Advent Pass)", day)
+			default:
+				formatex(row, charsmax(row), "\dDay %d \d- locked", day)
+		}
 		formatex(data, charsmax(data), "d%d", day)
 		menu_additem(menu, row, data)
 	}
@@ -606,10 +617,18 @@ public adventHandler(id, menu, item)
 		return PLUGIN_HANDLED
 
 	new code = wf_advent_claim(id, day)
-	if (code == WF_GRANT_DUPLICATE)
-		WfSay(id, "that day was already claimed.")
-	else if (code != WF_GRANT_OK)
-		WfSay(id, "that day is not claimable.")
+	switch (code)
+	{
+		case WF_ADVENT_CLAIM_CLAIMED:
+			WfSay(id, "that day was already claimed.")
+		case WF_ADVENT_CLAIM_EXPIRED:
+			WfSay(id, "that day has expired - the Advent Pass unlocks the whole calendar.")
+		case WF_ADVENT_CLAIM_LOCKED:
+			WfSay(id, "that day has not arrived yet.")
+		case WF_ADVENT_CLAIM_INVALID:
+			WfSay(id, "that day is not claimable.")
+	}
+	// WF_ADVENT_CLAIM_OK: the core's grant path already printed the reward.
 	// The reward line itself is printed by the core's grant path.
 
 	adventPage(id, 0)
@@ -654,6 +673,28 @@ public cmdPass(id)
 	}
 	if (!shown)
 		client_print_color(id, print_team_default, "^4[WF]^1 Nothing left to unlock - nice.")
+
+	// The premium track is an entitlement, never a grant: without it the rows are
+	// refused, with it they pay for every tier already reached.
+	if (wf_pass_premium_unlocked(id))
+	{
+		client_print_color(id, print_team_default, "^4[WF]^1 Premium track: ^3owned^1 - its rewards are paid tier by tier.")
+		shown = 0
+		for (new t = tier + 1; t <= max_tier && shown < 3; t++)
+		{
+			wf_pass_tier_reward_premium(t, rtext, charsmax(rtext))
+			if (!rtext[0])
+				continue
+			formatex(row, charsmax(row), "premium tier %d at %d XP: %s", t, wf_pass_tier_xp(t), rtext)
+			client_print_color(id, print_team_default, "^4[WF]^1 %s", row)
+			shown++
+		}
+	}
+	else
+	{
+		client_print_color(id, print_team_default,
+			"^4[WF]^1 Premium track: \dnot owned\w - the shop sells it; your free tiers are unaffected.")
+	}
 	return PLUGIN_HANDLED
 }
 

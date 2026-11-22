@@ -144,12 +144,21 @@ and 2 were built to say "cosmetic id X", not "this hardcoded model".
 
 ---
 
-## 6. Open questions for the owner
-1. **Tree placement**: freeform (drag on a 2D tree) or a fixed grid of slots?
-   Recommendation: **grid**, 24 slots, 3 tree styles with different layouts.
-2. **Winter Pass**: free only, or free + paid premium track? Free in Phase 1
-   either way.
-3. **Advent**: 24 calendar days, or 24 days from first claim? Recommendation:
-   calendar days, with a half-value catch-up for late joiners.
-4. **Presents**: how many per map (6–10 recommended), and does dying drop the
-   present you are carrying?
+## 6. Decisions (owner, 2026-11-22)
+
+1. **Tree placement: fixed grid.** 24 slots per tree; the three tree styles ship
+   three different slot layouts (classic triangle, tall, wide). Ornaments are
+   dragged between slots on the panel; in game `/tree` shows `level`, how many of
+   the 24 slots are filled and the next milestone.
+2. **Winter Pass: free track only.** 30 tiers, no paid track anywhere in the
+   schema — if that changes, the BattlePass machinery is already there, but no
+   premium column is created now.
+3. **Advent: 24 calendar days, 1-24 December.** Day *n* unlocks on 1 December 2026.
+   A day that was missed stays **claimable until the season closes** (24 December
+   23:59 Europe/Paris) at **half value** — a late joiner is not punished, and nobody
+   can cheapen the first days by skipping them.
+4. **Presents: 6-10 spots per map** (default 8; per-map override in the ini).
+   **Dying never drops a present.** Death drops a **snowflake pouch** worth a few
+   snowflakes instead: it gives kills a small reward without making a death cost
+   the thing you were hunting, and it gives other players a reason to move.
+

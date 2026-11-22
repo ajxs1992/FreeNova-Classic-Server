@@ -1031,7 +1031,10 @@ error-class line in the AMXX log before and after (`freenova_sync`'s
 20. **`de_torn` must come out of `mapcycle.txt`, or the crash stays.** It is the
     heaviest map in the tree (320 items), it is live, and no sane
     `fn_skins_precache_max` value saves it — `cap 1` does, which is the same as
-    turning weapon skins off. `de_piranesi` is fixed by `cap 8`.
+    turning weapon skins off. `de_piranesi` is fixed by `cap 8`. Both are
+    reachable **by players**, not just by an admin: `configs/maps.ini` is
+    comments-only, so `freenova_mapvote` falls back to `mapcycle.txt` for its
+    nomination list, and a `/rtv` or a nomination is enough to load either map.
 21. **Decide the shipped `fn_skins_precache_max`.** `8` fixes `cs_havana` and
     `de_piranesi` and costs 61 of 81 skin models; `0` keeps today's behaviour and
     keeps the two live maps fatal. It belongs in

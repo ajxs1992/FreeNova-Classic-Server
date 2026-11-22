@@ -259,6 +259,13 @@ verify with a harness boot before it goes anywhere near the rotation.
    `de_piranesi` is fixed by `fn_skins_precache_max 8`; `de_torn` is not fixed at
    any sane cap. Either drop `de_torn` from `mapcycle.txt` the way `cs_havana`
    was dropped, or accept that it needs a deeper precache cut somewhere else.
+
+   Both are reachable by players, not just by an admin: `configs/maps.ini` is
+   comments-only, so `freenova_mapvote` falls back to `mapcycle.txt` for its
+   nomination list (`LoadMaps()`, `freenova_mapvote.sma:1158`). A `/rtv` or a
+   nomination for either map is enough to take the server down - nobody has to
+   type `amx_map`.
+
 2. **Decide the shipped cap.** `8` is the value this document measures; it costs
    61 of 81 skin models and leaves every group with 8 skins. `0` keeps today's
    behaviour and keeps `de_torn`/`de_piranesi` killing the server.
@@ -267,3 +274,8 @@ verify with a harness boot before it goes anywhere near the rotation.
 4. Re-check a map with `tools/precache-report.py --map <name>` and one harness
    boot before adding it. `cs_office` (209) and `de_chateau` (212) are the next
    closest things in the rotation.
+5. The custom maps that live in `cstrike/maps/` rather than in the stock install
+   are heavier still and are **not** in the cycle: `de_museum` 298,
+   `de_sunny` 218, `de_forge` 196, `de_tuscan` 188. They are out of reach of the
+   vote today, so they are not an incident waiting to happen — but do not add one
+   to `mapcycle.txt` or `maps.ini` without a harness boot.

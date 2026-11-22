@@ -316,8 +316,10 @@ binaries committed here. The two new tests live in the harness repo
 ```
 
 Tree-wide, on the same tree: `tools/compile-plugins.sh` -> 143 compiled, 0
-failed (137 before this work + 6 new sources; `fn_servers.sma` already existed),
-and `tools/lint-plugins.py` -> 0 errors, 38 documented allowances.
+failed (137 sources before this work + the 6 added here; `fn_servers.sma`
+already existed). The count only moves when other work lands - the gate is
+`failed: 0`. `tools/lint-plugins.py` -> 0 errors, 38 documented allowances,
+unchanged by this work.
 
 1. **Full stack green** - `tests/smoke/smoke.sma --profile freenova`: every
    plugin loaded and running (74 with this change), all modules correct, no

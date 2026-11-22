@@ -58,9 +58,9 @@ new const g_szTopicFrom[][] =
 	"freenova_ads", "freenova_servers", "freenova_roundmusic", "freenova_competitive",
 	"freenova_cosmetics", "freenova_weapons", "freenova_vip", "battlepass_core",
 	"freenova_achievements", "freenova_weaponstats", "freenova_clutch", "freenova_gag",
-	"freenova_admin", "admincmd", "adminchat", "adminvote", "plmenu", "mapsmenu",
-	"menufront", "rsu_core", "rsu_stats", "freenova_sync", "freenova_prefs",
-	"freenova_panel"
+	"freenova_admin", "admin", "admincmd", "adminchat", "adminvote", "plmenu",
+	"mapsmenu", "menufront", "rsu_core", "rsu_stats", "freenova_sync",
+	"freenova_prefs", "freenova_panel"
 };
 new const g_szTopicTo[][] =
 {
@@ -68,9 +68,9 @@ new const g_szTopicTo[][] =
 	"Server info", "Servers", "Music", "Competitive",
 	"Cosmetics", "Weapons", "VIP", "Battle Pass",
 	"Achievements", "Weapon stats", "Clutch", "Moderation",
-	"Admin", "Admin", "Admin chat", "Votes", "Admin", "Admin",
-	"Admin", "Stats", "Stats", "Server info", "Settings",
-	"Panel"
+	"Admin", "Admin", "Admin", "Admin chat", "Votes", "Admin",
+	"Admin", "Admin", "Stats", "Stats", "Server info",
+	"Settings", "Panel"
 };
 
 public plugin_init()
@@ -265,21 +265,25 @@ PrettyTopic(const file[], out[], len)
 
 	copy(out, len, base[start]);
 
-	// "mapvote" -> "Mapvote" -> "Mapvote" ; "map_vote" -> "Map vote"
+	// "mapvote" -> "Mapvote" ; "map_vote" -> "Map vote". Built into a second
+	// buffer: writing back into out[] while reading it truncated every name to
+	// its first letter (the classic in-place alias bug).
+	new pretty[TOPIC_LEN];
 	new bool:upper = true;
-	for (new i = 0, c = 0; out[i] && c < len - 1; i++)
+	new c = 0;
+	for (new i = 0; out[i] && c < len - 1; i++)
 	{
 		if (out[i] == '_')
 		{
-			out[c++] = ' ';
+			pretty[c++] = ' ';
 			upper = true;
 			continue;
 		}
-		out[c] = (upper && out[i] >= 'a' && out[i] <= 'z') ? (out[i] - 32) : out[i];
+		pretty[c++] = (upper && out[i] >= 'a' && out[i] <= 'z') ? (out[i] - 32) : out[i];
 		upper = false;
-		c++;
-		out[c] = EOS;
 	}
+	pretty[c] = EOS;
+	copy(out, len, pretty);
 }
 
 /* Insertion sort by (topic name, command name); the list is built once, so an

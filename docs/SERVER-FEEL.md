@@ -215,10 +215,11 @@ command, paginated 8 lines per page, and filtered by the caller's admin flags.
 ### `fn_servers.amxx` - network browser
 
 No cvars. `configs/fn_servers.ini`, one line per server:
-`name | address:port | short description`. The address is format-validated
-before any `client_cmd connect`. Console/RCon callers (`amx_serversmenu` from
-the server console) get the parsed list printed instead of a menu; bots and HLTV
-are ignored.
+`name | address:port | short description`. `/servers` (and `amx_serversmenu`)
+opens the menu for a player; `fn_servers` from the server console prints the
+parsed list - that is the post-deploy check. The address is format-validated
+before any `client_cmd connect`, a player who disconnects with the menu open is
+ignored, and bots/HLTV callers never reach `client_cmd connect`.
 
 ### `fn_mode.amxx` - mode arbiter
 
@@ -335,8 +336,25 @@ and `tools/lint-plugins.py` -> 0 errors, 38 documented allowances.
    and logs `server empty: map held` on a human-less boot; `fn_bots` reports
    `yb_quota=5` from `fn_bot_seed` with `maxplayers=16` in the harness (32 live).
 5. **Console-side room plugins** - `fn_commands` builds the list from the
-   registry (`Commands 1-8 of N`), `amx_serversmenu` from the console prints the
-   three configured servers, `fn_bal` reports its thresholds.
+   registry (`Commands 1-8 of 126`, 33 topics), `fn_servers` from the console
+   prints the three configured servers, `fn_bal` reports its thresholds.
+6. **Balance mechanics end to end** - `fn_bal_now` plans a scramble, announces
+   it, and one second later applies it: `scrambled 5 players into 3 CT / 2 T`
+   with the bots the harness spawned.
+
+Three real bugs were found by that verification rather than by the compiler:
+
+* `fn_commands`' topic prettifier wrote into the buffer it was reading, so every
+  topic collapsed to one letter (`"A: /amx_help"`). Caught by *reading* the
+  generated list in the console log.
+* `fn_balance` compared the TeamScore team id against `"CT"`, but the message
+  carries one character (`'C'`/`'T'`) - every score looked like a Terrorist win.
+  Caught by reading the three existing consumers (`mapchooser`, `statsx`,
+  `rsu_matchstats`).
+* `fn_balance` used `get_players(..., "ch")` to mean "connected". In this AMXX
+  version `c` means *do not include bots*, so the balance logic counted zero
+  players on a bot-filled server and a scramble moved nobody. Caught by the
+  harness asserting the applied line, not just the plan.
 
 Also fixed on the way: `freenova_randevent` and `freenova_sync` both opened the
 `freenova_events` nvault, and AMXX hands the same handle to both - so one
@@ -350,9 +368,10 @@ map-change test above can assert "no runtime errors".
 
 * The warm-up gate (`sw_min_humans`) and `!ready` vote need two real clients:
   the harness can only force-start a warm-up with zero humans.
-* The balance announcements and clamp: the mechanism is exercised with bots, but
-  "does a 3-win scramble feel fair" is a human judgement. Watch the first
-  evening of 3v3+.
+* The balance announcements and clamp: the mechanics are exercised with bots,
+  but the streak counter needs complete rounds (`TeamScore` deltas) and "does a
+  3-win scramble feel fair" is a human judgement. Watch the first evening of
+  3v3+ and check `fn_bal` (it prints both streaks).
 * The empty-map hold: the harness proves the policy and the freeze, not the
   resume arithmetic across a real 20-minute map with humans in and out. Check
   `fn_empty` after the first player joins a previously empty server and confirm

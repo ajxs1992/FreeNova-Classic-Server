@@ -147,6 +147,12 @@ slots daily 5/5 bonus 3/3 weekly 4/4 vip 1/1, 0 group(s) on built-in
 * Vault formats did not change, so a player mid-period keeps their progress,
   targets and completion flags after the upgrade. Target rolls stored before the
   change stay valid even if the pool in the file changes.
+* One latent bug was fixed on the way through: the roll blob has 28 cells (five
+  daily, three bonus and four weekly target/status pairs plus the VIP target,
+  progress, status and the rerolls already used) but 1.1.0 formatted 27, so the
+  last one was never written and every reconnect handed the day's free rerolls
+  back. The 28th cell is written now; a blob from the old build simply has no
+  28th cell and reads as 0, which is exactly the old behaviour.
 
 ### Turning it on
 

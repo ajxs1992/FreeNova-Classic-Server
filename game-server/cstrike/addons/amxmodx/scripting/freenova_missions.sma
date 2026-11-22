@@ -1213,7 +1213,11 @@ SaveRoll(id)
 		return
 	new key[64], value[128]
 	GetVaultKey(id, key, charsmax(key), "roll")
-	formatex(value, charsmax(value), "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+	// 28 cells, 28 format specifiers. The 1.1.0 string had 27 specifiers for 28
+	// arguments, so g_iRerollsUsed was never written and every reconnect handed
+	// the day's free rerolls back. Old blobs simply have no 28th cell and read
+	// it as 0, which is exactly the old behaviour.
+	formatex(value, charsmax(value), "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
 		g_iDailyTarget[0][id], g_iDailyStatus[0][id],
 		g_iDailyTarget[1][id], g_iDailyStatus[1][id],
 		g_iDailyTarget[2][id], g_iDailyStatus[2][id],

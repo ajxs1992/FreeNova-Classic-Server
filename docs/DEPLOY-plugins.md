@@ -526,3 +526,118 @@ Not verifiable right now: end-to-end game->panel sync freshness. The newest
 `players.last_seen` in the live DB is 2026-11-21 12:11 because only YaPB bots have
 been on the server since; the HMAC endpoint answers correctly, but a real player
 session is needed to prove the push path end to end.
+
+---
+
+# Round three - the BattlePass XP ledger and the plugin linter
+
+Commits `28a18cf..4a0930b` (`REVIEW.md` §9d). Round one and two's files are
+already live; nothing here repeats them. **No `plugins.ini`, `amxx.cfg` or
+credential changes** - no load-order step and no rotation this time.
+
+`battlepass_core.amxx` and `freenova_panel.amxx` are the pair that must go up
+together: the panel's BattlePass page now shows BattlePass XP/tier from the BP
+ledger, and the plugin is the only writer of that ledger. An old plugin with the
+new panel is safe (the panel falls back to `bp_xp`/`bp_tier` from the snapshot it
+gets and renders tier 1 for a player with none); a new plugin with an old panel
+is also safe (the panel derives the tier from `xp` as it always did).
+
+## 14. What to upload (plugins)
+
+```sh
+cd /home/ajxs/projects/FreeNova-Classic-Server/game-server
+PLUGINS3="battlepass_core freenova_panel freenova_hud freenova_achievements \
+freenova_cosmetics freenova_missions weapon_models weaponmenu cban_screenshots"
+
+{
+  for p in $PLUGINS3; do
+    printf 'put cstrike/addons/amxmodx/plugins/%s.amxx cstrike/addons/amxmodx/plugins/%s.amxx\n' "$p" "$p"
+    printf 'put cstrike/addons/amxmodx/scripting/%s.sma cstrike/addons/amxmodx/scripting/%s.sma\n' "$p" "$p"
+  done
+} | sftp -P 2022 "$SFTP_HOST"
+```
+
+Same session setup as §4 (`SSH_ASKPASS_REQUIRE=force`, one `put` per file).
+Sizes are from the commit that made the change; sha256 is of the tracked blob.
+
+| Plugin | was | now | sha256 (first 16) | Finding |
+|---|---|---|---|---|
+| `battlepass_core.amxx` | 66262 | 68233 | `43cab265f8b57098` | §2.4 H1: BP XP is its own ledger (`bpxp` vault key, no seeding); `fnvip_get_bp_multiplier` wired in; `/bp` prints BP XP/tier |
+| `freenova_panel.amxx` | 59611 | 59564 | `0eb2dc126a98ab19` | BP/rank grants now name the counter each moved, and which one it left alone |
+| `freenova_hud.amxx` | 4796 | 5172 | `3186e92df7e39ed0` | the `BP T` column reads the real BP tier (comment corrected to the key that now exists) |
+| `freenova_achievements.amxx` | 13489 | 13487 | `c8925eabaed72bfb` | §5.5 class: a caller's text was `client_print_color`'s format |
+| `freenova_cosmetics.amxx` | 26527 | 28305 | `27a11a7f4f765fa1` | same helper fix |
+| `freenova_missions.amxx` | 22080 | 21984 | `122e3407af4df6b7` | same helper fix |
+| `weapon_models.amxx` | 43565 | 43574 | `6ead1f51feb5c3db` | same helper fix |
+| `weaponmenu.amxx` | 7478 | 7615 | `ffcbfd1e0b2e1c79` | its loadout menu title was formatted from itself (`formatex` self-alias) |
+| `cban_screenshots.amxx` | 4150 | 4621 | `395d44fe4038e81e` | `%n` is not an AMXX specifier: the screenshot notice aborted with run time error 10 |
+
+Not loaded, so nothing live changes: `freenova_zgun.amxx` (16806 -> 16804,
+`1e7aae46bfbb9d5a`, debug lines passed as `%s`) and `bypass_guard.amxx`
+(33348 -> 33515, `e174ed9cca1fcafe`, six `%n` sites). Upload them only if you
+are enabling those plugins; `bypass_guard` also needs `plugins.ini` work.
+
+**`weapon_models.sma`/`.amxx` are shared with a concurrent batch** that was
+mid-edit in the same working tree when this list was written. Deploy the version
+on `main` at deploy time and rebuild it (`tools/compile-plugins.sh --only
+weapon_models`) rather than trusting the size above, or deploy after that batch
+lands.
+
+`freenova_sync.amxx` is **not** in this list on purpose: it already sends
+`bp_xp`/`bp_tier` (that was true before this round) and nothing in it changed.
+
+## 15. What to deploy (panel)
+
+Panel files in `28a18cf` (plus the test suite):
+
+```
+web-panel/schema.sql
+web-panel/src/sync.js          # players.bp_xp/bp_tier stored, same last_seen guard
+web-panel/src/bp_track.js      # the only tier curve: bpTierFromXp/bpInto/playerBpTier
+web-panel/src/pages.js
+web-panel/src/profile.js
+web-panel/src/battlepass.js
+web-panel/src/sqlite_d1.js
+web-panel/test_harness.mjs
+```
+
+Two things to do before the restart:
+
+1. **Add the columns first** if the live DB predates them. The panel does this
+   itself on every push (`ALTER TABLE players ADD COLUMN bp_xp/bp_tier`, errors
+   ignored) and `schema.sql` now carries them, so either order works - but a
+   `SELECT bp_tier FROM players` on the live DB is the quickest way to confirm
+   the migration ran.
+2. Expect **every** BattlePass page to read "tier 1 / 0 BP XP" after the
+   restart. That is the decision in §9d (no seeding from rank XP): BattlePass
+   progress starts at zero for existing players and grows from missions,
+   `amx_bp_givexp` and the web `give_bp_xp` action.
+
+Nothing else in the panel contract changed: same HMAC, same signature, same
+routes.
+
+## 16. Verify after the restart
+
+```sh
+# the ledger is real: BP XP moves, rank XP does not
+amx_bp_givexp <player> 1500      # prints "... BP XP ... Rank XP unchanged."
+# player then sees: HUD "BP T2", /bp "BP Tier 2 - BP XP 1500", rank Lv unchanged
+
+# and the panel agrees after the next push (~30 s)
+curl -s 'https://leaderboard.fn-gaming.net/battlepass?steamid=<steamid>' | grep -o "Tier[^<]*"
+```
+
+| check | expected |
+|---|---|
+| console | no `Run time error` for `battlepass_core`, `freenova_panel`, `weaponmenu`, `cban_screenshots` |
+| `players` row after a push | `bp_xp` = what the game sent, `bp_tier` = `1 + bp_xp/1000` capped 60 |
+| `/battlepass?steamid=…` for a rank-52 veteran | `Tier 1 / 60`, `0 / 1,000 BP XP`, no `NaN` |
+| `/profile?steamid=…` | `Tier 1 / 60`, `0 / 1,000 BP XP` |
+| `amx_bp_givexp <p> 1000` twice | second grant is accepted (BP XP is additive, not a once-only award) |
+
+## 17. Rollback
+
+`git show 28a18cf^:game-server/cstrike/addons/amxmodx/plugins/<name>.amxx` for the
+plugin and `git show 28a18cf^:web-panel/<file>` for the panel, then restart both.
+The panel's `bp_xp`/`bp_tier` columns are additive: an old panel ignores them and
+an old plugin never sends them, so a partial rollback cannot corrupt a row.

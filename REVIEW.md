@@ -100,6 +100,16 @@ no longer contains the authid and is **identical for every player**. The one
 mechanism that exists to avoid losing unpaid clutch coins is the one that
 mixes them up. Recommendation (needs a rebuild + deploy): use two buffers.
 
+**Correction (§9d).** The premise is wrong for `format()`: it formats into a
+temporary buffer and copies back, which is exactly why `formatex()` exists and is
+documented as *not* allowing this form. Measured on the live build with a probe
+plugin: `format(t, n, "pre#%s", t)` gives `pre#hello`, `formatex(t, n, "pre#%s",
+t)` gives `pre#pre#p`, and the original `format(szPKey, n, "clutchpend#%s",
+szPKey)` produces a **correct** `clutchpend#STEAM_0:1:12345`. The two-buffer fix
+committed in round one is still the right shape (it is unambiguous and does not
+depend on that subtlety), but this finding was not the data-mixing bug described
+here. `tools/lint-plugins.py` rule 1 now reports only `formatex()` as an error.
+
 ### 2.4 "BattlePass XP" and "rank XP" are the same ledger while nine comments and two admin commands say they are separate
 
 `battlepass_core.sma:4725-4747` implements `native_add_bp_xp` /
@@ -114,6 +124,10 @@ therefore never differ from "Lv", and `fnvip_get_bp_multiplier`
 
 Consequence for an operator: `amx_givebpxp` + `amx_giverankxp` both move rank
 XP. This is a product decision, not a patch — see §8.
+
+**Done (§9d, `28a18cf`).** BattlePass XP is its own vault-backed ledger again,
+`fnvip_get_bp_multiplier` is wired in, the panel stores `bp_xp`/`bp_tier`, and
+`amx_bp_givexp` moves BP XP only. No migration: every player starts at 0.
 
 ## 3. Panel ↔ plugin contract
 
@@ -355,7 +369,7 @@ disabled plugin is a latent bug, a bug in a loaded one is live.
 - **Clutch pending-coin key aliasing** — see 2.3 (`freenova_clutch.sma:289,352,403`,
   loaded at `plugins.ini:113`).
 - **Two XP ledgers presented as one** — see 2.4 (`battlepass_core.sma:4725-4747`,
-  loaded at `plugins.ini:81`).
+  loaded at `plugins.ini:81`). **Fixed in §9d.**
 
 ### 5.2 High
 
@@ -609,7 +623,8 @@ server. Each has a concrete patch.
    one `BpAddCoinsClamped()` used by all six sites.
 4. **Pick one truth for BP XP vs rank XP** (§2.4): either delete the "separate
    ledger" claims and rename the panel entry, or restore the vault-backed `bpxp`
-   ledger the `.bak` files show and wire `fnvip_get_bp_multiplier`.
+   ledger the `.bak` files show and wire `fnvip_get_bp_multiplier`. **Taken:
+   the second option, §9d.**
 5. **Restore the clutch pending key** (§2.3): two buffers, three call sites.
 6. **Retire or gate the panel-side action token** (§3.8): mint only when the
    steamid came from `url._fnMotdSid`, or require `?t=` game-side. Also gate
@@ -836,6 +851,131 @@ and silence the top-up. A comment now records this.
     body/header + constant-time compare, not a `/admin` session). A bookmarked
     `GET /top15?theme=save&k=...` now returns 403 with an explanation; the curl
     equivalent is in `docs/DEPLOY-plugins.md` §10.
+
+## 9d. Applied in round three
+
+Two jobs: §2.4 H1 (BattlePass XP as its own ledger, end to end) and
+`tools/lint-plugins.py`, a static checker for the bug classes this tree keeps
+producing - plus the bugs it found. The deploy list for this batch is
+`docs/DEPLOY-plugins.md` §14-17.
+
+The working tree was not still while this batch was written: a concurrent agent
+is recovering ~50 plugin sources and fixing its own findings in the same
+checkout. Numbers below were taken from a run at the commit named. The full-tree
+compile was **86 sources: 83 pass + 3 allowlisted failures** when the batch
+started, and **137 sources: 137 pass, 0 failures** at the end - the three
+formerly unbuildable sources build now because `08ea506` brought
+`include/bypass_guard.inc` into the tree. Both runs: exit 0, **no warning in any
+log**. Every plugin changed here was also built alone with `--only <name>`.
+
+### The ledger (§2.4 H1)
+
+`battlepass_core.sma` owns `g_iBpXp`/`g_iBpTier` again, persisted under the
+`bpxp` key of the `freenova_bp` vault (season-stamped through `BpCursorKey`,
+saved by the 30 s autosave, on disconnect and at `plugin_end`). The curve is
+flat - `fn_bp_xp_per_tier`, default 1000, identical to the panel's
+`reward_track.xp_per_tier` - and the tier is `1 + bpXp/per`, capped at 60, so
+tier 1 is 0..999 BP XP on both sides. There is **no migration and no seeding**:
+a player with no `bpxp` key starts at 0.
+
+`menabp_get_xp` / `menabp_get_tier` / `menabp_get_next_xp` / `menabp_add_xp` /
+`menabp_add_xp_once` read and write that ledger and never call
+`crxranks_give_user_xp`. Multipliers (`fnvip_get_bp_multiplier`, which had no
+call site, and the shop XP boost) are applied in `BpAddXp` - the single grant
+path - so `menabp_add_xp_once` cannot multiply twice and a replayed award id
+never reaches it.
+
+| Finding | File | Commit | Evidence (`--only`, 0 warnings) |
+|---|---|---|---|
+| §2.4 H1 BP XP/tier are rank XP/tier | `battlepass_core.sma` | `28a18cf` | PASS; H7040 C169832 D96376 S262144; `battlepass_core.amxx` 66262 → 68233; rule 7 of the linter now polices the grant path |
+| §2.4 H1 "BP T" column read the rank level | `freenova_hud.sma` | `28a18cf` | PASS; H1508 C7716 D8380 S16384; 4796 → 5172 |
+| §2.4 both grants moved one counter, silently | `freenova_panel.sma` | `28a18cf` | PASS; H5888 C152844 D135824 S16384; 59611 → 59564 |
+| §5.5 a caller's text used as `client_print_color`'s format (6 plugins) | `battlepass_core.sma`, `freenova_{achievements,cosmetics,missions,panel}.sma`, `weapon_models.sma` | `9cfec54` | PASS each; H/C/D/S 7040/169832/96376/262144, 1820/27336/12840, 3376/72476/44804, 2368/61288/24008, 5888/152844/135824, 3448/92912/624512 (S16384); `weapon_models.amxx` 43565 → 43574 |
+| §5.5 debug lines passed as the format | `freenova_zgun.sma` | `c98c445` | PASS; H2216 C27336 D27668 S16384; 16806 → 16804 (**not loaded**) |
+| the loadout menu title was formatted from itself | `weaponmenu.sma` | `e939ba1` | PASS; H1356 C14008 D8172 S16384; 7478 → 7615 |
+| `%n` aborted the screenshot notice | `cban_screenshots.sma` | `d30f04d` | PASS; H888 C6140 D2964 S16384; 4150 → 4621 |
+| `%n` in six places (kick log, `bg_status`, three `bg_restrict_player` messages) | `bypass_guard.sma` | `a2fe945` | PASS; H3388 C72772 D122952 S16384; 33348 → 33515 (**not loaded**) |
+| the checker itself, fixtures and the CI gate | `tools/lint-plugins.py`, `tests/lint-plugins/**`, `.github/workflows/plugins.yml` | `3926c04`, `4a0930b` | `--self-test` OK; tree run 137 files / 0 errors / 38 acknowledged |
+
+Panel half (`28a18cf`): `players.bp_xp`/`bp_tier` columns (`schema.sql`, both
+`ALTER TABLE` migration lists, and the 64-parameter upsert extended with `?65,
+?66` under the same `excluded.last_seen >= players.last_seen` guard);
+`bp_track.js` grows the only tier curve (`bpTierFromXp`, `bpInto`,
+`playerBpTier`), and `pages.js`, `profile.js` and `battlepass.js` read the ledger
+instead of rank XP, rank level or `bp_milestone`. `sync.js` was sending
+`bp_xp`/`bp_tier` already (verified, unchanged - the HMAC payload contract is
+byte-identical).
+
+| Finding | File | Test that covers it |
+|---|---|---|
+| a signed push carrying `bp_xp`/`bp_tier` lands in its own columns | `src/sync.js`, `schema.sql`, `src/sqlite_d1.js` | "push stored bp_xp", "push stored bp_tier" |
+| a stale push cannot lower the ledger | `src/sync.js` | "stale push did not lower bp_xp/bp_tier", "newer push raised bp_xp/bp_tier" |
+| rank XP must not decide the BP tier | `src/bp_track.js`, `src/battlepass.js`, `src/profile.js` | "0 BP XP renders tier 1 on /battlepass", "0 BP XP renders tier 1 on /profile", "playerBpTier ignores rank xp/level" |
+| a player with no BP XP must not render NaN | `src/pages.js`, `src/profile.js`, `src/battlepass.js` | "/battlepass shows no NaN", "/profile shows no NaN", "/profile shows 0 / 1,000 BP XP" |
+| the tier curve is one function | `src/bp_track.js` | "bpTierFromXp(0/999/1000/59000), caps at 60, survives null", "bpInto(1500,1000) is 500", "playerBpTier prefers the stored tier" |
+
+```
+cd web-panel && node test_harness.mjs
+  PASS panel test suite (99 checks)            exit 0    (was 74)
+node --check over every tracked JS              0 failures
+npm audit                                       found 0 vulnerabilities
+./tools/lint-plugins.py --self-test             self-test OK (7 rules, acknowledge path, clean path)
+./tools/lint-plugins.py                         137 files, 38 findings (0 error, 38 allowed), exit 0
+```
+
+### Four things this round measured
+
+1. **`format()` copies back, `formatex()` does not.** See the correction under
+   §2.3. The probe plugin also settled the specifier set: `%N` and `%n` make the
+   formatter raise `Run time error 10 (native format)` and abort the caller
+   (measured twice), while `%a` (cellarray handle, documented in
+   `cellarray.inc`), `%l` (prints `ML_NOTFOUND: 9` for a bogus key, i.e. it is
+   the language specifier), `%t`, `%T`, `%u` and `%b` are all implemented. That
+   is why rule 2 reports `%N`/`%n` and nothing else.
+2. **The live tree has no `%n`-free crash left in the loaded set.** The three
+   remaining `%n` are in `restmenu.sma`, which `plugins.ini` does not load and
+   which is pristine AMXX 1.10 upstream; they are acknowledged in the linter
+   rather than edited (see the operator decisions).
+3. **`rsu_core`'s `server_id = 0` is its own row key, not the §5.5 bug.** That
+   file inserts *and* updates `player_stats` on `server_id 0`; the §5.5 finding
+   was `rsu_matchstats.sma`, already fixed in round two. Rule 6 therefore only
+   fires when a file mixes a literal 0 with a value key.
+4. **A `%n` in an unloaded plugin still costs nothing to fix** once the include
+   is in the tree: `bypass_guard.sma` was listed as unbuildable in §9c's notes
+   and builds today, so its six `%n` are fixed and its binary rebuilt.
+
+### Acknowledged findings (38 ALLOW, none failing)
+
+| Pattern | Where | Why it is not a bug |
+|---|---|---|
+| `format(buf, n, "%s/…", buf)` | `admin.sma`, `adminchat.sma`, `mapchooser.sma`, `mapmanager.sma`, `mapsmenu.sma`, `miscstats.sma`, `pausecfg.sma`, `plmenu.sma`, `statscfg.sma`, `weapon_models.sma`, … (23) | `format()` copies back; measured in point 1 above. Only `formatex()` self-aliasing is reported as an error, and the three real ones (`weaponmenu.sma`) are fixed |
+| `%n` in `restmenu.sma` (3) | pristine upstream, not loaded | `lint:allow` via `ALLOW_LIST`, with the crash path documented |
+| `log_amx(g_warning, …)` in `nextmap.sma` (2) | the format is a file-scope string literal | the argument matches the literal's single `%s` |
+| `client_print(id, print_center, ZGUN_DISPLAY_NAME)` | `freenova_zgun.sma` | the macro is a plain string literal |
+| `LibraryExists("rsu_achievements"/"rsu_missions")` | `freenova_achievements.sma`, `freenova_missions.sma` | pre-RSU-merge provider names: nothing registers them, so the pause is a no-op; the literal stays so such a plugin can be dropped back in |
+
+### New operator decisions this round created
+
+16. **BattlePass progress now starts at zero for every existing player.** That
+    is the round's decision (no seeding from rank XP), and it is visible: a rank
+    52 veteran reads `/battlepass: Tier 1`, `/profile: Tier 1`, HUD `BP T1`, and
+    the BP-gated surfaces follow BP XP - `freenova_achievements`'
+    `ACH_LEVEL_26`/`ACH_LEVEL_52`, `weapon_models.sma`'s `GetBpLevel()` skin
+    gates (`bpLevel` 5-56 in the catalog) and the `/bp` track cursor. BP XP is
+    earned from missions, `amx_bp_givexp` and the web `give_bp_xp` action. Choose
+    between accepting that, or one deliberate one-off grant per player.
+17. **A BattlePass tier-up still pays nothing.** `g_iMilestonePaid` /
+    `g_iPremiumPaid` (the coin/premium cursors) remain rank-level driven;
+    `BpAddXp` announces the tier and does not touch them, because paying the same
+    tiers twice is worse than paying them once. Decide whether BP XP should also
+    drive the free-lane coin payouts.
+18. **`restmenu.amxx` is not loaded and still carries three `%n`.** Left
+    upstream: loading it would put a `Run time error 10` in the admin path. If
+    you want it, the fix is the same three lines as `cban_screenshots` and it is
+    already written into the review's notes.
+19. **`fn_bp_xp_per_tier` (1000) and `reward_track.xp_per_tier` must move
+    together.** The plugin pays by its cvar, the panel displays by the catalog
+    row it reads; changing one alone makes `/bp` and the panel disagree.
 
 ## 10. Unverified / could not confirm
 

@@ -33,9 +33,9 @@ coins. None of it is a rewrite; the fixes in §9 are small.
 | Severity | Count | Where |
 |---|---|---|
 | Critical | 4 | registration reply framing; duplicate action dispatch; clutch pending-coin key aliasing; two XP ledgers presented as one |
-| High | 12 | HMAC/action-token exposure, admin auth, stale-snapshot overwrite, coin overflow, reward idempotency, unbuildable plugin sources |
-| Medium | 23 | races, N+1 queries, GET mutations, doc drift, event scheduling, load-order assumptions |
-| Low | 20 | dead code, duplicate helpers, `.bak` sprawl, escaping of literal-only sinks |
+| High | 15 | HMAC/action-token exposure, admin auth, stale-snapshot overwrite, coin overflow, reward idempotency, unbuildable plugin sources, dead planting mode, format-string crash vector, unrestored warm-up cvars |
+| Medium | 35 | races, N+1 queries, GET mutations, doc drift, event scheduling, load-order assumptions, unverified deploy drift |
+| Low | 30 | dead code, duplicate helpers, `.bak` sprawl, escaping of literal-only sinks, truncation |
 
 Full detail follows. A finding that two reviewers reached independently is
 marked **[cross-checked]**.
@@ -450,6 +450,80 @@ having no `plugin_end` and detecting Discord success with
 `fn_*` typo, and `freenova_missions.sma:499-527` treating a landed deposit as
 failure when the balance is exactly 0.
 
+### 5.5 Gap pass — the remaining custom plugins
+
+These files were outside the first pass and were read in full afterwards
+(~18 000 lines across 35 files, plus `plugins.ini` end to end). The stock AMXX
+distribution is still deliberately excluded (§11).
+
+**New High**
+
+- **Planting a corpse is dead on every map — a load-order bug.**
+  `rt_core.sma:81` caches `g_iPlantingPluginID = is_plugin_loaded("rt_planting.amxx", true)`
+  inside `plugin_init`, and `:180` refuses every `MODE_PLANT` while that id is
+  `INVALID_PLUGIN_ID`. `plugins.ini` loads `rt_core.amxx` at line 98 and
+  `rt_planting.amxx` at line 103, so the answer is always "not loaded" and all of
+  `rt_planting.sma` (plant cap, explosion damage, `rt_planting_cost`) is
+  unreachable — silently, with no log line. Fix: move `rt_planting.amxx` above
+  `rt_core.amxx`, or resolve lazily in `Corpse_Use()`.
+- **Player name used as a printf format (server-crash vector).**
+  `weapon_models.sma:2124` `client_printcolor(i, szAdminMsg)` where
+  `szAdminMsg` was built with `formatex(…, "… !t%s …", szName, …)`. `client_printcolor`
+  re-formats its argument (`:2690` `vformat(msg, charsmax(msg), fmt, 3)`), and
+  CS 1.6 names may contain `%`: a player named `%s` who orders a custom skin makes
+  a varargs mismatch read garbage cells as string pointers, broadcast to every
+  admin. Fix: `client_printcolor(i, "%s", szAdminMsg)`. Same class, not loaded:
+  `freenova_zgun.sma:764,944`.
+- **`simple_warmup.sma` forces two cvars and never restores them.**
+  `:68`/`:74` set `amx_knife_round_active 1` and `mp_freezetime 0`; only
+  `restart()` restores them, and neither happens in `plugin_end`. A map change
+  during the warm-up leaves `amx_knife_round_active 1` for the next map — every
+  XP owner gates on it (`rsu_botxp.sma:100`, `freenova_teamxp`,
+  `freenova_progression`, `rsu_matchstats.sma:253,290,396`), i.e. "nobody earns
+  XP this map" — and `mp_freezetime` is pinned to the hardcoded `DEFAULT_FREEZETIME`
+  because the next map's snapshot reads 0.
+
+**New Medium** — `fn_bans.sma:164-171` writes the audit row, the session counter
+and the `fn_ban_added` forward *before* `server_cmd()` reaches
+`advanced_bans` (which may still reject the ban), and `:334` logs
+"confirm failed" unconditionally before every successful confirm;
+`rsu_matchstats.sma:543` binds `server_id = 0` while every other write uses
+`rsu_server_id` (default 1), so the lifetime KAST/trade/ace flush matches no row
+and the data is dropped; `:423` issues threaded SQL from `plugin_end`;
+`postgres_engine.sma:545` can spin for ever if a failure callback re-queues
+(`g_q_count` grows while draining), and `:247/305` has no `ST_BUSY` timeout, so a
+stalled backend silently stops all bans after 48 queued queries;
+`postgres_engine.sma:428-441` writes a password-derived MD5 to a fixed,
+world-readable temp path and ignores `hash_file()`'s result (garbage password on
+failure); `weapon_models.sma:1008-1021` debits coins and then judges the debit,
+with no refund path; `reapi_healthnade.sma:412` plays the pickup sound when the
+player already has ammo (`if (iPlayerAmmo)` should be `!iPlayerAmmo`);
+`weaponmenu.sma:397-405` "expiry" never closes the menu and eats the choice;
+`freenova_mapvote.sma:341-350` renders a nomination list into a 160-cell buffer
+that eight 31-char names overflow (silent truncation);
+`freenova_zgun.sma:330/336` reads its flag gate before the flag string is ever
+populated (flag-only VIPs are denied for ever) and rewrites its own config file
+on every map start, destroying operator edits (not loaded).
+
+**New Low** — `rt_core.sma:438` integer division before `float()`;
+`rt_effects.sma:271` `!=` where `||` was meant (a 7-char value without `#` is
+parsed as hex, `"#123"` reads past the string); `weapon_models.sma:21`
+redefines `MAX_PLAYERS`; `log_amx(szOut)` with a runtime string in
+`freenova_zgun.sma:944`; `freenova_chatcmds.sma:210,244,282` passes raw say
+text into `server_cmd` (not loaded, but the file documents a load-order contract
+it cannot satisfy); `rt_revive_model.sma:36-51` forces `rt_force_fwd_mode 1`
+permanently; `rt_restrictions.sma:234` charges money without re-checking the
+account; `cban_screenshots.sma:126` reads `get_param(3)` unconditionally.
+
+**Deployment drift the logs prove** — `logs/error_*.log` record
+`postgres_engine.amxx`: `Run time error 10 (native "set_task")` /
+`Function is not present (function "")`, and `weapon_models.amxx`:
+`Run time error 10 (native "menu_display")`. Neither current source can produce
+those errors (all `set_task` calls use literal function names; `menu_display` is
+funnelled through `WmDisplayMenu()`). **The deployed `.amxx` binaries are older
+than the `.sma` sources in this snapshot** — rebuild and redeploy those two, and
+check `.amxx` mtimes against `.sma` for the rest (see `docs/RUNBOOK.md` §2).
+
 ## 6. Route and feature truth vs HUB.md
 
 Probed against a live local runner (`DEBUG.md` §3). `HUB.md` is wrong in three
@@ -619,11 +693,28 @@ from this snapshot at all until those `.inc` files are recovered from the host.
 `schema.sql`, `seed_catalogs.sql` (structure), `wrangler.toml`, `package.json`,
 `entrypoint.sh`, `scripts/*.mjs`/`*.py` (hard-coded paths and rot only).
 
-**Read and reviewed (plugins):** the 30 FreeNova/`fn_*`/`rsu_*`/`advanced_bans`
-sources listed in §5, `configs/plugins.ini` (whole file), `configs/amxx.cfg`
-(key names only), `configs/rank_system_ultimate.ini`, `configs/freenova/vip.cfg`,
-`configs/vipConfig.cfg`, `configs/freenova.cfg`, `scripting/include/*.inc` where
-a native's arity mattered.
+**Read and reviewed (plugins, 65 sources):** the 30 FreeNova/`fn_*`/`rsu_*`/`advanced_bans`
+sources listed in §5.1-5.4, plus the 35 read in the gap pass (§5.5):
+`freenova_ads`, `freenova_chatcmds`, `freenova_flash`, `freenova_help`,
+`freenova_topbar`, `freenova_zgun`, `freenova_hud`, `freenova_prefs`,
+`freenova_roundmusic`, `freenova_mapvote`, `rsu_botxp`, `rsu_mapend`,
+`rsu_stats`, `rsu_matchstats`, `rsu_crx_compat`, `postgres_engine`,
+`ab_bypass_bridge`, `freenova_http_probe`, `revive_bridge`, `simple_warmup`,
+`stats_logging`, `cban_screenshots`, `fn_bans`, `weapon_models`, `weaponmenu`,
+`reapi_healthnade`, `reapi_test` and the whole `rt_*` stack (all eight are
+loaded), plus `configs/plugins.ini` (whole file), `configs/amxx.cfg` (key names
+only), `configs/rank_system_ultimate.ini`, `configs/freenova/vip.cfg`,
+`configs/vipConfig.cfg`, `configs/freenova.cfg`, and
+`scripting/include/*.inc` where a native's arity mattered.
+`bypass_guard.sma` (3 032 lines, disabled, third-party) was audited at
+grep level only: array create/destroy and forward balance are correct.
+
+**Deployment gap worth stating once:** `freenova_flash.sma` claims to be the
+single owner of `ScreenFade` for team-flash blocking and VIP flash reduction, and
+it is **not loaded**, so those features are simply not running. `freenova_zgun`,
+`freenova_chatcmds`, `freenova_topbar`, `rsu_botxp`, `rsu_mapend`,
+`freenova_http_probe`, `stats_logging` and `reapi_test` are likewise not loaded;
+each source was still reviewed, and findings in them are marked as latent.
 
 **Deliberately not reviewed:** the stock AMXX distribution plugins (`admin.sma`,
 `admincmd.sma`, `plmenu.sma`, `mapsmenu.sma`, `menufront.sma`, `cmdmenu.sma`,

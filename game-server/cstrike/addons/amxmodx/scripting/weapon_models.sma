@@ -1007,6 +1007,12 @@ bool:EnsureSkinsLoaded(id)
 
 // Fail-closed debit. Last-coin success returns 0 from menabp_add_coins, so
 // also require the wallet to drop. Never unlock if BP data is still loading.
+//
+// REVIEW.md 5.5: the verification below runs AFTER the debit, and the old
+// code simply returned false when it tripped - the coins were gone and the
+// purchase was refused, i.e. the player paid for nothing with no way back.
+// The single clean outcome is "wallet dropped by exactly iCost"; anything
+// else refunds whatever actually left the wallet before refusing.
 stock bool:WmDebitCoins(id, iCost)
 {
     if (iCost <= 0 || !LibraryExists("menabp", LibType_Library))
@@ -1014,12 +1020,18 @@ stock bool:WmDebitCoins(id, iCost)
     new iBefore = menabp_get_coins(id);
     if (iBefore < iCost)
         return false;
+
     new iAfter = menabp_add_coins(id, -iCost);
-    if (iAfter == 0 && menabp_get_coins(id) >= iBefore)
-        return false;
-    if (menabp_get_coins(id) > iBefore - iCost)
-        return false;
-    return true;
+    new iNow = menabp_get_coins(id);
+    if (iNow == iBefore - iCost)
+        return true;
+
+    if (iNow < iBefore)
+    {
+        menabp_add_coins(id, iBefore - iNow);
+        log_amx("[FreeNova Skins] debit of %d for player %d was inconsistent (before=%d after=%d native=%d) - rolled back, purchase refused", iCost, id, iBefore, iNow, iAfter);
+    }
+    return false;
 }
 
 bool:PModelVipBlocked(id, const szModel[])

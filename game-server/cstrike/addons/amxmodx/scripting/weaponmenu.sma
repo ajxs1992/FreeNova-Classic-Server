@@ -399,9 +399,21 @@ public close_menu(taskid) {
     if (!(1 <= id <= MaxClients))
         return;
 
-    if (!g_HasSelected[id]) {
-        g_HasSelected[id] = true;
-    }
+    // Already chose (the handler destroys the menu and latches the flag).
+    if (g_HasSelected[id])
+        return;
+
+    // REVIEW.md §5.5: this used to latch g_HasSelected and nothing else, so
+    // the 15s "expiry" left the window open. A click after the deadline then
+    // reached a handler whose first check is `if (g_HasSelected[id])`, which
+    // destroyed the menu and threw the choice away with no message - the menu
+    // silently ate the click. Cancel the client's window so it really does
+    // expire, and say so.
+    menu_cancel(id);
+    g_HasSelected[id] = true;
+
+    if (is_user_connected(id) && is_user_alive(id))
+        client_print(id, print_chat, "[Weapon Menu] Time is up - buy your own weapons this round.");
 }
 
 stock give_nades(id) {

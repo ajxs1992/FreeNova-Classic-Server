@@ -5,6 +5,7 @@
   "type": "module",
   "description": "FreeNova CS 1.6 web panels (Cloudflare Worker + D1)",
   "devDependencies": {
+    "sharp": "^0.35.5",
     "wrangler": "^4.0.0"
   },
   "scripts": {

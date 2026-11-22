@@ -723,7 +723,8 @@ above:
 The Medium/Low findings §5 and §5.5 left, plus the panel gaps in §8, applied
 after round one went live. Round one's own changes are untouched, and three
 tracked binaries turned out to be **stale relative to their sources** (see the
-notes at the end). Twenty-four commits, `354280e..ae0144e`.
+notes at the end). The code changes are `354280e..ae0144e` (24 commits); the commits after that
+only record them here.
 
 Plugin tree: `tools/compile-plugins.sh` before and after this round is
 identical - `compiled: 85   failed: 3   allowed-failures: 3`, exit 0, and no

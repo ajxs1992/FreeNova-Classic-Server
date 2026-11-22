@@ -47,6 +47,14 @@ import {
 import { normalizeSteamid } from "./src/publicapi.js"
 import { countdownText } from "./src/schedule.js"
 import { renderFallback } from "./src/motd.js"
+// The Winterfest data layer (docs/panel/00-CONTRACT.md, 01-DATA.md).
+import {
+  ensureStateSchema, queueAction, applyAction, getPlayer, balancesOf,
+  ledgerBalance, rebuildBalance, passTierFromXp, passTierXp, PASS_MAX_TIER,
+} from "./src/state.js"
+import {
+  topBoards, missionsFor, achievements, mail, treeSlots, recentLedger, recentActions,
+} from "./src/query.js"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const root = mkdtempSync(join(tmpdir(), "freenova-panel-test-"))
@@ -162,6 +170,35 @@ function rawPost(port, path, body) {
     })
     req.on("error", () => resolve(0))
     req.end(body)
+  })
+}
+
+// ------------------------------------------------------- game API signing ---
+// GET /api/game/pending and POST /api/game/ack sign with the INGEST's secret and
+// formula, with the method word as the second field:
+//   sha256(secret + ":" + METHOD + ":" + path + ":" + ts + ":" + nonce + ":" + sha256(body))
+// An empty body (a GET) hashes the empty string.
+function gameSignature(method, path, ts, nonce, body) {
+  return sha256hex(`${SECRET}:${method}:${path}:${ts}:${nonce}:${sha256hex(body)}`)
+}
+
+function gameCall(panel, method, path, opts = {}) {
+  const body = opts.body == null ? "" : String(opts.body)
+  const ts = opts.ts != null ? opts.ts : Math.floor(Date.now() / 1000)
+  const nonce = opts.nonce || ("g" + Math.random().toString(36).slice(2) + Date.now())
+  const sig = opts.sig !== undefined ? opts.sig : gameSignature(method, path, ts, nonce, body)
+  const headers = {}
+  if (sig) {
+    headers["x-freenova-signature"] = sig
+    headers["x-freenova-timestamp"] = String(ts)
+    headers["x-freenova-nonce"] = nonce
+  }
+  if (method === "POST") headers["content-type"] = "application/json"
+  const query = opts.query ? "?" + new URLSearchParams(opts.query).toString() : ""
+  return fetch(panel.base + path + query, {
+    method,
+    headers,
+    body: method === "POST" ? body : undefined,
   })
 }
 
@@ -925,6 +962,328 @@ try {
     countdownText({ state: "active", starts_at: 0, ends_at: bNow + 7200 }, bNow) === "ends in 2h",
     countdownText({ state: "active", starts_at: 0, ends_at: bNow + 7200 }, bNow))
   bd.raw.close()
+
+  // ===================== 12. Winterfest data layer (the panel foundation) ======
+  // docs/panel/00-CONTRACT.md §Layers. A disposable database, driven through exactly
+  // the API the page layer and the game will call: queueAction → applyAction →
+  // getPlayer, the ledger, the refusals, and the two game endpoints. A state table
+  // is only touched directly where the test has to prove a guard (a hand-written
+  // row, a legacy table).
+  const sd = openLocalD1(join(root, "state.sq3"))
+  // The base players table normally comes from schema.sql; openLocalD1 only
+  // migrates it. Only the columns the layer reads are needed here.
+  sd.raw.exec(`CREATE TABLE IF NOT EXISTS players (
+      steamid TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', xp INTEGER NOT NULL DEFAULT 0,
+      level INTEGER NOT NULL DEFAULT 1, kills INTEGER NOT NULL DEFAULT 0,
+      coins INTEGER NOT NULL DEFAULT 0, last_seen INTEGER NOT NULL DEFAULT 0)`)
+  const sEnv = { DB: sd }
+  const SID = "STEAM_0:0:701"
+
+  check("the state tables are created on demand", (await ensureStateSchema(sd)) === true)
+  const sCols = sd.raw.prepare("PRAGMA table_info(winter_players)").all().map(r => r.name)
+  check("winter_players has the columns the contract asks for",
+    ["spins", "pass_xp", "pass_tier", "premium", "tree_level"].every(c => sCols.includes(c)),
+    sCols.join(","))
+
+  // A live table from before the contract: no spins/pass_xp/pass_tier/premium.
+  const legacyFile = join(root, "legacy-winter.sq3")
+  const legacy = openLocalD1(legacyFile)
+  legacy.raw.exec(`CREATE TABLE winter_players (
+      steamid TEXT PRIMARY KEY, season TEXT NOT NULL DEFAULT '',
+      snowflakes INTEGER NOT NULL DEFAULT 0, gifts_found INTEGER NOT NULL DEFAULT 0,
+      tree_style INTEGER NOT NULL DEFAULT 1, ornaments_total INTEGER NOT NULL DEFAULT 0,
+      advent_claimed INTEGER NOT NULL DEFAULT 0, seen_at INTEGER NOT NULL DEFAULT 0)`)
+  legacy.raw.prepare(`INSERT INTO winter_players (steamid, snowflakes) VALUES ('STEAM_0:0:702', 40)`).run()
+  await ensureStateSchema(legacy)
+  // A SECOND handle over the same file runs the migration again from scratch: the
+  // PRAGMA guard, not a comment, is what stops "duplicate column name".
+  const legacy2 = openLocalD1(legacyFile)
+  let legacyOk = true
+  let legacyErr = ""
+  try { await ensureStateSchema(legacy2) } catch (e) { legacyOk = false; legacyErr = String(e && e.message) }
+  const lCols = legacy2.raw.prepare("PRAGMA table_info(winter_players)").all().map(r => r.name)
+  check("the guarded ALTER upgrades a live winter_players and is safe to run twice",
+    legacyOk && lCols.includes("spins") && lCols.includes("pass_xp") &&
+    lCols.includes("pass_tier") && lCols.includes("premium"), legacyErr || lCols.join(","))
+  check("the guarded ALTER keeps the live row it upgraded",
+    legacy2.raw.prepare(`SELECT snowflakes FROM winter_players WHERE steamid='STEAM_0:0:702'`).get().snowflakes === 40)
+  legacy.raw.close()
+  legacy2.raw.close()
+
+  // ---------------------------------------------- queue → apply → balances ----
+  const claim1 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "claim_mission", payload: { mission: 12, coins: 100, gingerbread: 25 }, now: 1000,
+  })
+  check("queueAction inserts a pending row", claim1.created === true && claim1.action.state === "pending",
+    JSON.stringify(claim1.action))
+  const claimDup = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "claim_mission", payload: { mission: 12, coins: 100, gingerbread: 25 }, now: 1001,
+  })
+  check("double-queue returns the row that already exists",
+    claimDup.created === false && claimDup.action.id === claim1.action.id,
+    `${claimDup.created} / ${claimDup.action.id}`)
+  check("the queue holds exactly one row after a double submit",
+    sd.raw.prepare(`SELECT COUNT(*) AS n FROM winter_actions WHERE steamid=?1`).get(SID).n === 1)
+
+  const applied1 = await applyAction(sEnv.DB, claim1.action.id, { now: 1100 })
+  check("applyAction applies the claim and returns the new balances",
+    applied1.ok && applied1.state === "applied" && applied1.balances.coins === 100 &&
+    applied1.balances.gingerbread === 25, JSON.stringify(applied1))
+  const p1 = await getPlayer(sEnv.DB, SID)
+  check("the claim paid coins and gingerbread",
+    p1.coins === 100 && p1.gingerbread === 25, `coins=${p1.coins} gingerbread=${p1.gingerbread}`)
+  const led1 = sd.raw.prepare(
+    `SELECT currency, delta, balance_after, reason, ref FROM winter_ledger WHERE steamid=?1 ORDER BY id`).all(SID)
+  check("every currency change wrote a ledger row with balance_after",
+    led1.length === 2 && led1[0].currency === "coins" && led1[0].balance_after === 100 &&
+    led1[0].delta === 100 && led1[0].reason === "claim_mission" && led1[0].ref === "mission:12" &&
+    led1[1].currency === "gingerbread" && led1[1].balance_after === 25, JSON.stringify(led1))
+
+  const rebG = await rebuildBalance(sEnv.DB, SID, "gingerbread")
+  check("a ledger balance rebuild reproduces the stored balance",
+    rebG.stored === 25 && rebG.ledger === 25 && rebG.repaired === false, JSON.stringify(rebG))
+  sd.raw.prepare(`UPDATE winter_players SET snowflakes=99 WHERE steamid=?1`).run(SID)
+  const fixed = await rebuildBalance(sEnv.DB, SID, "gingerbread", { repair: true, now: 1200 })
+  check("the ledger wins a disagreement and the repair puts the balance back",
+    fixed.repaired === true && fixed.stored_before === 99 && fixed.ledger === 25 &&
+    (await getPlayer(sEnv.DB, SID)).gingerbread === 25 &&
+    (await ledgerBalance(sEnv.DB, SID, "gingerbread")) === 25, JSON.stringify(fixed))
+
+  const ledgerCount = sd.raw.prepare(`SELECT COUNT(*) AS n FROM winter_ledger WHERE steamid=?1`).get(SID).n
+  const retry = await applyAction(sEnv.DB, claim1.action.id, { now: 1300 })
+  check("a retried claim pays once",
+    retry.ok && retry.already === true &&
+    sd.raw.prepare(`SELECT COUNT(*) AS n FROM winter_ledger WHERE steamid=?1`).get(SID).n === ledgerCount,
+    JSON.stringify(retry))
+  const reClaim = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "claim_mission", payload: { mission: 12, coins: 100, gingerbread: 25 },
+  })
+  check("a re-queued claim answers with the applied row instead of a new one",
+    reClaim.created === false && reClaim.action.id === claim1.action.id && reClaim.action.state === "applied",
+    JSON.stringify(reClaim.action))
+
+  // ------------------------------------------------------------- refusals ----
+  const bogus = sd.raw.prepare(
+    `INSERT INTO winter_actions (steamid, kind, payload, state, idem, created_at)
+     VALUES (?1, 'mystery', '{}', 'pending', 'mystery:1', 1400)`).run(SID)
+  const beforeBogus = await balancesOf(sEnv.DB, SID)
+  const bogusRes = await applyAction(sEnv.DB, Number(bogus.lastInsertRowid), { now: 1400 })
+  const afterBogus = await balancesOf(sEnv.DB, SID)
+  check("applying an unknown kind is refused and leaves the balances untouched",
+    bogusRes.ok === false && bogusRes.state === "refused" && /unknown kind/.test(bogusRes.error) &&
+    beforeBogus.coins === afterBogus.coins && beforeBogus.gingerbread === afterBogus.gingerbread,
+    JSON.stringify(bogusRes))
+
+  // A grant funds the shop tests; the derived idempotency key is a digest of it.
+  const grant1 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "grant", payload: { reason: "test", coins: 500, gingerbread: 100 },
+  })
+  const grant1a = await applyAction(sEnv.DB, grant1.action.id, { now: 1500 })
+  check("a grant pays both currencies",
+    grant1a.ok && grant1a.balances.coins === 600 && grant1a.balances.gingerbread === 125,
+    JSON.stringify(grant1a.balances))
+
+  const buy1 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "buy",
+    payload: { item: "ornament:12", item_kind: "ornament", price: { coins: 150, gingerbread: 50 } },
+  })
+  const buy1a = await applyAction(sEnv.DB, buy1.action.id, { now: 1600 })
+  check("a buy debits both currencies and grants the item",
+    buy1a.ok && buy1a.balances.coins === 450 && buy1a.balances.gingerbread === 75 &&
+    (await getPlayer(sEnv.DB, SID)).counts.ornaments === 1, JSON.stringify(buy1a))
+
+  // The transaction proof: the first debit (10 coins) must be rolled back when the
+  // second currency cannot be paid, and nothing may be granted.
+  const beforeShort = await balancesOf(sEnv.DB, SID)
+  const buy2 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "buy", payload: { item: "model:snowman", price: { coins: 10, gingerbread: 9999 } },
+  })
+  const buy2a = await applyAction(sEnv.DB, buy2.action.id, { now: 1700 })
+  check("a buy that cannot pay its second currency writes nothing at all",
+    buy2a.ok === false && /not enough gingerbread/.test(buy2a.error) &&
+    buy2a.balances.coins === beforeShort.coins &&
+    (await getPlayer(sEnv.DB, SID)).counts.inventory === 1, JSON.stringify(buy2a))
+
+  // --------------------------------------------------------------- the tree ----
+  const plant0 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "plant_ornament", payload: { slot: 3, ornament: 5 },
+  })
+  const plant0a = await applyAction(sEnv.DB, plant0.action.id)
+  check("planting an ornament the player does not own is refused",
+    plant0a.ok === false && /not owned/.test(plant0a.error), JSON.stringify(plant0a))
+  const plant1 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "plant_ornament", payload: { slot: 3, ornament: 12 },
+  })
+  const plant1a = await applyAction(sEnv.DB, plant1.action.id, { now: 1800 })
+  const tree1 = await treeSlots(sEnv.DB, SID)
+  check("planting an owned ornament fills exactly that slot",
+    plant1a.ok && tree1.slots.length === 24 && tree1.filled === 1 && tree1.slots[2].ornament === 12,
+    JSON.stringify(tree1))
+  const plant2 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "plant_ornament", payload: { slot: 9, ornament: 12 },
+  })
+  const plant2a = await applyAction(sEnv.DB, plant2.action.id, { now: 1810 })
+  const tree2 = await treeSlots(sEnv.DB, SID)
+  check("moving an ornament empties the slot it came from (one slot per ornament)",
+    plant2a.ok && tree2.filled === 1 && tree2.slots[8].ornament === 12 && tree2.slots[2].ornament === null,
+    JSON.stringify(tree2))
+
+  // ------------------------------------------------------------- the advent ----
+  const advent1 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "claim_advent", payload: { day: 3, gingerbread: 40 },
+  })
+  const advent1a = await applyAction(sEnv.DB, advent1.action.id, { now: 1900 })
+  const advent2 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "claim_advent", payload: { day: 3, gingerbread: 40 }, idem: "advent:3:retry",
+  })
+  const advent2a = await applyAction(sEnv.DB, advent2.action.id, { now: 1910 })
+  check("a second claim of the same advent day is refused and pays nothing",
+    advent1a.ok && advent2a.ok === false && /already claimed/.test(advent2a.error) &&
+    (await getPlayer(sEnv.DB, SID)).gingerbread === advent1a.balances.gingerbread &&
+    (await getPlayer(sEnv.DB, SID)).counts.advent_claimed === 1,
+    `${JSON.stringify(advent2a.error)} gingerbread=${(await getPlayer(sEnv.DB, SID)).gingerbread}`)
+
+  // ---------------------------------------- entitlements, pass, inventory ----
+  const prem = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "grant",
+    payload: { reason: "staff", product: "bp_premium_2026", pass_xp: 3400 },
+  })
+  const prema = await applyAction(sEnv.DB, prem.action.id, { now: 2000 })
+  const pPrem = await getPlayer(sEnv.DB, SID)
+  check("a premium grant sets the entitlement and the cached flag",
+    prema.ok && pPrem.premium === 1 && pPrem.entitlements.includes("bp_premium_2026") &&
+    sd.raw.prepare(`SELECT premium FROM winter_players WHERE steamid=?1`).get(SID).premium === 1,
+    JSON.stringify(pPrem.entitlements))
+  check("pass XP moves the tier on the documented curve",
+    pPrem.pass.xp === 3400 && pPrem.pass.tier === 11 && pPrem.pass.next_tier === 12,
+    JSON.stringify(pPrem.pass))
+  check("the pass curve is the documented 300/700/1400 ladder",
+    passTierXp(1) === 0 && passTierXp(10) === 2700 && passTierXp(11) === 3400 &&
+    passTierXp(20) === 9700 && passTierXp(30) === 23700 &&
+    passTierFromXp(0) === 1 && passTierFromXp(2700) === 10 && passTierFromXp(3399) === 10 &&
+    passTierFromXp(3400) === 11 && passTierFromXp(999999) === PASS_MAX_TIER,
+    `${passTierFromXp(3399)}/${passTierFromXp(3400)}`)
+
+  const title1 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "grant", payload: { reason: "title", item: "title:3", item_kind: "title" },
+  })
+  await applyAction(sEnv.DB, title1.action.id, { now: 2010 })
+  const title2 = await queueAction(sEnv.DB, {
+    steamid: SID, kind: "grant", payload: { reason: "title", item: "title:4", item_kind: "title" },
+  })
+  await applyAction(sEnv.DB, title2.action.id, { now: 2020 })
+  const ach = await achievements(sEnv.DB, SID)
+  check("achievements report the titles the panel granted",
+    ach.length === 2 && ach.some(a => a.item === "title:3") && ach.every(a => a.equipped === false),
+    JSON.stringify(ach))
+  const eq1 = await queueAction(sEnv.DB, { steamid: SID, kind: "equip", payload: { item: "title:3" } })
+  await applyAction(sEnv.DB, eq1.action.id, { now: 2030 })
+  const eq2 = await queueAction(sEnv.DB, { steamid: SID, kind: "equip", payload: { item: "title:4" } })
+  const eq2a = await applyAction(sEnv.DB, eq2.action.id, { now: 2040 })
+  const equipped = sd.raw.prepare(`SELECT item FROM winter_inventory WHERE steamid=?1 AND equipped=1`).all(SID)
+  check("equipping a second title clears the first (one equipped per kind)",
+    eq2a.ok && equipped.length === 1 && equipped[0].item === "title:4", JSON.stringify(equipped))
+
+  // ----------------------------------------------------- the read-only layer ----
+  const boards = await topBoards(sEnv.DB, { limit: 5 })
+  const gbBoard = boards.gingerbread || []
+  check("the gingerbread board is read from winter_players",
+    gbBoard.length >= 1 && gbBoard[0].steamid === SID &&
+    gbBoard[0].value === (await getPlayer(sEnv.DB, SID)).gingerbread, JSON.stringify(gbBoard))
+  const msns = await missionsFor(sEnv.DB, SID)
+  check("the mission list reports the claim state of each mission",
+    msns.some(m => m.mission === "12" && m.state === "applied"), JSON.stringify(msns))
+  const led = await recentLedger(sEnv.DB, SID, { limit: 5 })
+  check("recent ledger lines come back newest first with their balance",
+    led.length === 5 && led[0].id > led[4].id && led[0].balance_after >= 0,
+    JSON.stringify(led.map(r => r.id)))
+  const acts = await recentActions(sEnv.DB, SID, { limit: 3 })
+  check("recentActions reports the queue as a page shows it", acts.length === 3,
+    JSON.stringify(acts.map(a => a.kind)))
+  sd.raw.prepare(
+    `INSERT INTO winter_mail (steamid, kind, title, body, created_at) VALUES (?1,'system','Advent','day 3',2050)`
+  ).run(SID)
+  const inbox = await mail(sEnv.DB, SID)
+  check("the inbox lists the unread row and getPlayer counts it",
+    inbox.length === 1 && inbox[0].unread === true && inbox[0].title === "Advent" &&
+    (await getPlayer(sEnv.DB, SID)).counts.mail_unread === 1, JSON.stringify(inbox))
+  const ghost = await getPlayer(sEnv.DB, "STEAM_0:0:799")
+  check("a player the panel has never seen reports null, not a zero balance",
+    ghost.exists === false && ghost.coins === null && ghost.level === null && ghost.gingerbread === 0,
+    JSON.stringify(ghost))
+
+  // The same apply through a D1-SHAPED handle (prepare + batch, no `raw`): the
+  // local driver exposes both, so this exercises the batch branch a Cloudflare
+  // deployment takes, including its refusal path.
+  const d1shaped = { prepare: sd.prepare, batch: sd.batch }
+  const D1SID = "STEAM_0:0:705"
+  const dq = await queueAction(d1shaped, {
+    steamid: D1SID, kind: "claim_mission", payload: { mission: 1, gingerbread: 7 },
+  })
+  const da = await applyAction(d1shaped, dq.action.id, { now: 3000 })
+  check("the apply also works through a D1-shaped handle (no interactive transaction)",
+    da.ok && da.balances.gingerbread === 7 &&
+    (await ledgerBalance(sEnv.DB, D1SID, "gingerbread")) === 7, JSON.stringify(da))
+  const dref = await queueAction(d1shaped, {
+    steamid: D1SID, kind: "buy", payload: { item: "ornament:1", price: { gingerbread: 999 } },
+  })
+  const drefa = await applyAction(d1shaped, dref.action.id, { now: 3010 })
+  check("a refusal through the batch path writes nothing",
+    drefa.ok === false && drefa.state === "refused" &&
+    (await balancesOf(sEnv.DB, D1SID)).gingerbread === 7, JSON.stringify(drefa))
+
+  // --------------------------------------------------- the two game endpoints ----
+  // The panel process's own database: the harness queues and applies through the
+  // same functions the page layer will call, then talks to it over HTTP.
+  const gsid = "STEAM_0:0:703"
+  const pdb = openLocalD1(panel.dbFile)
+  const gq = await queueAction(pdb, {
+    steamid: gsid, kind: "claim_advent", payload: { day: 4, gingerbread: 10 },
+  })
+  const ga = await applyAction(pdb, gq.action.id, { now: Math.floor(Date.now() / 1000) })
+  pdb.raw.close()
+  check("the panel applied a queued advent claim for the pull tests",
+    ga.ok && ga.balances.gingerbread === 10, JSON.stringify(ga))
+
+  const unsigned = await gameCall(panel, "GET", "/api/game/pending", { query: { steamid: gsid }, sig: "" })
+  check("the pull refuses an unsigned request", unsigned.status === 401, "-> " + unsigned.status)
+  const wrongSig = await gameCall(panel, "GET", "/api/game/pending", {
+    query: { steamid: gsid }, sig: "0".repeat(64),
+  })
+  check("the pull refuses a wrong signature", wrongSig.status === 401, "-> " + wrongSig.status)
+  const staleTs = await gameCall(panel, "GET", "/api/game/pending", {
+    query: { steamid: gsid }, ts: Math.floor(Date.now() / 1000) - 900,
+  })
+  check("the pull refuses a timestamp outside the replay window", staleTs.status === 401,
+    "-> " + staleTs.status)
+
+  const pull1 = await gameCall(panel, "GET", "/api/game/pending", { query: { steamid: gsid } })
+  const pull1Body = await pull1.json()
+  check("the signed pull returns the committed action with its verdict",
+    pull1.status === 200 && pull1Body.ok === true && pull1Body.steamid === gsid &&
+    pull1Body.actions.length === 1 && pull1Body.actions[0].id === gq.action.id &&
+    pull1Body.actions[0].kind === "claim_advent" && pull1Body.actions[0].state === "applied" &&
+    pull1Body.actions[0].payload.day === 4, JSON.stringify(pull1Body))
+
+  const ackBody = JSON.stringify({ id: gq.action.id, state: "applied" })
+  const ack1 = await gameCall(panel, "POST", "/api/game/ack", { body: ackBody })
+  const ack1Body = await ack1.json()
+  const ack2 = await gameCall(panel, "POST", "/api/game/ack", { body: ackBody })
+  const ack2Body = await ack2.json()
+  check("the ack is accepted once and is idempotent on replay",
+    ack1.status === 200 && ack1Body.ok === true && ack1Body.already === false &&
+    ack1Body.state === "applied" && ack2.status === 200 && ack2Body.ok === true &&
+    ack2Body.already === true && ack2Body.game_acked_at === ack1Body.game_acked_at,
+    `${JSON.stringify(ack1Body)} / ${JSON.stringify(ack2Body)}`)
+  const pull2 = await (await gameCall(panel, "GET", "/api/game/pending", { query: { steamid: gsid } })).json()
+  check("an acked action leaves the pull", pull2.actions.length === 0, JSON.stringify(pull2))
+  const afterAck = openLocalD1(panel.dbFile)
+  const gPlayer = await getPlayer(afterAck, gsid)
+  afterAck.raw.close()
+  check("the ack never pays a balance again", gPlayer.gingerbread === 10, String(gPlayer.gingerbread))
+  const badAck = await gameCall(panel, "POST", "/api/game/ack", { body: JSON.stringify({ id: gq.action.id, state: "nonsense" }) })
+  check("an ack with an unknown state is refused", badAck.status === 400, "-> " + badAck.status)
+  sd.raw.close()
 } catch (e) {
   bad("suite", e && e.stack ? e.stack : String(e))
   console.error("--- panel output ---\n" + panel.output.split("\n").slice(-25).join("\n"))

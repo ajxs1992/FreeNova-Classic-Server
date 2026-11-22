@@ -400,15 +400,26 @@ CREATE INDEX IF NOT EXISTS idx_badges_player ON badges (steamid);
 -- this file) only creates what is missing; src/winter/store.js repeats the same
 -- DDL lazily (keyed per DB object) so a deployment that never execs this file
 -- still gets the tables on the first push. src/winter/store.js is the consumer.
+-- 2026-11-23 (docs/panel/00-CONTRACT.md): the rebuild made these columns the
+-- panel's own state instead of a mirror of the game snapshot, and added spins,
+-- pass_xp, pass_tier and premium. They are in this CREATE for a fresh database;
+-- a LIVE winter_players is upgraded by the guarded ALTER in src/state.js
+-- ensureStateSchema() (PRAGMA table_info, then ALTER), because ADD COLUMN is
+-- not idempotent and this file is exec'd on every boot. src/state.js is the
+-- only writer of any of them.
 CREATE TABLE IF NOT EXISTS winter_players (
     steamid          TEXT PRIMARY KEY,
     season           TEXT NOT NULL DEFAULT '',
-    snowflakes       INTEGER NOT NULL DEFAULT 0,
+    snowflakes       INTEGER NOT NULL DEFAULT 0,   -- gingerbread: the winter currency
+    spins            INTEGER NOT NULL DEFAULT 0,   -- wheel tokens ([spins] in winterfest.ini)
     gifts_found      INTEGER NOT NULL DEFAULT 0,
     tree_style       INTEGER NOT NULL DEFAULT 1,   -- 1 classic | 2 tall | 3 wide
     tree_level       INTEGER NOT NULL DEFAULT 0,
     ornaments_total  INTEGER NOT NULL DEFAULT 0,
     advent_claimed   INTEGER NOT NULL DEFAULT 0,
+    pass_xp          INTEGER NOT NULL DEFAULT 0,   -- Winter Pass, cumulative (curve in src/state.js)
+    pass_tier        INTEGER NOT NULL DEFAULT 1,   -- 1..30, monotonic
+    premium          INTEGER NOT NULL DEFAULT 0,   -- cache of the bp_premium_2026 entitlement
     seen_at          INTEGER NOT NULL DEFAULT 0    -- stale-push guard, like players.last_seen
 );
 
@@ -514,3 +525,95 @@ CREATE TABLE IF NOT EXISTS winter_mail (
 );
 CREATE INDEX IF NOT EXISTS idx_winter_mail_inbox  ON winter_mail (steamid, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_winter_mail_unread ON winter_mail (steamid, read_at);
+
+
+-- ============================================================ Winterfest 2026 — panel-owned state
+-- Additive 2026-11-23. This is the rebuild's layer 1 (docs/panel/00-CONTRACT.md):
+-- from here the PANEL database is the truth for Winterfest player state and the
+-- game reconciles to it. It reverses the "mirror only" rule the winter_* tables
+-- above were built under, and nothing above this line changes meaning.
+--
+-- Writer: src/state.js and nothing else. A page never touches these tables; it
+-- queues a winter_actions row, the apply step writes the state table AND the
+-- ledger in one transaction, and the game pulls the committed change.
+--
+-- Boot safety: every statement here is CREATE ... IF NOT EXISTS and this file is
+-- exec'd on every boot (server_local.mjs) over the live database. The four
+-- columns winter_players gained are in its CREATE above for a fresh database; a
+-- live table is upgraded by the guarded ALTER in src/state.js ensureStateSchema.
+-- src/state.js repeats this same DDL lazily, so a deployment that never execs
+-- this file still gets these tables the first time an action is queued.
+
+-- THE QUEUE: one row per intent, panel -> game. `idem` is unique per
+-- (steamid, kind) so a refreshed page, a double-clicked button or a retried
+-- claim can only ever produce ONE row - the unique constraint is the guard, not
+-- a check-then-insert.
+--   state      pending -> applied | refused   (the panel's verdict, written by applyAction)
+--   game_state applied | refused              (the game's report, written by POST /api/game/ack)
+-- A row is "work the game still has to see" while game_acked_at = 0.
+CREATE TABLE IF NOT EXISTS winter_actions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    steamid       TEXT NOT NULL,
+    kind          TEXT NOT NULL,                   -- claim_mission | claim_advent | plant_ornament | buy | equip | grant
+    payload       TEXT NOT NULL DEFAULT '{}',      -- JSON, validated by src/state.js before it is stored
+    state         TEXT NOT NULL DEFAULT 'pending', -- pending | applied | refused
+    idem          TEXT NOT NULL,                   -- idempotency key, unique per (steamid, kind)
+    created_at    INTEGER NOT NULL DEFAULT 0,
+    applied_at    INTEGER NOT NULL DEFAULT 0,
+    error         TEXT NOT NULL DEFAULT '',        -- why applyAction refused
+    result        TEXT NOT NULL DEFAULT '',        -- JSON: the balances/items the apply produced
+    game_state    TEXT NOT NULL DEFAULT '',        -- applied | refused, as reported by the game
+    game_error    TEXT NOT NULL DEFAULT '',
+    game_acked_at INTEGER NOT NULL DEFAULT 0,      -- 0 = the game has not reported back yet
+    UNIQUE (steamid, kind, idem)
+);
+CREATE INDEX IF NOT EXISTS idx_winter_actions_queue ON winter_actions (steamid, game_acked_at, id);
+CREATE INDEX IF NOT EXISTS idx_winter_actions_state ON winter_actions (state, id);
+
+-- THE LEDGER: append-only, one row per currency change, with the balance it left
+-- behind. If a balance and the ledger ever disagree the ledger wins and the
+-- balance is rebuilt from it (src/state.js rebuildBalance). `delta` is signed and
+-- never 0 - the single exception is the repair row rebuildBalance writes, which
+-- carries delta 0 so the ledger's arithmetic still sums to the balance. `reason` is
+-- the action kind and `ref` the subject (mission:12, advent:7, buy:ornament:4,
+-- grant:staff ...). `currency` is one of coins | gingerbread | spins.
+CREATE TABLE IF NOT EXISTS winter_ledger (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    steamid       TEXT NOT NULL,
+    currency      TEXT NOT NULL,
+    delta         INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL,
+    reason        TEXT NOT NULL DEFAULT '',
+    ref           TEXT NOT NULL DEFAULT '',
+    action_id     INTEGER NOT NULL DEFAULT 0,      -- winter_actions.id that caused it (0 = manual repair)
+    created_at    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_winter_ledger_player ON winter_ledger (steamid, id DESC);
+CREATE INDEX IF NOT EXISTS idx_winter_ledger_action ON winter_ledger (action_id);
+
+-- WHAT A PLAYER OWNS FROM THE STORE: products, not currency and not cosmetics.
+-- The primary key is the duplicate guard: a second purchase of the same product
+-- cannot insert, so it can never be paid for twice.
+CREATE TABLE IF NOT EXISTS winter_entitlements (
+    steamid    TEXT NOT NULL,
+    product    TEXT NOT NULL,                      -- bp_premium_2026 | advent_pass_2026
+    source     TEXT NOT NULL DEFAULT '',           -- buy | grant | staff
+    granted_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, product)
+);
+
+-- WHAT A PLAYER OWNS AS AN ITEM: one row per cosmetic/ornament. `item` is the
+-- catalogue key the rest of the panel uses ("ornament:12", "title:3",
+-- "model:snowman"), so a row is self-describing without a second lookup table.
+-- `equipped` is per item; the apply step clears the other rows of the same kind
+-- when it equips one, so a player cannot wear two titles.
+CREATE TABLE IF NOT EXISTS winter_inventory (
+    steamid     TEXT NOT NULL,
+    item        TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'cosmetic',  -- ornament | title | model | skin | badge
+    qty         INTEGER NOT NULL DEFAULT 1,
+    equipped    INTEGER NOT NULL DEFAULT 0,
+    acquired_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, item)
+);
+CREATE INDEX IF NOT EXISTS idx_winter_inventory_player ON winter_inventory (steamid, kind, equipped);

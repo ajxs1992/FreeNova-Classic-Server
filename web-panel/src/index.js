@@ -1,7 +1,17 @@
 // FreeNova Web Panel — Cloudflare Worker (D1-backed, server-rendered).
-// The game server is the only authority: it pushes signed snapshots; the web
-// is read-only except for QUEUING actions that the game validates and applies.
+//
+// Two authorities, and the split matters (docs/panel/00-CONTRACT.md):
+//   * the GAME pushes signed snapshots (POST /api/v1/server/stats, "the ingest");
+//     that is still the truth for rank XP/level and, until the ingest stops writing
+//     it, for coins;
+//   * the WINTERFEST PANEL owns its own state — coins it pays, gingerbread, spins,
+//     pass XP/tier, the tree, inventory, entitlements and the ledger — and the game
+//     reconciles to it. A page queues an action, src/state.js applies it, and the
+//     game pulls the committed change from GET /api/game/pending and reports back
+//     with POST /api/game/ack.
+// Pages remain read-only over src/query.js; no page writes a state table.
 import { handleSync, handleAdminCall, queueAction } from "./sync.js"
+import { pendingActions, ackAction, validSteamid } from "./state.js"
 import { handleRegister, handleRegHealth } from "./register.js"
 import { handleAdmin } from "./admin.js"
 import { pageProfile } from "./profile.js"
@@ -57,6 +67,15 @@ async function routeRequest(request, env, ctx) {
 
       if (request.method === "POST" && path === "/api/v1/server/stats")
         return await handleSync(request, env)
+      // ^ THE INGEST. Unchanged on purpose. One thing to know before editing it:
+      //   its players upsert still writes `coins` (and rank xp/level) straight from
+      //   the game snapshot, and the Winterfest panel now pays coins through the
+      //   ledger (src/state.js). The two do not fight — the snapshot simply wins at
+      //   the next push — but the overlap is deliberate and documented in
+      //   docs/panel/01-DATA.md ("what the panel owns vs what the ingest still
+      //   overwrites"). Do NOT start writing winter_players, winter_inventory,
+      //   winter_entitlements or winter_ledger from the ingest: src/state.js is the
+      //   only writer of panel state, and a second one would break the ledger.
       if (request.method === "POST" && path === "/api/v1/server/admin-call")
         return await handleAdminCall(request, env)
       // Game registration (freenova_registration.sma). POST is HMAC-signed with
@@ -66,6 +85,14 @@ async function routeRequest(request, env, ctx) {
         return await handleRegister(request, env)
       if (request.method === "GET" && path === "/api/game/v1/health")
         return await handleRegHealth(request, env)
+
+      // The Winterfest action pump (contract §Layers). Same SECRET as the ingest,
+      // same signature formula with the method word swapped; the POST goes here so
+      // it is routed before the GET-only gate below.
+      if (request.method === "GET" && path === "/api/game/pending")
+        return await handleGamePending(request, env, url)
+      if (request.method === "POST" && path === "/api/game/ack")
+        return await handleGameAck(request, env)
 
       // Top-15 theme editor: POST only, so the staff key never rides in a URL
       // (REVIEW.md §4.1 H2). Routed before the GET-only gate for that reason.
@@ -278,4 +305,121 @@ async function routeRequest(request, env, ctx) {
       console.error("panel error:", e && e.stack ? e.stack : String(e))
       return errorState("ERROR", "home", "the panel (internal error — logged)")
     }
+}
+
+// ============================================================================
+// The Winterfest action pump: the game's two calls (docs/panel/01-DATA.md).
+//
+//   GET  /api/game/pending?steamid=  → what this player's panel state has that the
+//                                      game has not mirrored yet
+//   POST /api/game/ack               → the game's report on one of those rows
+//
+// Auth is the ingest's: X-FreeNova-Signature over the SAME SYNC_SECRET, with the
+// method word as the second field, so one secret and one implementation of the
+// formula cover the whole game-facing surface:
+//
+//   sha256(secret + ":" + METHOD + ":" + path + ":" + ts + ":" + nonce + ":" + hex(sha256(body)))
+//
+// For a GET the body is empty, so the last field is the constant hash of "":
+// e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+//
+// The signature covers the PATH, not the query string (the steamid rides in the
+// query, like every other panel read). X-FreeNova-Timestamp must be within ±300 s
+// of this process's clock. The ack additionally requires a nonce of the usual shape;
+// it is not consumed from the `meta` nonce store because the ack is idempotent by
+// construction (src/state.js ackAction: the UPDATE is the claim), so a replay can
+// only ever return the verdict the first call stored.
+// ============================================================================
+
+const GAME_API_MAX_BODY = 64 * 1024
+
+function json(obj, status) {
+  return new Response(JSON.stringify(obj), {
+    status: status || 200,
+    headers: { "content-type": "application/json", "cache-control": "no-store" }
+  })
+}
+
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("")
+}
+
+function timingSafeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
+async function verifyGameRequest(request, env, method) {
+  if (!env || !env.SYNC_SECRET)
+    return { ok: false, response: json({ ok: false, error: "sync secret not configured" }, 401) }
+  const sig = request.headers.get("x-freenova-signature") || ""
+  const ts = request.headers.get("x-freenova-timestamp") || ""
+  const nonce = request.headers.get("x-freenova-nonce") || ""
+  if (!sig) return { ok: false, response: json({ ok: false, error: "missing signature" }, 401) }
+  if (!ts) return { ok: false, response: json({ ok: false, error: "missing timestamp" }, 401) }
+  if (!nonce || nonce.length > 64 || /[^\w.-]/.test(nonce))
+    return { ok: false, response: json({ ok: false, error: "bad nonce" }, 401) }
+
+  const now = Math.floor(Date.now() / 1000)
+  const tsNum = parseInt(ts, 10)
+  if (!tsNum || Math.abs(now - tsNum) > 300)
+    return { ok: false, response: json({ ok: false, error: "timestamp outside replay window" }, 401) }
+
+  let body = ""
+  if (method !== "GET") {
+    const declared = Number(request.headers.get("content-length") || 0)
+    if (Number.isFinite(declared) && declared > GAME_API_MAX_BODY)
+      return { ok: false, response: json({ ok: false, error: "payload too large" }, 413) }
+    body = await request.text()
+    if (body.length > GAME_API_MAX_BODY)
+      return { ok: false, response: json({ ok: false, error: "payload too large" }, 413) }
+  }
+
+  // The path the plugin signed: normalised exactly as this router normalises it.
+  const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/"
+  const bodyHash = await sha256Hex(body)
+  const expected = await sha256Hex(`${env.SYNC_SECRET}:${method}:${path}:${ts}:${nonce}:${bodyHash}`)
+  if (!timingSafeEqual(expected, sig.toLowerCase()))
+    return { ok: false, response: json({ ok: false, error: "invalid signature" }, 401) }
+  return { ok: true, body }
+}
+
+async function handleGamePending(request, env, url) {
+  const auth = await verifyGameRequest(request, env, "GET")
+  if (!auth.ok) return auth.response
+  const steamid = String(url.searchParams.get("steamid") || "")
+  if (!validSteamid(steamid)) return json({ ok: false, error: "bad steamid" }, 400)
+  try {
+    const actions = await pendingActions(env.DB, steamid)
+    return json({
+      ok: true,
+      steamid,
+      season: "2026",
+      server_time: Math.floor(Date.now() / 1000),
+      count: actions.length,
+      actions
+    })
+  } catch (e) {
+    console.error("pending error:", e && e.stack ? e.stack : String(e))
+    return json({ ok: false, error: "pending unavailable" }, 500)
+  }
+}
+
+async function handleGameAck(request, env) {
+  const auth = await verifyGameRequest(request, env, "POST")
+  if (!auth.ok) return auth.response
+  let body
+  try { body = JSON.parse(auth.body) } catch { return json({ ok: false, error: "bad json" }, 400) }
+  if (!body || typeof body !== "object") return json({ ok: false, error: "bad json" }, 400)
+  try {
+    const out = await ackAction(env.DB, { id: body.id, state: body.state, error: body.error })
+    return json(out, out.ok ? 200 : 404)
+  } catch (e) {
+    if (e && e.name === "Refusal") return json({ ok: false, error: e.reason }, 400)
+    console.error("ack error:", e && e.stack ? e.stack : String(e))
+    return json({ ok: false, error: "ack unavailable" }, 500)
+  }
 }

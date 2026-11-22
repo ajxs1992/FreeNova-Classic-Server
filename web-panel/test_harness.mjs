@@ -22,7 +22,7 @@
 //
 // Run: node test_harness.mjs   (exit 0 = every check passed)
 import { spawn } from "node:child_process"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -55,6 +55,14 @@ import {
 import { adventStatus, passStatus, treeStatus } from "./src/winter/progress.js"
 import { applyWinterPayload, ensureWinterTables, loadState } from "./src/winter/store.js"
 import { WINTER_SKIN_MARK } from "./src/winter/skin.js"
+// The v2 design rebuild (src/v2/): shell + components + the dashboard adapters.
+import {
+  countdownParts, shortDuration, eventState, objectiveRows,
+  ornamentCounts, rewardTiles, loadDashboard, ADAPTER_CONTRACT
+} from "./src/v2/data/dashboard.js"
+import { render as renderDashboardV2 } from "./src/v2/pages/dashboard.js"
+import { icon as v2icon, ICON_NAMES } from "./src/v2/icons.js"
+import { page as v2page } from "./src/v2/shell.js"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const root = mkdtempSync(join(tmpdir(), "freenova-panel-test-"))
@@ -1464,6 +1472,188 @@ try {
       `month=${monthNow} day=${dayNow}`)
     check("skin: a JSON response is never touched",
       !(await wget("/api/public/status")).body.includes(WINTER_SKIN_MARK))
+
+    // ---- 9g. the v2 design rebuild: the dashboard at /v2 ------------------
+    // The page is a pure function of the adapters (render(viewModel)), so the
+    // maths and the markup are checked without HTTP first; the route checks
+    // then prove the same numbers over the wire, and that a zero-data player
+    // gets an honest page instead of the reference mock's numbers.
+    const T0 = 1_700_000_000
+
+    const cdA = countdownParts(T0 + 2 * 86400 + 14 * 3600 + 5 * 60 + 9, T0)
+    check("v2 countdown: days/hours/minutes/seconds split correctly",
+      cdA.days === 2 && cdA.hours === 14 && cdA.minutes === 5 && cdA.seconds === 9, JSON.stringify(cdA))
+    const cdPast = countdownParts(1000, 2000)
+    check("v2 countdown: a closed window clamps to zero, never goes negative",
+      cdPast.days === 0 && cdPast.hours === 0 && cdPast.left === 0)
+    check("v2 duration: the pill's wording (2d 14h / 14h / 45m / now)",
+      shortDuration(2 * 86400 + 14 * 3600) === "2d 14h" && shortDuration(14 * 3600) === "14h" &&
+      shortDuration(45 * 60) === "45m" && shortDuration(0) === "now",
+      [shortDuration(2 * 86400 + 14 * 3600), shortDuration(14 * 3600), shortDuration(45 * 60)].join(" | "))
+
+    const pill = row => eventState(row, T0)
+    const ends = pill({ status: "active", start_at: T0 - 100, end_at: T0 + 2 * 86400 + 14 * 3600 })
+    check("v2 pill: an active window with an end reads 'Ends in 2d 14h'",
+      ends.label === "Ends in 2d 14h" && ends.tone === "green", ends.label)
+    check("v2 pill: an active window with no end reads 'Active Now'",
+      pill({ status: "active" }).label === "Active Now")
+    const starts = pill({ status: "scheduled", start_at: T0 + 14 * 3600 })
+    check("v2 pill: a scheduled window reads 'Starts in 14h'", starts.label === "Starts in 14h" && starts.tone === "gold", starts.label)
+    check("v2 pill: a scheduled window whose start has passed reads 'Active'",
+      pill({ status: "scheduled", start_at: T0 - 60 }).label === "Active")
+    check("v2 pill: a completed row reads 'Ended'", pill({ status: "completed" }).label === "Ended")
+
+    const noObj = objectiveRows(null)
+    check("v2 objectives: nothing pushed means four honest empty rows",
+      noObj.length === 4 && noObj.every(o => o.target === 0 && o.current === 0 && o.known === false))
+    const someObj = objectiveRows({ counters: [{ key: "gifts", label: "Collect Gifts", current: 42, target: 50 }, { key: "zzz", label: "junk", current: 1, target: 2 }] })
+    check("v2 objectives: a pushed counter wins, an unknown key is ignored",
+      someObj[0].current === 42 && someObj[0].target === 50 && someObj[0].known === true &&
+      someObj.filter(o => o.known).length === 1)
+
+    const ornCounts = ornamentCounts(cat, { ownedIds: new Set([1, 2, 3]) })
+    check("v2 ornaments: owned ornaments are counted into four rarity buckets",
+      ornCounts.length === 4 && ornCounts.reduce((n, o) => n + o.value, 0) === 3,
+      JSON.stringify(ornCounts.map(o => o.value)))
+
+    const tiles = rewardTiles(cat, {
+      gifts: [
+        { type: "ornament", id: 1, amount: 0 },
+        { type: "snow", id: 0, amount: 100 },
+        { type: "pass", id: 0, amount: 25 },
+        { type: "title", id: 1, amount: 0 },
+        { type: "ornament", id: 2, amount: 0 }
+      ]
+    })
+    check("v2 rewards: at most four tiles, each with real art and a real label",
+      tiles.length === 4 && tiles.every(t => t.art && t.title && t.title !== "undefined"), JSON.stringify(tiles.map(t => t.title)))
+    check("v2 rewards: the currency tile is named GingerBread (owner decision 2026-11-22)",
+      tiles[1].sub === "GingerBread", tiles[1].sub)
+
+    check("v2 icons: an unknown name falls back to a snowflake instead of throwing",
+      v2icon("no-such-icon", 20).includes("<svg") && v2icon("no-such-icon", 20) === v2icon("snowflake", 20))
+    check("v2 icons: the set covers every nav item", ["dashboard", "profile", "stats", "trophy", "flag",
+      "missions", "medal", "levels", "events", "advent", "wheel", "crown", "shop", "gear"].every(n => ICON_NAMES.includes(n)),
+      ICON_NAMES.length + " icons")
+
+    const shellPage = v2page({ title: "t", active: "profile", content: "<p>x</p>", chips: [], player: { name: "A" }, bell: {} })
+    check("v2 shell: exactly one nav item carries aria-current", (shellPage.match(/aria-current="page"/g) || []).length === 1)
+    check("v2 shell: the active item is the one asked for",
+      /<a class="v2-navitem on" href="\/profile" aria-current="page">/.test(shellPage))
+    check("v2 shell: a nav destination that does not exist is inert, not a 404 link",
+      shellPage.includes('aria-disabled="true"') && shellPage.includes("ships with workstream"))
+
+    // the view model, from the store 9c seeded (the §9 blob for `stranger`)
+    const dashUrl = new URL("http://panel/v2?steamid=" + encodeURIComponent(stranger))
+    const dash = await loadDashboard(wEnv, dashUrl, nowW)
+    check("v2 dashboard: gingerbread comes from winter_players.snowflakes",
+      dash.currency.gingerbread === 77, String(dash.currency.gingerbread))
+    check("v2 dashboard: the pass tier comes from winter_pass",
+      dash.pass.tier === 2, String(dash.pass.tier))
+    check("v2 dashboard: the tree is the filled slots over 24",
+      dash.tree.filled === 1 && dash.tree.total === 24 && dash.tree.pct === 4,
+      `${dash.tree.filled}/${dash.tree.total} ${dash.tree.pct}%`)
+    check("v2 dashboard: advent claims come from the ledger", dash.advent.claimed === 1, String(dash.advent.claimed))
+    check("v2 dashboard: recent rewards are the ledger's newest grants",
+      dash.rewards.length === 1, String(dash.rewards.length))
+    check("v2 dashboard: every adapter reports its state for the wiring note",
+      dash.wiring.length === 12 && dash.wiring.every(w => w.name && w.source && typeof w.wired === "boolean"),
+      dash.wiring.filter(w => w.wired).length + "/12 live")
+    check("v2 dashboard: an adapter with no source is wired:false, not invented",
+      dash.wiring.find(w => w.name === "Objectives").wired === false &&
+      dash.wiring.find(w => w.name === "Spins").wired === false)
+    check("v2 dashboard: the not-yet-shipped shapes are documented in code",
+      ADAPTER_CONTRACT.spin.includes("winter_meta.spin") && ADAPTER_CONTRACT.objectives.includes("counters") &&
+      Object.keys(ADAPTER_CONTRACT).length === 4)
+
+    const dashHtml = renderDashboardV2(dash)
+    check("v2 dashboard: the measured palette is in the page", dashHtml.includes("--v2-border:#2a3d6e"))
+    check("v2 dashboard: the sidebar has the four reference groups",
+      ["Player", "Progression", "Events &amp; Activities", "Rewards &amp; Management"].every(g => dashHtml.includes(g)))
+    check("v2 dashboard: the hero lockup, ribbon and subtitle are rendered",
+      dashHtml.includes("Free<span>Nova</span>") && dashHtml.includes("WINTERFEST") && dashHtml.includes("v2-lockup"))
+    check("v2 dashboard: the cropped art is referenced locally",
+      ['/winter/hero.png', '/winter/santa.png', '/winter/tree.png'].every(p => dashHtml.includes(p)) &&
+      /\/winter\/tile_[a-z0-9]+\.png/.test(dashHtml))
+    check("v2 dashboard: alt text on the cropped art",
+      /alt="Santa Claus waving[^"]*"/.test(dashHtml) && /alt="A decorated Christmas tree[^"]*"/.test(dashHtml))
+    check("v2 dashboard: it makes no external request",
+      !/(src|href)="https?:/i.test(dashHtml) && !/@import|fonts\.googleapis|cdn\./i.test(dashHtml))
+    const dashNoJs = dashHtml.replace(/<script[\s\S]*?<\/script>/g, "")
+    check("v2 dashboard: the countdown is complete with JavaScript disabled",
+      (dashNoJs.match(/data-cd="/g) || []).length === 4 && dashNoJs.includes("Days") && dashNoJs.includes("Seconds"))
+    check("v2 dashboard: no NaN, no 'undefined', no reference mock numbers",
+      !dashNoJs.includes("NaN") && !dashNoJs.includes("undefined") &&
+      !dashNoJs.includes("24,500") && !dashNoJs.includes("1,320") && !dashNoJs.includes("68%"))
+    check("v2 dashboard: the page states which adapters are live",
+      dashNoJs.includes("adapters live") && dashNoJs.includes("winter_meta"))
+
+    for (const art of ["hero.png", "santa.png", "tree.png", "tile_ak47.png", "tile_ginger.png", "tile_snowflake.png", "tile_hat.png"]) {
+      const fp = join(here, "assets", "winter", art)
+      check("v2 art: assets/winter/" + art + " is on disk and non-trivial",
+        existsSync(fp) && readFileSync(fp).length > 2000, existsSync(fp) ? readFileSync(fp).length + " bytes" : "missing")
+    }
+
+    // ---- the route, over HTTP, against the running winter panel ----------
+    const v2 = await wget("/v2")
+    check("v2 route: /v2 answers 200 as HTML",
+      v2.status === 200 && (v2.headers.get("content-type") || "").includes("text/html"), "-> " + v2.status)
+    const v2hub = await wget("/v2/hub")
+    check("v2 route: /v2/hub is the same page", v2hub.status === 200 && v2hub.body === v2.body)
+    const v2nope = await fetch(winterPanel.base + "/v2/nope")
+    check("v2 route: an unknown /v2 path is a 404", v2nope.status === 404, "-> " + v2nope.status)
+
+    // a real push changes the chips: the numbers are the database, not markup
+    await push(winterPanel, { players: [player(owner, { name: "Owner", coins: 1234, level: 12, last_seen: nowW })] })
+    const v2Owner = await wget("/v2?steamid=" + encodeURIComponent(owner))
+    check("v2 route: the coins chip is players.coins", v2Owner.body.includes("1,234"), "")
+    check("v2 route: the profile chip is players.name + players.level",
+      v2Owner.body.includes("Owner") && v2Owner.body.includes("Level 12"))
+    check("v2 route: the gingerbread chip is the winter mirror", v2Owner.body.includes("145"))
+    check("v2 route: the stat strip prints the pass tier and the tree", v2Owner.body.includes("Lv. 3") && v2Owner.body.includes("2 of 24 slots filled"))
+    check("v2 route: aria-current marks exactly the dashboard",
+      (v2Owner.body.match(/aria-current="page"/g) || []).length === 1 && /v2-navitem on" href="\/v2"/.test(v2Owner.body))
+
+    const v2Unseen = await wget("/v2?steamid=" + encodeURIComponent("STEAM_0:0:900099"))
+    const unseenNoJs = noScript(v2Unseen.body)
+    check("v2 route: a player with no data still gets a full page", v2Unseen.status === 200)
+    check("v2 route: their zero state is honest (0%, no NaN)",
+      unseenNoJs.includes("0%") && !unseenNoJs.includes("NaN"))
+    check("v2 route: the unseen player's card says it is not signed in",
+      unseenNoJs.includes("not signed in"))
+    const v2Anon = await wget("/v2")
+    check("v2 route: an anonymous visit shows the season, never a fake player",
+      v2Anon.status === 200 && noScript(v2Anon.body).includes("Guest") &&
+      noScript(v2Anon.body).includes("Open this panel from the game"))
+
+    // every link the dashboard advertises has to resolve (same rule as the hub)
+    const dashLinks = [...new Set([...v2Owner.body.matchAll(/href=['"]([^'"]+)/g)].map(m => m[1]))]
+    let deadDashLinks = []
+    for (const link of dashLinks) {
+      if (/^(#|mailto:|javascript:)/i.test(link)) continue
+      if (/^https?:/i.test(link)) { deadDashLinks.push("external:" + link); continue }
+      const res = await fetch(winterPanel.base + link, { redirect: "manual" })
+      if (![200, 302].includes(res.status)) deadDashLinks.push(link + " -> " + res.status)
+    }
+    check("v2 route: every link the dashboard advertises resolves", deadDashLinks.length === 0, deadDashLinks.join(", "))
+
+    // The seasonal skin must not repaint this page: it owns the Winterfest
+    // palette already, and the skin's guard has to hand back a READABLE body
+    // (returning the drained response used to 500 the whole route in December).
+    await setSeasonWindow({ name: "Winterfest", year: thisYear, start: `${thisYear}-01-01`, end: `${thisYear}-12-31`, enabled: 1 })
+    const v2Skinned = await wget("/v2?steamid=" + encodeURIComponent(owner))
+    // The countdown ticks between requests, so compare everything but the clock.
+    const steady = t => t.replace(/(<b data-cd="[a-z]+">)\d+/g, "$1N").replace(/data-left="\d+"/g, 'data-left="N"')
+    const v2SkinnedAgain = await wget("/v2?steamid=" + encodeURIComponent(owner))
+    check("v2 skin: /v2 answers with the season open, and is stable", v2Skinned.status === 200 &&
+      steady(v2Skinned.body) === steady(v2SkinnedAgain.body), "-> " + v2Skinned.status)
+    check("v2 skin: the seasonal sheet is NOT injected into the dashboard",
+      !v2Skinned.body.includes("#" + WINTER_SKIN_MARK + "{background") && !v2Skinned.body.includes('id="' + WINTER_SKIN_MARK + '"'))
+    check("v2 skin: it carries the marker it opts out with", v2Skinned.body.includes(WINTER_SKIN_MARK))
+    const rulesSkinned = await wget("/rules")
+    check("v2 skin: the skin still recolours the pages that want it",
+      rulesSkinned.body.includes(WINTER_SKIN_MARK) && rulesSkinned.status === 200)
+    await setSeasonWindow(null)
 
     panelDb.raw.close()
     wDb.raw.close()

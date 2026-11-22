@@ -176,18 +176,24 @@ STRINGS: dict[str, dict[str, str]] = {
         "events.marker.running": "🟢",
         "events.marker.upcoming": "🕒",
         "events.marker.ended": "⚪",
+        "events.marker.overdue": "🟠",
+        "events.marker.cancelled": "⛔",
         "events.marker.undated": "🗓",
         "events.line": "{marker} **{title}** — {countdown}",
         "events.countdown.running": "running now",
         "events.countdown.running_until": "running now · ends in {delta}",
         "events.countdown.upcoming": "in {delta}",
+        "events.countdown.overdue": "was due {delta} ago · the scheduler has not started it",
+        "events.countdown.cancelled": "cancelled",
         "events.countdown.ended": "ended {delta} ago",
         "events.countdown.ended_plain": "ended",
         "events.countdown.undated": "date to be confirmed",
         "events.footer_running": "running now: {titles}",
         "events.footer_next": "next: {title}",
-        "events.command_footer": ("Schedule: ~/.config/freenova-bot/events.json · times in your "
-                                  "timezone"),
+        "events.footer_overdue": "not started: {titles}",
+        "events.footer_panel": "Panel schedule · updated {updated}",
+        "events.footer_pinned": "plus events.json",
+        "events.footer_file": "events.json only · the panel schedule didn't answer",
         "events.notice.start_title": "🟢 {title} starts now",
         "events.notice.end_title": "⚪ {title} has ended",
         "events.notice.ends": "Ends",
@@ -1511,8 +1517,15 @@ def alert_transition(state: dict, info: dict | None, down_after: int = 2,
 
 
 # ---------------------------------------------------------------------- events
+# Panel schedule first (`/api/public/events`, five-minute cache), with
+# `events.json` as an override for anything ops pins by hand: a file entry with
+# the same title wins. `state_hint` carries the panel's own lifecycle state so a
+# row the scheduler never activated ("overdue") is never announced as running.
 EVENT_KEEP_ENDED = 24 * 3600          # show events that ended up to a day ago
 EVENT_STATE_KEEP = 14 * 86400         # forget start/end bookkeeping after this
+ANNOUNCE_GRACE = 1800.0               # only announce a transition this fresh
+
+PANEL_STATES = ("active", "scheduled", "overdue", "unscheduled", "ended", "cancelled")
 
 
 def parse_time(value: Any) -> datetime | None:
@@ -1555,9 +1568,28 @@ class Event:
     when: str = ""
     detail: str = ""
     key: str = ""
+    state_hint: str = ""             # the panel's own state, when the row came from it
+    source: str = "file"             # "panel" | "file"
 
     def state(self, now: datetime) -> str:
-        """upcoming / running / ended / undated."""
+        """running / upcoming / overdue / unscheduled / ended / cancelled / undated.
+
+        A panel row's lifecycle state wins over the clock: the scheduler owns it,
+        and an `overdue` row must not be presented as running.
+        """
+        hint = self.state_hint
+        if hint == "cancelled":
+            return "cancelled"
+        if hint == "ended":
+            return "ended"
+        if hint == "overdue":
+            return "overdue"
+        if hint == "active":
+            return "running"
+        if hint == "scheduled":
+            return "upcoming"
+        if hint == "unscheduled":
+            return "undated"
         if self.start is None:
             return "undated"
         if now < self.start:
@@ -1569,11 +1601,19 @@ class Event:
         return "running"
 
 
+STATE_ORDER = {"running": 0, "upcoming": 1, "overdue": 2, "undated": 3, "ended": 4,
+               "cancelled": 5}
+
+
+def _sort_events(events: list[Event], now: datetime) -> list[Event]:
+    events.sort(key=lambda e: (STATE_ORDER.get(e.state(now), 6), e.start or now, e.title.lower()))
+    return events
+
+
 def parse_events(raw: Any, now: datetime | None = None) -> list[Event]:
     """Tolerant `events.json` reader: a list, or `{"events": [...]}`.
 
     Each entry is `{title, when, detail, start, end}`; only `title` is required.
-    Sorted running first, then upcoming, then the ones that already ended.
     """
     if isinstance(raw, dict):
         raw = raw.get("events", [])
@@ -1591,17 +1631,50 @@ def parse_events(raw: Any, now: datetime | None = None) -> list[Event]:
         end = parse_time(item.get("end"))
         if start and end and end < start:
             end = None
-        key = f"{title}|{start.isoformat() if start else 'undated'}"
+        key = f"file|{title}|{start.isoformat() if start else 'undated'}"
         out.append(Event(title=title, start=start, end=end,
                          when=str(item.get("when") or "").strip(),
-                         detail=str(item.get("detail") or "").strip(), key=key))
-    order = {"running": 0, "upcoming": 1, "undated": 2, "ended": 3}
-    out.sort(key=lambda e: (order.get(e.state(now), 4), e.start or now, e.title.lower()))
-    return out
+                         detail=str(item.get("detail") or "").strip(), key=key, source="file"))
+    return _sort_events(out, now)
 
 
-def load_events(path: str = EVENTS_PATH) -> list[Event]:
-    """Read the events file; missing/broken file means "nothing scheduled"."""
+def parse_panel_events(payload: Any, now: datetime | None = None) -> list[Event]:
+    """`/api/public/events` -> Events. Epoch 0 means "no window" (unscheduled)."""
+    if not isinstance(payload, dict):
+        return []
+    now = now or datetime.now(timezone.utc)
+    out: list[Event] = []
+    for item in payload.get("events") or []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        start = parse_time(item.get("starts_at") or None)
+        end = parse_time(item.get("ends_at") or None)
+        state = str(item.get("state") or "").strip().lower()
+        if state not in PANEL_STATES:
+            state = ""
+        key = f"panel|{title}|{int(start.timestamp()) if start else 'undated'}"
+        out.append(Event(title=title, start=start, end=end,
+                         when=start.strftime("%a %d %b %H:%M UTC") if start else "",
+                         detail=str(item.get("detail") or "").strip(), key=key,
+                         state_hint=state, source="panel"))
+    return _sort_events(out, now)
+
+
+def merge_events(panel: list[Event], pinned: list[Event], now: datetime | None = None) -> list[Event]:
+    """Panel schedule + `events.json`, where the file overrides a title it pins."""
+    now = now or datetime.now(timezone.utc)
+    pinned_titles = {event.title.casefold() for event in pinned}
+    merged = [event for event in panel if event.title.casefold() not in pinned_titles]
+    merged.extend(pinned)
+    return _sort_events(merged, now)
+
+
+def load_events(path: str | None = None) -> list[Event]:
+    """Read the events file; missing/broken file means "nothing pinned here"."""
+    path = path or EVENTS_PATH
     try:
         with open(path, encoding="utf-8") as fh:
             raw = json.load(fh)
@@ -1648,6 +1721,11 @@ def event_countdown(event: Event, now: datetime) -> str:
     if state == "upcoming":
         return t("events.countdown.upcoming",
                  delta=fmt_delta((event.start - now).total_seconds()))
+    if state == "overdue" and event.start is not None:
+        return t("events.countdown.overdue",
+                 delta=fmt_delta((now - event.start).total_seconds()))
+    if state == "cancelled":
+        return t("events.countdown.cancelled")
     if state == "ended" and event.end is not None:
         return t("events.countdown.ended", delta=fmt_delta((now - event.end).total_seconds()))
     if state == "ended":
@@ -1656,7 +1734,7 @@ def event_countdown(event: Event, now: datetime) -> str:
 
 
 def select_events(events: list[Event], now: datetime, limit: int = 8) -> list[Event]:
-    """What `/events` shows: running, then upcoming, then recently ended."""
+    """What `/events` shows: running, upcoming, overdue, then recently finished."""
     try:
         limit = max(1, int(limit))
     except (TypeError, ValueError):
@@ -1664,10 +1742,10 @@ def select_events(events: list[Event], now: datetime, limit: int = 8) -> list[Ev
 
     def visible(event: Event) -> bool:
         state = event.state(now)
-        if state != "ended":
+        if state not in ("ended", "cancelled", "overdue"):
             return True
-        ended_at = event.end or event.start
-        return bool(ended_at and (now - ended_at).total_seconds() <= EVENT_KEEP_ENDED)
+        stamp = event.end or event.start
+        return bool(stamp and abs((now - stamp).total_seconds()) <= EVENT_KEEP_ENDED)
 
     return [e for e in events if visible(e)][:limit]
 
@@ -1682,8 +1760,7 @@ def events_embed(events: list[Event], now: datetime, limit: int = 8) -> discord.
     blocks = []
     for event in chosen:
         state = event.state(now)
-        marker = t(f"events.marker.{state}" if state in ("running", "upcoming", "ended")
-                   else "events.marker.undated")
+        marker = t(f"events.marker.{state}" if state in STATE_ORDER else "events.marker.undated")
         lines = [t("events.line", marker=marker, title=event.title,
                    countdown=event_countdown(event, now))]
         if event.detail:
@@ -1694,10 +1771,14 @@ def events_embed(events: list[Event], now: datetime, limit: int = 8) -> discord.
     embed.description = "\n\n".join(blocks)
     running = [e.title for e in chosen if e.state(now) == "running"]
     upcoming = [e for e in chosen if e.state(now) == "upcoming"]
+    overdue = [e for e in chosen if e.state(now) == "overdue"]
     footer = t("events.footer_running", titles=", ".join(running)) if running else ""
     if upcoming:
         nxt = t("events.footer_next", title=upcoming[0].title)
         footer = (footer + " · " if footer else "") + nxt
+    if overdue:
+        late = t("events.footer_overdue", titles=", ".join(e.title for e in overdue))
+        footer = (footer + " · " if footer else "") + late
     if footer:
         embed.set_footer(text=footer)
     return embed
@@ -1713,6 +1794,7 @@ class StateStore:
     def __init__(self, path: str = STATE_PATH) -> None:
         self.path = path
         self.data: dict[str, Any] = self._load()
+        self.dirty = False
 
     def _load(self) -> dict[str, Any]:
         try:
@@ -1735,6 +1817,7 @@ class StateStore:
             with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump(self.data, fh, indent=2, sort_keys=True)
             os.replace(tmp, self.path)
+            self.dirty = False
         except OSError as exc:
             log.warning("could not write state file %s: %s", self.path, exc)
 
@@ -1746,18 +1829,37 @@ class StateStore:
         return value
 
     # ------------------------------------------------------------------ events
-    def transitions(self, events: list[Event], now: datetime) -> list[tuple[Event, str]]:
-        """Transitions that still need announcing (nothing is marked here)."""
+    def transitions(self, events: list[Event], now: datetime,
+                    grace: float = ANNOUNCE_GRACE) -> list[tuple[Event, str]]:
+        """Transitions that still need announcing.
+
+        A transition older than ``grace`` is marked as announced without being
+        posted (a bot restarted in the middle of an event must not shout "starts
+        now" for something that started at noon). Nothing else is marked here -
+        the caller marks what it actually posts.
+        """
         book = self.section("events")
         out: list[tuple[Event, str]] = []
         for event in events:
             entry = book.setdefault(event.key, {})
             posted = entry.setdefault("posted", [])
             state = event.state(now)
-            if state == "running" and "started" not in posted:
-                out.append((event, "started"))
-            if state == "ended" and "ended" not in posted:
-                out.append((event, "ended"))
+            for kind, stamp in (("started", event.start), ("ended", event.end)):
+                if kind == "started" and state != "running":
+                    continue
+                if kind == "ended" and state != "ended":
+                    continue
+                if kind in posted:
+                    continue
+                if grace and stamp is not None:
+                    age = (now - stamp).total_seconds()
+                    if age > grace:
+                        posted.append(kind)
+                        self.dirty = True
+                        log.info("event %r: skipping stale %s notice (%.0fs old)",
+                                 event.title, kind, age)
+                        continue
+                out.append((event, kind))
             entry["start"] = event.start.isoformat() if event.start else None
             entry["end"] = event.end.isoformat() if event.end else None
         self._prune(now)
@@ -2039,27 +2141,46 @@ def build_bot(cfg: dict) -> commands.Bot:
     # ---------------------------------------------------------------- presence
     presence_state: dict[str, Any] = {"last": None, "cycle": 0}
     sample_state: dict[str, Any] = {}
-    event_cache: dict[str, Any] = {"mtime": object(), "list": []}
+    event_cache: dict[str, Any] = {"mtime": object(), "pinned": [], "list": [],
+                                   "source": "", "updated": None}
     store = StateStore()
     alerts_cfg = cfg.get("alerts") or {}
     digest_cfg = cfg.get("digest") or {}
     samples_path = str(cfg.get("samples_path") or SAMPLE_PATH)
     down_after = max(1, int(alerts_cfg.get("down_after") or 2))
 
-    def refresh_events() -> list[Event]:
-        """Re-read events.json only when it changed on disk."""
+    def pinned_events() -> list[Event]:
+        """`events.json`, re-read only when it changed on disk."""
         try:
             mtime: Any = os.stat(EVENTS_PATH).st_mtime
         except OSError:
             mtime = None
         if mtime != event_cache["mtime"]:
-            event_cache["list"] = load_events()
+            event_cache["pinned"] = load_events()
             event_cache["mtime"] = mtime
-            log.info("events file reloaded: %d event(s)", len(event_cache["list"]))
-        return event_cache["list"]
+            log.info("events.json reloaded: %d pinned event(s)", len(event_cache["pinned"]))
+        return event_cache["pinned"]
+
+    async def refresh_events() -> list[Event]:
+        """Panel schedule (5-minute cache) merged with the pinned events.json."""
+        now = datetime.now(timezone.utc)
+        api = await get_api(base, "/events", ttl=EVENTS_TTL)
+        panel = parse_panel_events(api.data) if api.ok else []
+        pinned = pinned_events()
+        merged = merge_events(panel, pinned, now)
+        source = "panel" if api.ok else "file"
+        if api.ok and pinned:
+            source = "panel+file"
+        if (source, len(merged)) != (event_cache["source"], len(merged)) or not event_cache["list"]:
+            log.info("events: %d panel + %d pinned = %d event(s) [%s]", len(panel), len(pinned),
+                     len(merged), source)
+        event_cache.update(list=merged, source=source,
+                           updated=_opt_int((api.data or {}).get("updated")) if api.ok else None)
+        return merged
 
     def running_event(now: datetime) -> str | None:
-        for event in refresh_events():
+        """From the last loaded list - the presence loop must not do HTTP."""
+        for event in event_cache["list"]:
             if event.state(now) == "running":
                 return event.title
         return None
@@ -2166,7 +2287,10 @@ def build_bot(cfg: dict) -> commands.Bot:
     async def events_loop() -> None:
         now = datetime.now(timezone.utc)
         try:
-            pending = store.transitions(refresh_events(), now)
+            events = await refresh_events()
+            pending = store.transitions(events, now)
+            if store.dirty:
+                store.save()
         except Exception:                      # noqa: BLE001
             log.exception("event check failed")
             return
@@ -2354,8 +2478,17 @@ def build_bot(cfg: dict) -> commands.Bot:
     async def events_cmd(interaction: discord.Interaction,
                          count: app_commands.Range[int, 1, 10] = 5) -> None:
         now = datetime.now(timezone.utc)
-        embed = events_embed(refresh_events(), now, limit=count)
-        embed.set_footer(text=t("events.command_footer"))
+        events = await refresh_events()
+        embed = events_embed(events, now, limit=count)
+        source = event_cache.get("source") or "file"
+        updated = event_cache.get("updated")
+        if source.startswith("panel") and updated:
+            footer = t("events.footer_panel", updated=f"<t:{int(updated)}:t>")
+        else:
+            footer = t("events.footer_file")
+        if source == "panel+file":
+            footer += " · " + t("events.footer_pinned")
+        embed.set_footer(text=footer)
         await _reply(interaction, embed=embed)
 
     @bot.tree.command(name="help", description=t("cmd.help.desc"))

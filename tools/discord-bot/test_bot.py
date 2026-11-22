@@ -855,14 +855,119 @@ def test_events_embed_empty():
     assert bot.select_events([], NOW, limit="junk") == []
 
 
+# ---------------------------------------------------------------- events + API
+def test_parse_panel_events_states():
+    events = bot.parse_panel_events(API_EVENTS, NOW)
+    by_title = {event.title: event for event in events}
+    assert by_title["Double XP Weekend"].state(NOW) == "running"
+    assert by_title["Happy Hour"].state(NOW) == "upcoming"
+    assert by_title["Overdue cup"].state(NOW) == "overdue", "the scheduler never started it"
+    assert by_title["Kill Race"].state(NOW) == "undated"
+    assert by_title["Kill Race"].start is None, "epoch 0 means no window"
+    assert all(event.source == "panel" for event in events)
+    assert events[0].title == "Double XP Weekend", "running first"
+    assert bot.parse_panel_events(None, NOW) == []
+    assert bot.parse_panel_events({"events": [{"title": "X", "state": "weird"}]}, NOW)[0].state_hint == ""
+    assert bot.parse_panel_events({"events": ["junk", {"detail": "no title"}]}, NOW) == []
+
+
+def test_merge_events_file_overrides_a_pinned_title():
+    panel = bot.parse_panel_events(API_EVENTS, NOW)
+    pinned = bot.parse_events([{"title": "double xp weekend", "detail": "ops pinned this",
+                                "start": "2026-11-22T19:00:00Z",
+                                "end": "2026-11-22T22:00:00Z"}], NOW)
+    merged = bot.merge_events(panel, pinned, NOW)
+    titles = [event.title for event in merged]
+    assert titles.count("double xp weekend") == 1, "the file wins, no duplicate"
+    winner = next(event for event in merged if event.title.lower() == "double xp weekend")
+    assert winner.detail == "ops pinned this" and winner.source == "file"
+    assert "Happy Hour" in titles, "panel rows without a pinned twin survive"
+
+
+def test_events_embed_marks_overdue_and_cancelled():
+    events = bot.parse_panel_events(API_EVENTS, NOW)
+    events.append(bot.Event(title="Scrapped", start=NOW - timedelta(minutes=10),
+                            end=NOW + timedelta(minutes=50), state_hint="cancelled",
+                            source="panel"))
+    embed = bot.events_embed(events, NOW, 10)
+    assert "🟠 **Overdue cup**" in embed.description
+    assert "the scheduler has not started it" in embed.description
+    assert "⛔ **Scrapped**" in embed.description and "cancelled" in embed.description
+    assert "not started: Overdue cup" in embed.footer.text
+
+
+def test_events_command_reads_the_panel_schedule():
+    interaction = call_command("events", 10, api={"/events": (200, API_EVENTS)})
+    embed = interaction.answer["embeds"][0]
+    assert "🟢 **Double XP Weekend**" in embed.description
+    assert "🕒 **Happy Hour**" in embed.description
+    assert "partial" not in embed.footer.text
+    assert embed.footer.text.startswith("Panel schedule · updated <t:")
+
+
+def test_events_command_falls_back_to_the_file():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "events.json")
+        with open(path, "w") as fh:
+            json.dump([{"title": "Pinned cup", "detail": "ops pinned",
+                        "start": "2026-11-22T22:00:00Z", "end": "2026-11-22T23:00:00Z"}], fh)
+        original = bot.EVENTS_PATH
+        bot.EVENTS_PATH = path
+        try:
+            interaction = call_command("events", 10)          # API stubbed as unreachable
+        finally:
+            bot.EVENTS_PATH = original
+    embed = interaction.answer["embeds"][0]
+    assert "Pinned cup" in embed.description
+    assert embed.footer.text == "events.json only · the panel schedule didn't answer"
+
+
+def test_events_command_caches_the_api_for_five_minutes():
+    """The events endpoint is polled every 30 s but fetched at most every 5 min."""
+    calls: list[str] = []
+
+    def fake(base, path, params=None, timeout=bot.HTTP_TIMEOUT):
+        calls.append(path)
+        return bot.ApiResult(200, API_EVENTS)
+
+    original = bot.api_get
+    bot.api_get = fake
+    bot.API_CACHE.clear()
+    try:
+        first = asyncio.run(bot.get_api("https://x", "/events", ttl=bot.EVENTS_TTL))
+        second = asyncio.run(bot.get_api("https://x", "/events", ttl=bot.EVENTS_TTL))
+    finally:
+        bot.api_get = original
+        bot.API_CACHE.clear()
+    assert bot.EVENTS_TTL == 300.0
+    assert first.ok and second.ok and calls == ["/events"], "two reads, one request"
+
+
+def test_notices_ignore_overdue_and_cancelled_rows():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = bot.StateStore(os.path.join(tmp, "state.json"))
+        events = bot.parse_panel_events(API_EVENTS, NOW)
+        events.append(bot.Event(title="Scrapped", start=NOW - timedelta(minutes=5),
+                                state_hint="cancelled", source="panel"))
+        assert store.transitions(events, NOW) == [], "nothing running, nothing to announce"
+        fresh_running = [bot.Event(title="Live now", start=NOW - timedelta(minutes=2),
+                                   state_hint="active", source="panel")]
+        assert [kind for _, kind in store.transitions(fresh_running, NOW)] == ["started"]
+
+
 def test_state_store_announces_once():
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "state.json")
         store = bot.StateStore(path)
-        events = bot.parse_events([{"title": "Cup", "start": "2026-11-22T19:00:00Z",
-                                    "end": "2026-11-22T21:00:00Z"}], NOW)
+        events = bot.parse_events([{"title": "Cup",
+                                    "start": "2026-11-22T19:55:00Z",
+                                    "end": "2026-11-22T20:10:00Z"}], NOW)
         first = store.transitions(events, NOW)
         assert [(event.title, kind) for event, kind in first] == [("Cup", "started")]
         # unmarked transitions are offered again: a failed post is retried next cycle
@@ -874,11 +979,34 @@ def test_state_store_announces_once():
         again = bot.StateStore(path)
         assert again.transitions(events, NOW) == []
         # and the end is announced exactly once when the event is over
-        later = NOW + timedelta(hours=2)
+        later = NOW + timedelta(minutes=15)
         assert [(event.title, kind) for event, kind in again.transitions(events, later)] == [
             ("Cup", "ended")]
         again.mark_announced(events[0], "ended")
         assert bot.StateStore(path).transitions(events, later) == []
+
+
+def test_state_store_skips_stale_transitions():
+    """A restart mid-event must not shout 'starts now' for something from noon."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = bot.StateStore(os.path.join(tmp, "state.json"))
+        old = bot.parse_events([{"title": "Noon cup",
+                                 "start": "2026-11-22T16:00:00Z",
+                                 "end": "2026-11-22T22:00:00Z"}], NOW)
+        assert store.transitions(old, NOW) == [], "6 h old is past the grace window"
+        assert store.dirty, "the skip still has to be remembered"
+        assert store.section("events")[old[0].key]["posted"] == ["started"]
+        assert store.transitions(old, NOW) == []
+        fresh = bot.parse_events([{"title": "Just started",
+                                   "start": "2026-11-22T19:59:00Z",
+                                   "end": "2026-11-22T22:00:00Z"}], NOW)
+        assert [kind for _, kind in store.transitions(fresh, NOW)] == ["started"]
+        stale_end = bot.parse_events([{"title": "Finished ages ago",
+                                       "start": "2026-11-22T15:00:00Z",
+                                       "end": "2026-11-22T16:00:00Z"}], NOW)
+        assert store.transitions(stale_end, NOW) == []
 
 
 # ------------------------------------------------------------------ monitoring

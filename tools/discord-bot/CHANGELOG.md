@@ -354,3 +354,29 @@ One line per change, with the verification that was actually run. Newest last.
   #1 · not on the server right now · Playtime 7h 27m · Coins 999,862,237 ·
   Badges none yet` + `Tier 1 / 60 · 0 BP XP`; a third call inside 20 s was
   answered with the cooldown. Tests 78 → 83.
+
+- **`/events` reads the panel schedule** (`bot.py`): `refresh_events()` is async
+  and merges `/api/public/events` (5-minute cache) with `events.json`, where a
+  file entry whose title matches a panel row **overrides** it (ops can pin).
+  `parse_panel_events()` maps the panel's own lifecycle state onto the bot's:
+  `active`→running, `scheduled`→upcoming, `overdue`→**overdue**, `unscheduled`→
+  undated, `ended`/`cancelled`→ended/cancelled, so a row the scheduler never
+  activated is shown as `🟠 was due 2 h ago · the scheduler has not started it`
+  and is never announced as running. The embed carries the panel's own markers
+  and a footer naming the source (`Panel schedule · updated <t:…>` /
+  `· plus events.json` / `events.json only · the panel schedule didn't answer`).
+  Start/end notices are unchanged in wording and destination, but transitions
+  now have a 30-minute **grace window**: a bot restarting mid-event marks the
+  old transition as announced instead of shouting "starts now" for something
+  from noon (`StateStore.transitions(..., grace=ANNOUNCE_GRACE)`, `store.dirty`
+  persists the skip). The presence hint now comes from that merged list too.
+  *Verified against production:* `GET /api/public/events` observed `200` with
+  `{events:[], now:0, next:null, updated:1795377478, source:"panel"}` - the live
+  `/events` rendered "Nothing scheduled" with `Panel schedule · updated <t:…>`;
+  with a real pinned `events.json` (two entries) the same live call rendered
+  `🕒 Pinned ops cup - in 59 m` + `🗓 Community night` and the footer
+  `Panel schedule · updated <t:…> · plus events.json`, then the pin was removed;
+  restart logs `events: 0 panel + 0 pinned = 0 event(s) [panel]`. Offline: panel
+  state mapping (all six states), file-overrides-title merge, overdue/cancelled
+  markers, file fallback footer, 5-minute cache (two reads → one request), and
+  stale-transition skipping. Tests 83 → 91.

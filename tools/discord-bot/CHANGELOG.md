@@ -271,3 +271,8 @@ One line per change, with the verification that was actually run. Newest last.
   failure → retry, three failures → give up, late success resets) and
   `test_profile_state_is_translated` (a French table turns `offline` into
   `hors ligne` in the headline) → **62/62 tests pass**; restart clean.
+
+- **Lint clean** (`test_bot.py`): dropped a leftover `import logging`; `ruff
+  check tools/discord-bot --select F,E9,B` now passes with no findings (it also
+  reported nothing in `bot.py`). *Verified:* `All checks passed!` and
+  `62/62 tests passed in 2.11s`.

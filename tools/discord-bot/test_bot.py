@@ -825,8 +825,6 @@ def test_command_guard_empty_server():
 
 def test_command_guard_catches_exceptions():
     """A raising helper turns into an apology, not a dead handler."""
-    import logging
-
     instance = bot.build_bot(sample_cfg())
 
     async def boom(server, fresh=False):

@@ -149,3 +149,26 @@ One line per change, with the verification that was actually run. Newest last.
   `synced 7 command(s) to guild …; global set emptied`, `commands: events, help,
   map, players, profile, status, top`, `presence: de Train · 9/32 · defuse
   (live)`; REST shows the same seven names with their new descriptions.
+
+- **Offline tests** (`test_bot.py`): 51 tests, no network, no token, no game
+  server - every helper takes its input as an argument or is fed a saved HTML
+  snippet, and `bot._http_get` / the probes are stubbed where a command needs
+  them. Covers what the brief asked for and more: empty server
+  (`parse_a2s_players` on a 0-count reply, `/players` render), malformed A2S
+  replies (junk, wrong header, unknown kind, truncated, "says 2 players, has
+  none"), missing mapcycle file and unknown map (`next_map`), an event that
+  already ended (state, countdown, dropped from `/events`), plus the A2S TTL
+  cache (burst → one probe, negatives cached, expiry), presence states and
+  rotation, the `/top15` and profile parsers on fixtures, lookup paths
+  (exact/ambiguous/not-found/no-snapshot/unreachable/STEAM-id-skips-search),
+  embed colours, event parsing/countdowns, `StateStore` "announce once across a
+  restart", `alert_transition`, `updown_enabled`, `watcher_on_duty`, sample
+  log round-trip + pruning, `digest_stats`/`digest_embed`, and the real command
+  callbacks driven through a fake interaction (defer flags, ephemeral
+  `/profile`, empty-server render, exception → apology, the registered command
+  table and its option order).
+  *Verified:* `~/.local/share/freenova-bot/venv/bin/python tools/discord-bot/test_bot.py`
+  → `51/51 tests passed in 2.10s`; and in a throwaway venv with pytest
+  (`/tmp/pt-venv/bin/python -m pytest tools/discord-bot/test_bot.py -q`) →
+  `51 passed`. The bot venv itself has no pytest, which is why the plain runner
+  exists.

@@ -17,7 +17,8 @@ from memory. Probe secrets are throwaway literals (`probe-secret`,
 - [7. PAWN compilation](#7-pawn-compilation)
 - [8. Python / asset tooling](#8-python--asset-tooling)
 - [9. Defects fixed, with before/after](#9-defects-fixed-with-beforeafter)
-- [10. Could not verify](#10-could-not-verify)
+- [10. CI workflows](#10-ci-workflows)
+- [11. Could not verify](#11-could-not-verify)
 
 ## 1. Environment
 
@@ -388,7 +389,7 @@ REVIEW §7.
 | `6f4baeb` /u/ | `/u/STEAM_0:0:1` → 404 | 200, mints `STEAM_0:0:1` |
 | `4521483` build | no way to compile anything | 85/88 PASS, 3 known-unbuildable, `ALLOW_FAIL` for CI |
 
-## 11. CI workflows: linted and executed locally, but GitHub cannot start them
+## 10. CI workflows: linted and executed locally, but GitHub cannot start them
 
 Every workflow in `.github/workflows/` was validated and then run step by step
 on this host:
@@ -424,7 +425,7 @@ blocker (Actions availability / billing / spending limit), not a defect in these
 files. `README.md` lists it as a known issue. The first push's run id was
 45030199190 (`path = BuildFailed`, 0 jobs).
 
-## 10. Could not verify
+## 11. Could not verify
 
 1. **AMXX `hash_string` output case — inferred, not read.** If it emitted
    uppercase hex, every signed push would 401 (the inner body digest is part of

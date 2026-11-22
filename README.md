@@ -103,7 +103,7 @@ game re-validates before it spends a coin. `docs/ARCHITECTURE.md` has the detail
    workflows here, a manual `workflow_dispatch`, and Dependabot's own updates —
    ends in `startup_failure` within a second. The workflow files parse and
    lint clean (`actionlint 1.7.7`, 0 findings) and every step was executed
-   locally with the results in `DEBUG.md` §11, so this is an account/repository
+   locally with the results in `DEBUG.md` §10, so this is an account/repository
    setting (Actions availability, billing or a spending limit), not the YAML.
    Turn Actions on in Settings → Actions before relying on these badges.
 

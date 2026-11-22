@@ -34,3 +34,20 @@ One line per change, with the verification that was actually run. Newest last.
   carries no round state and A2S_RULES (cvars such as `mp_freezetime`) only
   arrives as a ~40-datagram split reply that is lossy in practice (probed: two
   of many chunks arrived). The code documents this rather than guessing.
+
+- **`/top` without scraping guesswork, plus week/month** (`bot.py`): rows now
+  come from the public HTML board by stable class selectors (`table.champ`,
+  `td.r2`/`td.r3`, `tr.row`, `td.idx`, `a.pname`, `span.xp`, `img.crest`) and
+  are modelled as `LeaderRow`/`Leaderboard`. `fetch_leaderboard()` is the only
+  seam that knows the source, and `_fetch_rows()` is the single function a JSON
+  endpoint would replace (no JSON exists today: `/api/*`, `?format=json`,
+  `?period=week` all return HTML or 404). `/top` gained `period`
+  (All time / This week / This month) and `count` (1-15, default 10). Week and
+  month answer honestly that the board does not publish those rankings yet
+  (`PERIOD_DATA_AVAILABLE`), instead of inventing numbers.
+  *Verified:* `py_compile`; parser run against the live `/top15` page - 15 rows
+  with rank, name, steamid, XP, rank tier, level and last-seen all correct
+  (rank 1 `ajxs 24,889 XP · Supreme Master First Class · L18`); week/month
+  return `note_kind=period`; an unreachable base returns `note_kind=unavailable`;
+  empty/garbage HTML returns `[]`; restart → 5 commands synced and REST shows
+  `/top ... [period, count]`, which also proves options survive `command_guard`.

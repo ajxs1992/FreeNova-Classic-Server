@@ -41,6 +41,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -410,6 +411,20 @@ async def get_players(server: dict, fresh: bool = False) -> list[dict] | None:
 
 
 # ------------------------------------------------------------------ leaderboard
+# One seam for the leaderboard source: `fetch_leaderboard()` is the only place
+# that knows how the numbers are obtained. Today it parses the public HTML
+# board at <base>/top15 (there is no JSON API: /api/* and ?format=json all
+# answer 404/HTML). When the panel grows an endpoint, replace the body of
+# `_fetch_rows()` with a JSON call and every command keeps working.
+PERIODS = ("all", "week", "month")
+PERIOD_LABEL = {"all": "all time", "week": "this week", "month": "this month"}
+PERIOD_ADJ = {"all": "all-time", "week": "weekly", "month": "monthly"}
+
+# No period/weekly board is published yet, so asking for one says so instead of
+# inventing numbers. Flip this to True the moment the source can serve it.
+PERIOD_DATA_AVAILABLE = {"all": True, "week": False, "month": False}
+
+
 def _http_get(url: str, timeout: float = HTTP_TIMEOUT) -> str | None:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "FreeNovaBot/1.0"})
@@ -424,25 +439,150 @@ def _strip_tags(fragment: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
 
 
-def fetch_top(base: str, limit: int = 5) -> list[tuple[int, str, str]]:
-    """(rank, name, value) from the public leaderboard; best effort."""
-    body = _http_get(f"{base}/top15")
+def _text_of(block: str, pattern: str, group: int = 1) -> str:
+    match = re.search(pattern, block, re.S)
+    return _strip_tags(match.group(group)) if match else ""
+
+
+def _int_of(block: str, pattern: str, group: int = 1) -> int | None:
+    match = re.search(pattern, block, re.S)
+    if not match:
+        return None
+    try:
+        return int(match.group(group).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _steamid_of(block: str) -> str | None:
+    match = re.search(r"/profile\?steamid=([A-Za-z0-9_%:]+)", block)
+    return urllib.parse.unquote(match.group(1)) if match else None
+
+
+@dataclass(frozen=True)
+class LeaderRow:
+    rank: int
+    name: str
+    steamid: str | None = None
+    xp: int | None = None
+    rank_name: str | None = None
+    level: int | None = None
+    extra: str = ""
+
+    def line(self) -> str:
+        tail = " · ".join(part for part in (
+            f"{self.xp:,} XP" if self.xp is not None else "",
+            self.rank_name or "",
+            f"L{self.level}" if self.level else "",
+            self.extra or "",
+        ) if part)
+        return f"**{self.rank}.** {self.name}" + (f" - {tail}" if tail else "")
+
+
+@dataclass(frozen=True)
+class Leaderboard:
+    period: str
+    rows: tuple[LeaderRow, ...] = ()
+    url: str = ""
+    note: str = ""
+    note_kind: str = ""            # "" | "unavailable" | "period" | "empty"
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.rows)
+
+
+def parse_top_html(body: str) -> list[LeaderRow]:
+    """Parse <base>/top15 into rows ordered by rank.
+
+    Selectors used (stable class names, no positional assumptions):
+    `table.champ` + `td.cxp` for the champion, `td.r2`/`td.r3` for ranks 2-3,
+    `tr.row` + `td.idx` + `a.pname` + `span.xp` + `img.crest` for ranks 4+.
+    """
+    rows: list[LeaderRow] = []
     if not body:
-        return []
-    rows: list[tuple[int, str, str]] = []
-    # the page renders a table of players; keep it tolerant of markup tweaks
-    for m in re.finditer(r"<tr[^>]*>(.*?)</tr>", body, re.S):
-        cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.S)
-        if len(cells) < 2:
+        return rows
+
+    champion = re.search(r"<table class='champ'.*?</table>", body, re.S)
+    if champion:
+        block = champion.group(0)
+        name = _text_of(block, r"<a href='/profile\?steamid=[^']*'[^>]*>(.*?)</a>")
+        if name:
+            rows.append(LeaderRow(
+                rank=_int_of(block, r"class='cplace'>\s*(\d+)") or 1,
+                name=name,
+                steamid=_steamid_of(block),
+                xp=_int_of(block, r"class='cxp'>\s*<b>([\d,]+)</b>"),
+                rank_name=_text_of(block, r"<img src='/ranks/rank_\d+\.png'[^>]*alt='([^']*)'"),
+                level=_int_of(block, r"Level\s*(\d+)"),
+            ))
+
+    for match in re.finditer(r"<td class='r([23])'>(.*?)</td>", body, re.S):
+        block = match.group(2)
+        name = _text_of(block, r"<a href='/profile\?steamid=[^']*'[^>]*>(.*?)</a>")
+        if not name:
             continue
-        text = [_strip_tags(c) for c in cells]
-        text = [cell for cell in text if cell]
-        if not text or not re.search(r"\d", " ".join(text)):
+        rows.append(LeaderRow(
+            rank=_int_of(block, r"class='rplace'>\s*(\d+)") or int(match.group(1)),
+            name=name,
+            steamid=_steamid_of(block),
+            xp=_int_of(block, r"class='rxp'>\s*([\d,]+)"),
+            rank_name=_text_of(block, r"<img class='rcrest'[^>]*title='([^']*)'"),
+            extra=_text_of(block, r"class='rmeta'>([^<]*)"),
+        ))
+
+    for match in re.finditer(r"<tr class='row'[^>]*>(.*?)</tr>", body, re.S):
+        block = match.group(1)
+        name = _text_of(block, r"class='pname'[^>]*>(.*?)</a>")
+        if not name:
             continue
-        rows.append((len(rows) + 1, text[0] if text else "?", " ".join(text[1:3])))
-        if len(rows) >= limit:
-            break
+        crest = re.search(r"<img class='crest'[^>]*title='([^']*)'", block)
+        seen = re.search(r"seen ([0-9a-z]+)", block)
+        rows.append(LeaderRow(
+            rank=_int_of(block, r"class='idx'>\s*(\d+)") or (len(rows) + 1),
+            name=name,
+            steamid=_steamid_of(block),
+            xp=_int_of(block, r"class='metric'>\s*<span class='xp'>([\d,]+)</span>"),
+            rank_name=_strip_tags(crest.group(1)) if crest else None,
+            level=_int_of(block, r">\s*L(\d+)\b"),
+            extra=f"seen {seen.group(1)}" if seen else "",
+        ))
+
+    rows.sort(key=lambda row: row.rank)
     return rows
+
+
+def _fetch_rows(base: str, period: str) -> list[LeaderRow] | None:
+    """Raw rows for one period - the single function a JSON endpoint replaces."""
+    body = _http_get(f"{base}/top15")
+    if body is None:
+        return None
+    return parse_top_html(body)
+
+
+def fetch_leaderboard(base: str, period: str = "all", limit: int = 10) -> Leaderboard:
+    """The leaderboard for one period, ready to render. Never raises."""
+    period = period if period in PERIODS else "all"
+    url = f"{base}/top15"
+    if not PERIOD_DATA_AVAILABLE.get(period, False):
+        return Leaderboard(
+            period=period,
+            url=url,
+            note=("The board doesn't publish a " + PERIOD_ADJ[period]
+                  + " ranking yet - it only carries the season table, so I won't invent numbers. "
+                    "Weekly and monthly resets are agreed; as soon as the board serves them this "
+                    "command returns them."),
+            note_kind="period",
+        )
+    rows = _fetch_rows(base, period)
+    if rows is None:
+        return Leaderboard(period=period, url=url,
+                           note=f"I couldn't reach {url} just now.", note_kind="unavailable")
+    if not rows:
+        return Leaderboard(period=period, url=url,
+                           note="The board is reachable but has no ranked players yet.",
+                           note_kind="empty")
+    return Leaderboard(period=period, rows=tuple(rows[:max(1, limit)]), url=url)
 
 
 # --------------------------------------------------------------------------- bot
@@ -467,9 +607,9 @@ async def _reply(interaction: discord.Interaction, *, content: str | None = None
 def command_guard(ephemeral: bool = False):
     """Defer early (3 s budget), log, and answer with an apology on failure."""
 
-    def decorator(func: Callable[[discord.Interaction], Any]):
+    def decorator(func: Callable[..., Any]):
         @functools.wraps(func)
-        async def wrapper(interaction: discord.Interaction) -> None:
+        async def wrapper(interaction: discord.Interaction, *args: Any, **kwargs: Any) -> None:
             started = time.monotonic()
             try:
                 if not interaction.response.is_done():
@@ -477,7 +617,7 @@ def command_guard(ephemeral: bool = False):
             except discord.HTTPException:
                 log.warning("defer failed for %s", instrument(interaction), exc_info=True)
             try:
-                await func(interaction)
+                await func(interaction, *args, **kwargs)
             except Exception:                  # noqa: BLE001 - one bad command must not kill the bot
                 log.exception("command %s failed", instrument(interaction))
                 await _reply(interaction, content=ERROR_TEXT, ephemeral=ephemeral)
@@ -611,15 +751,34 @@ def build_bot(cfg: dict) -> commands.Bot:
                             inline=True)
         await _reply(interaction, embed=embed)
 
-    @bot.tree.command(name="top", description="Top players on the leaderboard")
+    @bot.tree.command(name="top", description="The leaderboard - all time, or by week/month")
     @command_guard()
-    async def top_cmd(interaction: discord.Interaction) -> None:
-        rows = await _in_thread(fetch_top, base, 5, budget=HTTP_TIMEOUT + 1)
-        if not rows:
-            await _reply(interaction, content=f"No leaderboard data yet - see {base}/top15")
-            return
-        embed = discord.Embed(title="Top players", colour=COLOUR_BP, url=f"{base}/top15",
-                              description="\n".join(f"`{i}.` **{n}** - {v}" for i, n, v in rows))
+    @app_commands.describe(period="Which board to show", count="How many players (default 10, max 15)")
+    @app_commands.choices(period=[
+        app_commands.Choice(name="All time", value="all"),
+        app_commands.Choice(name="This week", value="week"),
+        app_commands.Choice(name="This month", value="month"),
+    ])
+    async def top_cmd(interaction: discord.Interaction,
+                      period: app_commands.Choice[str] | None = None,
+                      count: app_commands.Range[int, 1, 15] = 10) -> None:
+        chosen = period.value if period else "all"
+        board = await _in_thread(fetch_leaderboard, base, chosen, count, budget=HTTP_TIMEOUT + 1)
+        if board is None:                      # budget blown: answer anyway
+            board = Leaderboard(chosen, url=f"{base}/top15",
+                                note=f"The leaderboard at {base}/top15 didn't answer in time.",
+                                note_kind="unavailable")
+        title = f"Top {len(board.rows)} · {PERIOD_LABEL[chosen]}" if board.ok else \
+            f"Leaderboard · {PERIOD_LABEL[chosen]}"
+        embed = discord.Embed(title=title, url=board.url,
+                              colour=COLOUR_BP if board.ok else COLOUR_WARN)
+        if board.ok:
+            embed.description = "\n".join(row.line() for row in board.rows)
+            embed.set_footer(text=f"Source: {board.url.replace('https://', '')}")
+        else:
+            embed.description = board.note
+            if board.note_kind == "period":
+                embed.set_footer(text="Weekly and monthly boards are not live yet - all-time is.")
         await _reply(interaction, embed=embed)
 
     @bot.tree.command(name="events", description="What is running on the server this week")

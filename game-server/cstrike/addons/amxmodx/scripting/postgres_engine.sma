@@ -423,22 +423,43 @@ bool:PgMd5Password(const pass[], const user[], const salt[4], out[], outmax)
 {
 	new combo[128], inner[34], outer[34];
 	formatex(combo, charsmax(combo), "%s%s", pass, user);
-	hash_string(combo, Hash_Md5, inner, charsmax(inner));
+	if( hash_string(combo, Hash_Md5, inner, charsmax(inner)) != 32 )
+	{
+		log_amx("[PG] md5 of user+password failed, cannot answer md5 auth");
+		return false;
+	}
 
-	new path[128];
-	get_datadir(path, charsmax(path));
-	add(path, charsmax(path), "/pg_md5.tmp");
+	// PostgreSQL md5 auth wants md5(hex_md5(pass||user) || salt). The salt is four
+	// raw bytes that may contain a NUL, so no string hash can take it and the
+	// bytes go through a temporary file. REVIEW.md 5.5: that file used to be a
+	// fixed datadir/pg_md5.tmp (two concurrent connects clobbered each other and
+	// the name was predictable) and hash_file()'s result was ignored, so a failed
+	// hash sent whatever was left in `outer` as the password. The name is now
+	// unique per attempt, both hash results are checked, and every failure path
+	// removes the file and fails the connection instead of guessing.
+	new path[160], dir[128];
+	get_datadir(dir, charsmax(dir));
+	formatex(path, charsmax(path), "%s/pg_md5_%d_%d.tmp", dir, get_systime(), random_num(0, 999999));
+
 	new f = fopen(path, "wb");
-	if( !f ) return false;
+	if( !f )
+	{
+		log_amx("[PG] cannot create %s for the md5 exchange", path);
+		return false;
+	}
 	for( new i = 0; i < 32; i++ )
 		fputc(f, inner[i]);
-	fputc(f, salt[0]);
-	fputc(f, salt[1]);
-	fputc(f, salt[2]);
-	fputc(f, salt[3]);
+	for( new i = 0; i < 4; i++ )
+		fputc(f, salt[i]);
 	fclose(f);
-	hash_file(path, Hash_Md5, outer, charsmax(outer));
+
+	new written = hash_file(path, Hash_Md5, outer, charsmax(outer));
 	delete_file(path);
+	if( written != 32 )
+	{
+		log_amx("[PG] hash_file wrote %d bytes for the md5 exchange, expected 32", written);
+		return false;
+	}
 	formatex(out, outmax, "md5%s", outer);
 	return true;
 }

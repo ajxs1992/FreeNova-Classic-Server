@@ -38,7 +38,7 @@ import {
 } from "./src/bp_track.js"
 // MOTD v2 + public API + weekly/monthly boards (this agent's surface).
 import {
-  periodBounds, weekKeyAt, monthKeyAt, previousKey, keysBefore, parisMidnight, isoWeekOf
+  periodBounds, weekKeyAt, monthKeyAt, previousKey, keysBefore, parisMidnight, parisParts, isoWeekOf
 } from "./src/periods.js"
 import {
   ensureBoardTables, refreshMarks, periodBoard, lifetimeBoard, settlePeriod,
@@ -47,6 +47,14 @@ import {
 import { normalizeSteamid } from "./src/publicapi.js"
 import { countdownText } from "./src/schedule.js"
 import { renderFallback } from "./src/motd.js"
+// Winterfest panel surface (this agent: src/winter/*).
+import { resolveSeason, parisStamp } from "./src/winter/season.js"
+import {
+  normalizeWinterCatalog, rewardType, rewardLabel, rarityColor
+} from "./src/winter/catalog.js"
+import { adventStatus, passStatus, treeStatus } from "./src/winter/progress.js"
+import { applyWinterPayload, ensureWinterTables, loadState } from "./src/winter/store.js"
+import { WINTER_SKIN_MARK } from "./src/winter/skin.js"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const root = mkdtempSync(join(tmpdir(), "freenova-panel-test-"))
@@ -176,6 +184,52 @@ function player(steamid, extra) {
   }
 }
 
+// The Winterfest catalogue exactly as the game is expected to push it
+// (payload.catalogs.winterfest). docs/WINTERFEST-PANEL.md is the field contract;
+// this fixture is what the panel-side checks drive the renderer with.
+function winterCatalogue() {
+  // Shapes copied from winterfest.ini (2026-11-22): [rarity] stores "R G B",
+  // [ornament] fifth column is `hidden`, [set] carries a bonus and a title,
+  // [advent]/[pass] carry a MAGNITUDE in their last column, [tree] is 24 x/y rows
+  // per style. If the panel accepts this, it accepts what the game will push.
+  const slots = style => Array.from({ length: 24 }, (_, i) => ({
+    slot: i + 1,
+    x: style === 2 ? 26 + (i % 4) * 16 : 10 + (i % 8) * 11,
+    y: style === 2 ? 6 + Math.floor(i / 4) * 15 : style === 3 ? 20 + Math.floor(i / 8) * 30 : 8 + Math.floor(i / 6) * 17
+  }))
+  return {
+    version: 1,
+    season: { name: "Winterfest", year: 2026, start: "2026-12-01 00:00", end: "2026-12-24 23:59", advent_end: "2026-12-24 23:59", enabled: 1 },
+    rarities: [
+      { id: 0, name: "Common", color: "190 220 255", weight: 62 },
+      { id: 1, name: "Uncommon", color: "120 255 140", weight: 28 },
+      { id: 2, name: "Rare", color: "255 215 90", weight: 10 },
+    ],
+    ornaments: [
+      { id: 1, name: "Crystal Snowflake", rarity: 0, set: 1, hidden: 0 },
+      { id: 2, name: "Frosted Snowflake", rarity: 0, set: 1, hidden: 0 },
+      { id: 3, name: "Silver Snowflake", rarity: 1, set: 1, hidden: 0 },
+      { id: 4, name: "Frozen Star", rarity: 1, set: 1, hidden: 1 },
+      { id: 5, name: "Diamond Snowflake", rarity: 2, set: 1, hidden: 1 },
+      { id: 6, name: "Jolly Santa", rarity: 0, set: 2, hidden: 0 },
+      { id: 7, name: "Wooden Sleigh", rarity: 0, set: 2, hidden: 0 },
+      { id: 8, name: "Brass Bell", rarity: 1, set: 2, hidden: 0 },
+      { id: 9, name: "Golden Santa", rarity: 1, set: 2, hidden: 1 },
+      { id: 10, name: "Frozen Crown", rarity: 2, set: 2, hidden: 1 },
+    ],
+    sets: [
+      { id: 1, name: "Snowflakes", title: "Ice Warrior", snow: 100 },
+      { id: 2, name: "Santas", title: "Santa's Helper", snow: 150 },
+    ],
+    advent: Array.from({ length: 24 }, (_, i) => (i + 1 === 9
+      ? { day: 9, type: "ornament", id: 1, amount: 0 }
+      : { day: i + 1, type: "snow", id: 0, amount: 40 + i * 5 })),
+    pass: Array.from({ length: 30 }, (_, i) => ({ tier: i + 1, xp: (i + 1) * 300, type: "snow", id: 0, amount: 100 + i * 10 })),
+    tree: [1, 2, 3].map(style => ({ style, name: ["Classic", "Tall", "Wide"][style - 1], slots: slots(style) })),
+    community: { key: "gifts", label: "Presents opened", current: 4321, target: 10000 },
+  }
+}
+
 const routes = ["/hub", "/profile", "/bp", "/battlepass", "/missions", "/achievements",
   "/competitive", "/events", "/vip", "/shop", "/skins", "/models", "/cosmetics",
   "/settings", "/rules", "/top15", "/top/week", "/top/month", "/admin"]
@@ -186,6 +240,9 @@ const trusted = new Panel("trusted", { FN_LOCAL_TRUST: "1" })
 // A third process so the public-API rate limit can be exercised without
 // spending the main panel's bucket.
 const limited = new Panel("limited", { PANEL_PUBLIC_RATE_LIMIT: "2" })
+// Winterfest gets its own process: the section below pushes a season window and
+// turns the Christmas skin on, which must not leak into the checks above.
+const winterPanel = new Panel("winter", { FN_LOCAL_TRUST: "1" })
 
 try {
   await panel.start(18080)
@@ -925,14 +982,455 @@ try {
     countdownText({ state: "active", starts_at: 0, ends_at: bNow + 7200 }, bNow) === "ends in 2h",
     countdownText({ state: "active", starts_at: 0, ends_at: bNow + 7200 }, bNow))
   bd.raw.close()
+
+  // ============================================ 9. Winterfest panel =========
+  // The panel surface built for docs/WINTERFEST.md Phase 1: the winter_* mirror,
+  // its ingestion seam (applyWinterPayload), the six /winter pages, the tree move
+  // action, and the seasonal skin. Everything below runs against its own panel so
+  // the checks above keep the database they expect.
+  {
+    const nowW = Math.floor(Date.now() / 1000)
+    const dayNow = parisParts(nowW).d
+    const monthNow = parisParts(nowW).m
+
+    // ---- 9a. the window is arithmetic, not a hardcoded date --------------
+    const dec1 = parisMidnight(2026, 12, 1)
+    const dec24 = parisMidnight(2026, 12, 24) + 86399
+    const nov30 = parisMidnight(2026, 11, 30) + 3600
+
+    const before = resolveSeason({}, nov30)
+    check("season: November is not open", before.active === false && before.phase === "before", before.phase)
+    check("season: the default window opens 1 December Europe/Paris",
+      before.startKey === "2026-12-01" && before.opensAt === dec1,
+      `${before.startKey} ${before.opensAt}`)
+    const opening = resolveSeason({}, dec1 + 60)
+    check("season: open one minute into 1 December", opening.active === true && opening.dayOfMonth === 1,
+      `${opening.phase} day=${opening.dayOfMonth}`)
+    check("season: 24 December 23:59 is still open",
+      resolveSeason({}, dec24).active === true && resolveSeason({}, dec24).daysLeft === 1,
+      String(resolveSeason({}, dec24).daysLeft))
+    const after = resolveSeason({}, parisMidnight(2026, 12, 25))
+    check("season: closed from 25 December 00:00", after.active === false && after.phase === "closed",
+      after.phase)
+    check("season: closesAt prints as 24 December 23:59",
+      parisParts(resolveSeason({}, dec1).closesAt).d === 24 && parisParts(resolveSeason({}, dec1).closesAt).hh === 23,
+      parisStamp(resolveSeason({}, dec1).closesAt))
+    const disabled = resolveSeason({ enabled: 0, start: "2026-12-01", end: "2026-12-24" }, dec1 + 60)
+    check("season: enabled=0 is dormant even inside its dates",
+      disabled.active === false && disabled.phase === "disabled", disabled.phase)
+    const custom = resolveSeason({ start: "2027-12-05", end: "2027-12-28" }, parisMidnight(2027, 12, 6))
+    check("season: dates come from config, not from the code",
+      custom.active === true && custom.startKey === "2027-12-05" && custom.endKey === "2027-12-28",
+      `${custom.startKey}..${custom.endKey}`)
+    check("season: parses the game's digit-only date keys",
+      resolveSeason({ start: 20261201, end: 20261224 }, dec1 + 60).active === true)
+
+    // ---- 9b. catalogue + progress are pure and honest --------------------
+    const CAT = winterCatalogue()
+    const cat = normalizeWinterCatalog(CAT)
+    check("catalogue: parses every ornament", cat.ornaments.length === 10, String(cat.ornaments.length))
+    check("catalogue: turns the ini's R G B into a CSS colour", rarityColor(cat, 2) === "#ffd75a", rarityColor(cat, 2))
+    check("catalogue: maps the reward names winterfest.inc uses",
+      rewardType("snowflakes") === 1 && rewardType("ornament") === 2 && rewardType("pass_xp") === 4 && rewardType("nonsense") === 0)
+    check("catalogue: labels a reward without inventing one",
+      rewardLabel(cat, "ornament", 3) === "Ornament: Silver Snowflake" &&
+      rewardLabel(cat, "snow", 0, 25) === "25 snowflakes" &&
+      rewardLabel(cat, "pass", 0, 50) === "Winter Pass XP +50",
+      rewardLabel(cat, 2, 3))
+    check("catalogue: a missing catalogue degrades instead of throwing",
+      normalizeWinterCatalog(null).ok === false && normalizeWinterCatalog(null).styles.length === 3)
+    check("catalogue: three tree styles, 24 slots each",
+      cat.styles.length === 3 && cat.styles.every(s => s.slots.length === 24),
+      JSON.stringify(cat.styles.map(s => s.slots.length)))
+    const tall = cat.styles.find(s => s.style === 2)
+    const wide = cat.styles.find(s => s.style === 3)
+    check("catalogue: the three layouts are genuinely different",
+      JSON.stringify(tall.slots) !== JSON.stringify(wide.slots) &&
+      JSON.stringify(cat.styles[0].slots) !== JSON.stringify(tall.slots))
+
+    const advNow = {
+      days: [], claimedAt: null, found: true,
+      advent: new Map([[1, dec1 + 3600], [2, dec1 + 7200]]),
+      slots: new Map(), owned: [], ownedIds: new Set(), gifts: [], giftCounts: new Map(),
+      pass: { xp: 0, tier: 0, found: false }, treeLevel: 0
+    }
+    const advMid = adventStatus(resolveSeason({}, parisMidnight(2026, 12, 5) + 3600), advNow)
+    const byDay = d => advMid.days.find(x => x.day === d)
+    check("advent: a claimed day stays claimed", byDay(1).status === "claimed", byDay(1).status)
+    check("advent: today is today", byDay(5).status === "today", byDay(5).status)
+    check("advent: an earlier unclaimed day is catch-up, not lost", byDay(3).status === "missed", byDay(3).status)
+    check("advent: a later day is locked", byDay(6).status === "locked", byDay(6).status)
+    check("advent: a claim on the day is full value",
+      advMid.days.find(x => x.day === 1).full === true)
+    check("advent: 24 days, never 31", advMid.days.length === 24 && advMid.total === 24)
+    check("advent: claimable-now counts today plus the missed days", advMid.claimableNow === 3, String(advMid.claimableNow))
+
+    const passState = { pass: { xp: 1050, tier: 3, found: true } }
+    const ps = passStatus(cat, passState)
+    check("pass: tier and XP come from the game", ps.tier === 3 && ps.xp === 1050)
+    check("pass: XP into the tier is measured from the catalogue's floor",
+      ps.into === 150 && ps.span === 300 && ps.pct === 50, `${ps.into}/${ps.span}`)
+    check("pass: the next three rewards are the next three, in order",
+      ps.upcoming.length === 3 && ps.upcoming[0].tier === 4 && ps.upcoming[2].tier === 6,
+      JSON.stringify(ps.upcoming.map(u => u.tier)))
+    check("pass: the ladder is 30 rungs and free-track only",
+      ps.ladder.length === 30 && ps.ladder.every(r => !("premium" in r)), String(ps.ladder.length))
+    check("pass: tier 30 is the top", passStatus(cat, { pass: { xp: 99999, tier: 30 } }).atMax === true)
+
+    const treeState = {
+      slots: new Map([[1, 1], [2, 2]]), ownedIds: new Set([1, 2, 3, 4, 5]), treeLevel: 2
+    }
+    const tst = treeStatus(cat, treeState)
+    check("tree: filled count and percentage", tst.filled === 2 && tst.pct === 8, `${tst.filled}/${tst.pct}%`)
+    check("tree: the next milestone is the closest incomplete set",
+      tst.nextSet && tst.nextSet.id === 2 && tst.nextSet.owned === 0,
+      JSON.stringify(tst.nextSet && tst.nextSet.id))
+    check("tree: a completed set is reported complete", tst.sets.find(s => s.id === 1).complete === true)
+
+    // ---- 9c. the store: idempotent ingestion against a real database -----
+    const wDb = openLocalD1(join(root, "winter-store.sq3"))
+    const wEnv = { DB: wDb }
+    await ensureWinterTables(wEnv)
+    await ensureWinterTables(wEnv) // twice on purpose: every statement is IF NOT EXISTS
+    const tables = wDb.raw.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'winter%' ORDER BY name").all().map(r => r.name)
+    check("store: the winter_* family exists",
+      ["winter_advent", "winter_gifts", "winter_meta", "winter_ornaments", "winter_pass", "winter_players", "winter_tree"]
+        .every(t => tables.includes(t)), JSON.stringify(tables))
+
+    const owner = "STEAM_0:0:900001"
+    const stranger = "STEAM_0:0:900002"
+    const pushed = await applyWinterPayload(wEnv, {
+      winter: {
+        season: { name: "Winterfest", year: 2026, start: "2026-12-01", end: "2026-12-24", enabled: 1 },
+        community: { key: "gifts", label: "Presents opened", current: 4321, target: 10000 },
+        players: [{
+          steamid: owner, at: nowW, snowflakes: 145, gifts_found: 12,
+          tree_style: 2, tree_level: 3,
+          tree: [{ slot: 3, ornament: 2 }, { slot: 9, ornament: 1 }],
+          ornaments: [1, 2, 3, 4, 5],
+          advent: [{ day: 1, at: parisMidnight(2026, 12, 1) + 3600 }],
+          gifts: [
+            { instance: 1, rarity: 1, type: "ornament", id: 2, at: nowW - 300, key: "g:1" },
+            { instance: 2, rarity: 2, type: "snow", id: 0, amount: 25, at: nowW - 200, key: "g:2" },
+            { instance: 3, rarity: 0, type: "snow", id: 0, amount: 10, at: nowW - 100, key: "g:3" }
+          ],
+          pass: { xp: 250, tier: 3 }
+        }]
+      }
+    }, nowW)
+    check("store: one pushed player is stored once", pushed.players === 1 && pushed.errors.length === 0,
+      JSON.stringify(pushed.errors))
+    check("store: tree slots land in their own table", pushed.treeSlots === 2 && wDb.raw.prepare(
+      "SELECT COUNT(*) AS n FROM winter_tree WHERE steamid=?1").get(owner).n === 2)
+    check("store: the push replaced the whole tree",
+      wDb.raw.prepare("SELECT ornament FROM winter_tree WHERE steamid=?1 AND slot=3").get(owner).ornament === 2)
+    check("store: ornaments are cached", wDb.raw.prepare(
+      "SELECT COUNT(*) AS n FROM winter_ornaments WHERE steamid=?1").get(owner).n === 5,
+      String(wDb.raw.prepare("SELECT COUNT(*) AS n FROM winter_ornaments WHERE steamid=?1").get(owner).n))
+    check("store: the gift log keeps the claim key", wDb.raw.prepare(
+      "SELECT COUNT(*) AS n FROM winter_gifts WHERE steamid=?1").get(owner).n === 3)
+    check("store: pass XP is stored", wDb.raw.prepare(
+      "SELECT xp, tier FROM winter_pass WHERE steamid=?1").get(owner).xp === 250)
+
+    // Duplicate advent claim: the ledger's primary key is the guard.
+    const advAgain = await applyWinterPayload(wEnv, {
+      winter: { players: [{ steamid: owner, at: nowW + 1, advent: [{ day: 1, at: nowW }] }] }
+    }, nowW + 1)
+    check("store: a duplicate Advent claim inserts nothing",
+      advAgain.advent === 0 && advAgain.adventDuplicates === 1, JSON.stringify(advAgain.adventDuplicates))
+    check("store: the claim ledger holds exactly one row for day 1",
+      wDb.raw.prepare("SELECT COUNT(*) AS n FROM winter_advent WHERE steamid=?1 AND day=1").get(owner).n === 1)
+    const claimAt = wDb.raw.prepare("SELECT claimed_at FROM winter_advent WHERE steamid=?1 AND day=1").get(owner).claimed_at
+    check("store: the duplicate did not rewrite the claim timestamp",
+      claimAt === parisMidnight(2026, 12, 1) + 3600, String(claimAt))
+
+    // A replayed gift push is a no-op too.
+    const giftAgain = await applyWinterPayload(wEnv, {
+      winter: { players: [{ steamid: owner, at: nowW + 2, gifts: [{ instance: 1, rarity: 1, type: "ornament", id: 2, at: nowW - 300, key: "g:1" }] }] }
+    }, nowW + 2)
+    check("store: a replayed gift opening is refused", giftAgain.gifts === 0 && giftAgain.giftsDuplicates === 1)
+
+    // Stale push: an older snapshot must not roll the pass back (sync.js rule).
+    const stalePush = await applyWinterPayload(wEnv, {
+      winter: { players: [{ steamid: owner, at: nowW - 600, snowflakes: 1, pass: { xp: 10, tier: 1 } }] }
+    }, nowW - 600)
+    check("store: a stale snapshot is skipped", stalePush.stale === 1 && stalePush.players === 0,
+      JSON.stringify({ stale: stalePush.stale, players: stalePush.players }))
+    const still = wDb.raw.prepare("SELECT xp, tier FROM winter_pass WHERE steamid=?1").get(owner)
+    check("store: a stale snapshot cannot lower pass XP", still.xp === 250 && still.tier === 3,
+      JSON.stringify(still))
+
+    // A tree with the same ornament twice is refused by the mirror's index.
+    let dupeTree = false
+    try {
+      await applyWinterPayload(wEnv, {
+        winter: { players: [{ steamid: owner, at: nowW + 3, tree: [{ slot: 4, ornament: 1 }, { slot: 5, ornament: 1 }] }] }
+      }, nowW + 3)
+      const rows = wDb.raw.prepare("SELECT COUNT(*) AS n FROM winter_tree WHERE steamid=?1").get(owner).n
+      dupeTree = rows <= 2
+    } catch { dupeTree = true }
+    check("store: a push cannot put one ornament in two slots (deduped or refused)", dupeTree === true)
+
+    // An unseen player reads as an honest zero state.
+    const unseenState = await loadState(wEnv, "STEAM_0:0:900099", "2026")
+    check("store: an unseen player is not fabricated",
+      unseenState.found === false && unseenState.snowflakes === 0 && unseenState.slots.size === 0 &&
+      unseenState.owned.length === 0 && unseenState.advent.size === 0 && unseenState.pass.tier === 0)
+    check("store: a bad steamid reads as empty instead of throwing",
+      (await loadState(wEnv, "not-a-steamid", "2026")).found === false)
+
+    // ---- 9d. the pages over HTTP (catalogue through the REAL push) --------
+    await winterPanel.start(18083)
+    const catPush = await push(winterPanel, { players: [], catalogs: { winterfest: CAT } })
+    check("winter: the catalogue lands through the existing catalogs push",
+      catPush.status === 200 && !!winterPanel.first("SELECT json FROM catalog WHERE key='winterfest'"),
+      "-> " + catPush.status)
+
+    // The one-line seam sync.js will call, exercised for real against the
+    // running panel's database.
+    const panelDb = openLocalD1(winterPanel.dbFile)
+    const panelEnv = { DB: panelDb, SYNC_SECRET: SECRET, FN_LOCAL_TRUST: "1" }
+    const seeded = await applyWinterPayload(panelEnv, {
+      winter: {
+        season: { name: "Winterfest", year: 2026, start: "2026-12-01", end: "2026-12-24", enabled: 1 },
+        community: { key: "gifts", label: "Presents opened", current: 4321, target: 10000 },
+        players: [{
+          steamid: owner, at: nowW, snowflakes: 145, gifts_found: 12,
+          tree_style: 2, tree_level: 3,
+          tree: [{ slot: 3, ornament: 2 }, { slot: 9, ornament: 1 }],
+          ornaments: [1, 2, 3, 4, 5],
+          advent: [{ day: 1, at: parisMidnight(2026, 12, 1) + 3600 }],
+          gifts: [
+            { instance: 1, rarity: 1, type: "ornament", id: 2, at: nowW - 300, key: "pg:1" },
+            { instance: 2, rarity: 2, type: "snow", id: 0, amount: 25, at: nowW - 200, key: "pg:2" }
+          ],
+          pass: { xp: 250, tier: 3 }
+        }]
+      }
+    }, nowW)
+    check("winter: the panel mirror accepts a push while the panel is running",
+      seeded.players === 1 && seeded.errors.length === 0, JSON.stringify(seeded.errors))
+
+    const noScript = t => t.replace(/<script[\s\S]*?<\/script>/g, "")
+    const wget = async (path) => {
+      const res = await fetch(winterPanel.base + path)
+      return { status: res.status, body: await res.text(), headers: res.headers }
+    }
+    for (const route of ["/winter", "/winter/tree", "/winter/gifts", "/winter/ornaments", "/winter/advent", "/winter/pass"]) {
+      const r = await wget(route + "?steamid=" + encodeURIComponent(owner))
+      check("winter route " + route, r.status === 200, "-> " + r.status)
+    }
+    const w404 = await fetch(winterPanel.base + "/winter/nope")
+    check("winter route /winter/nope is a 404", w404.status === 404, "-> " + w404.status)
+
+    // A player the panel has never seen still renders a full page.
+    const unseenHub = await wget("/winter?steamid=" + encodeURIComponent("STEAM_0:0:900099"))
+    check("unseen player: /winter answers 200", unseenHub.status === 200, "-> " + unseenHub.status)
+    check("unseen player: the hub shows the zero state, not a blank page",
+      unseenHub.body.includes("0/24") && unseenHub.body.includes("Tier 1"), "")
+    check("unseen player: no NaN anywhere outside the enhancement script",
+      !noScript(unseenHub.body).includes("NaN"))
+    check("unseen player: the page says what to do in game", unseenHub.body.includes("/christmas"))
+
+    const unseenTree = await wget("/winter/tree?steamid=" + encodeURIComponent("STEAM_0:0:900099"))
+    const emptySlots = (unseenTree.body.match(/class="wf-in empty"/g) || []).length
+    check("empty tree: 24 slots, all of them empty", emptySlots === 24, String(emptySlots))
+    check("empty tree: nothing is filled", (unseenTree.body.match(/class="wf-in filled"/g) || []).length === 0)
+    check("empty tree: completion reads 0/24", unseenTree.body.includes("0/24"))
+
+    // The owner's tree: the same renderer, with ornaments and their names.
+    const ownerTree = await wget("/winter/tree?steamid=" + encodeURIComponent(owner))
+    const filledSlots = (ownerTree.body.match(/class="wf-in filled"/g) || []).length
+    check("tree: filled slots render with their ornament names",
+      filledSlots === 2 && ownerTree.body.includes("Frosted Snowflake"), String(filledSlots))
+    check("tree: the ornament has a hover title with its slot",
+      ownerTree.body.includes('title="Frosted Snowflake') && ownerTree.body.includes("slot 3"), "")
+    check("tree: the player's own style is the one rendered",
+      ownerTree.body.includes("Tall (yours)") && ownerTree.body.includes("Slots filled") &&
+      ownerTree.body.includes("2/24"), "")
+    check("tree: the no-JS move form is there for a trusted deployment",
+      ownerTree.body.includes('id="wf-move-form"') && ownerTree.body.includes('name="from"') &&
+      ownerTree.body.includes('name="to"'), "")
+    check("tree: every style is reachable without JavaScript",
+      ownerTree.body.includes("style=1") && ownerTree.body.includes("style=3"), "")
+
+    // Somebody else's tree: same renderer, read-only, and none of the owner's data.
+    const strangerTree = await wget("/winter/tree/" + encodeURIComponent(stranger))
+    check("public tree: a stranger's tree answers 200", strangerTree.status === 200, "-> " + strangerTree.status)
+    check("public tree: it is read-only (no move form)", !strangerTree.body.includes('id="wf-move-form"'))
+    check("public tree: it does not leak the owner's ornaments",
+      !strangerTree.body.includes("Frosted Snowflake") && !strangerTree.body.includes("Crystal Snowflake"))
+    check("public tree: it is the same renderer", strangerTree.body.includes("wf-in empty") &&
+      strangerTree.body.includes("wf-tree"))
+    check("public tree: an unparseable steamid is a 404",
+      (await fetch(winterPanel.base + "/winter/tree/notasteamid")).status === 404)
+
+    // Advent: claimed / today / missed / locked, computed from the real clock.
+    const adventBody = (await wget("/winter/advent?steamid=" + encodeURIComponent(owner))).body
+    const calCells = (adventBody.match(/<td class="(claimed|today|missed|locked)"/g) || []).length
+    check("advent page: 24 calendar cells", calCells === 24, String(calCells))
+    check("advent page: day 1 is claimed", (adventBody.match(/<td class="claimed"/g) || []).length === 1)
+    const seasonNow = resolveSeason({ name: "Winterfest", year: 2026, start: "2026-12-01", end: "2026-12-24", enabled: 1 }, nowW)
+    const seasonOpenNow = seasonNow.adventOpen
+    const todayCells = (adventBody.match(/<td class="today"/g) || []).length
+    check("advent page: exactly one 'today' cell while the calendar is open",
+      seasonOpenNow ? todayCells === 1 : todayCells === 0, `today=${todayCells} day=${dayNow}/${monthNow}`)
+    check("advent page: the closing rule is printed with its timezone",
+      adventBody.includes("Europe/Paris") && adventBody.includes("half value"))
+    check("advent page: it names the owner's timezone enhancement",
+      adventBody.includes("your own timezone") || adventBody.includes("Europe/Paris"))
+
+    // Ornaments: the secret rules.
+    const ornBody = (await wget("/winter/ornaments?steamid=" + encodeURIComponent(owner))).body
+    check("ornaments: a found ornament is listed by name", ornBody.includes("Crystal Snowflake"))
+    check("ornaments: a found HIDDEN ornament shows its name once owned",
+      ornBody.includes("Frozen Star"))
+    check("ornaments: a locked non-hidden ornament still shows its name",
+      ornBody.includes("Jolly Santa"))
+    check("ornaments: a locked hidden ornament never leaks its name",
+      !ornBody.includes("Golden Santa") && !ornBody.includes("Santa's List"))
+    check("ornaments: the locked silhouette is rendered", ornBody.includes("? ? ?"))
+    check("ornaments: a completed set shows the title it awarded",
+      ornBody.includes("Ice Warrior") && ornBody.includes("UNLOCKED"))
+    check("ornaments: a locked set shows its prize and its unlock state",
+      ornBody.includes("Helper") && ornBody.includes("LOCKED"))
+    check("ornaments: set progress is stated", ornBody.includes("5/5") && ornBody.includes("0/5"))
+
+    // Gifts: real openings only, and an honest empty state.
+    const giftsBody = (await wget("/winter/gifts?steamid=" + encodeURIComponent(owner))).body
+    check("gifts: the openings are listed with a reward", giftsBody.includes("Ornament: Frosted Snowflake"))
+    check("gifts: counts are grouped by rarity", giftsBody.includes("Uncommon") && giftsBody.includes("Rare"))
+    check("gifts: the community goal is shown when the game pushes one",
+      giftsBody.includes("Presents opened") && giftsBody.includes("4,321"))
+    const emptyGifts = (await wget("/winter/gifts?steamid=" + encodeURIComponent(stranger))).body
+    check("gifts: an empty log points at /christmas instead of inventing rows",
+      emptyGifts.includes("/christmas") && emptyGifts.includes("No presents opened yet"))
+
+    // Pass: 30 tiers, free track, no premium anywhere.
+    const passBody = (await wget("/winter/pass?steamid=" + encodeURIComponent(owner))).body
+    check("pass page: the current tier and XP are shown", passBody.includes("Tier") && passBody.includes("250"))
+    check("pass page: the next three rewards are listed", passBody.includes("Next three rewards"))
+    check("pass page: the ladder is collapsible without JavaScript",
+      passBody.includes("Show the full 30-tier ladder"))
+    const passFull = (await wget("/winter/pass?steamid=" + encodeURIComponent(owner) + "&full=1")).body
+    const ladderRungs = (passFull.match(/<td class="t">/g) || []).length
+    check("pass page: the full ladder renders 30 rungs", ladderRungs === 30, String(ladderRungs))
+    // The shared MOTD stylesheet still carries the BattlePass's .premium rules
+    // (not ours to delete), so the assertion is about OUR markup: strip <style>.
+    const passMarkup = passFull.replace(/<style[\s\S]*?<\/style>/g, "")
+    check("pass page: there is no premium track, paid lane or purchase link",
+      !/premium|paid track|purchase|upgrade now/i.test(passMarkup))
+
+    // The hub carries the three headlines.
+    const hubBody = (await wget("/winter?steamid=" + encodeURIComponent(owner))).body
+    check("hub: the season countdown is present",
+      /day[s]? left|not open yet|closed/.test(hubBody), "")
+    check("hub: Advent progress is shown", hubBody.includes("1/24"), "")
+    check("hub: snowflakes and gifts are shown", hubBody.includes("145") && hubBody.includes("12"))
+    check("hub: the tree level is shown as filled/24", hubBody.includes("2/24") || hubBody.includes("level 3"))
+    check("hub: the pass tier is shown", hubBody.includes("Tier 3"))
+    check("hub: the three headlines are rendered",
+      hubBody.includes("ADVENT") && hubBody.includes("WINTER PASS") && hubBody.includes("COMMUNITY GOAL"))
+    check("hub: no NaN on a real player either", !noScript(hubBody).includes("NaN"))
+
+    // ---- 9e. the tree move action (no JS, token-gated) --------------------
+    const ownerToken = await mintActionToken({ SYNC_SECRET: SECRET, FN_LOCAL_TRUST: "1" }, owner)
+    const postTree = async (base, fields) => {
+      const body = new URLSearchParams(fields).toString()
+      const res = await fetch(base + "/winter/tree", {
+        method: "POST", redirect: "manual",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      })
+      return { status: res.status, body: await res.text() }
+    }
+    const noTokenPost = await postTree(winterPanel.base, { steamid: owner, action: "move", from: "9", to: "12" })
+    check("tree POST: no token is refused with 403", noTokenPost.status === 403, "-> " + noTokenPost.status)
+    const badSlotPost = await postTree(winterPanel.base, { steamid: owner, t: ownerToken, action: "move", from: "5", to: "12" })
+    check("tree POST: moving an empty slot is refused", badSlotPost.status === 403 &&
+      badSlotPost.body.includes("Slot 5 is empty"), "-> " + badSlotPost.status)
+    const movePost = await postTree(winterPanel.base, { steamid: owner, t: ownerToken, action: "move", from: "9", to: "12" })
+    check("tree POST: a valid move redirects (303)", movePost.status === 303, "-> " + movePost.status)
+    const queuedMove = winterPanel.first(
+      "SELECT type, arg, status FROM actions WHERE steamid=?1 AND type='wf_tree_move'", owner)
+    check("tree POST: the move is QUEUED for the game, not applied here",
+      !!queuedMove && queuedMove.arg === "9:12" && queuedMove.status === "pending",
+      JSON.stringify(queuedMove))
+    const mirrored = winterPanel.first("SELECT ornament FROM winter_tree WHERE steamid=?1 AND slot=9", owner)
+    check("tree POST: the mirror is untouched until the game confirms",
+      !!mirrored && Number(mirrored.ornament) === 1)
+    const dupePost = await postTree(winterPanel.base, { steamid: owner, t: ownerToken, action: "move", from: "9", to: "12" })
+    check("tree POST: an identical request is deduplicated", dupePost.status === 303 && winterPanel.first(
+      "SELECT COUNT(*) AS n FROM actions WHERE steamid=?1 AND type='wf_tree_move'", owner).n === 1)
+    const stylePost = await postTree(winterPanel.base, { steamid: owner, t: ownerToken, action: "style", style: "3" })
+    check("tree POST: the style change is queued too", stylePost.status === 303 && !!winterPanel.first(
+      "SELECT arg FROM actions WHERE steamid=?1 AND type='wf_tree_style'", owner))
+    const untrustedPost = await postTree(panel.base, { steamid: owner, action: "style", style: "1" })
+    check("tree POST: a deployment that does not mint tokens refuses", untrustedPost.status === 403,
+      "-> " + untrustedPost.status)
+
+    // ---- 9f. the Christmas skin ------------------------------------------
+    // The one meta key is the switch. Off first, so the baseline is provably
+    // the untouched page; then on, then off again.
+    const setSeasonWindow = async (json) => {
+      const db = openLocalD1(winterPanel.dbFile)
+      try {
+        await ensureWinterTables({ DB: db })
+        if (json == null) db.raw.prepare("DELETE FROM winter_meta WHERE key='season'").run()
+        else db.raw.prepare(
+          "INSERT INTO winter_meta (key, value, updated_at) VALUES ('season', ?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
+          .run(JSON.stringify(json), nowW)
+      } finally { db.raw.close() }
+    }
+    // /rules is a static page: the strongest possible "no-op" assertion is that
+    // injecting the skin and stripping it again gives EXACTLY the same bytes.
+    await setSeasonWindow({ name: "Winterfest", year: 2026, start: "2020-12-01", end: "2020-12-24", enabled: 1 })
+    const skinOff = (await wget("/rules")).body
+    check("skin: a window in the past injects nothing", !skinOff.includes(WINTER_SKIN_MARK))
+
+    const thisYear = parisParts(nowW).y
+    await setSeasonWindow({ name: "Winterfest", year: thisYear, start: `${thisYear}-01-01`, end: `${thisYear}-12-31`, enabled: 1 })
+    const skinOn = (await wget("/rules")).body
+    check("skin: an open window recolours an existing page", skinOn.includes(WINTER_SKIN_MARK))
+    check("skin: it adds the snow motif", skinOn.includes('id="wf-winter-skin"'))
+    const injected = (skinOn.match(new RegExp("<style>[^<]*" + WINTER_SKIN_MARK + "[\\s\\S]*?</style>")) || [""])[0]
+    check("skin: the injected sheet needs no image, font or second request",
+      injected.length > 200 && !/url\(|@font-face|<img/i.test(injected), String(injected.length))
+    const snowDiv = (skinOn.match(/<div id="wf-winter-skin"[\s\S]*?<\/div>/) || [""])[0]
+    const stripped = injected && snowDiv ? skinOn.replace(injected, "").replace(snowDiv, "") : "did-not-split"
+    check("skin: it only ADDS — strip the sheet and the page is byte-identical",
+      stripped === skinOff, stripped === "did-not-split" ? "could not split the injection" : `${stripped.length} vs ${skinOff.length}`)
+    check("skin: the page keeps its own stylesheet", skinOn.includes("motd-head") && skinOn.includes("csgo-pass"))
+
+    await setSeasonWindow({ name: "Winterfest", year: thisYear, start: `${thisYear}-01-01`, end: `${thisYear}-12-31`, enabled: 0 })
+    const skinDisabled = (await wget("/rules")).body
+    check("skin: enabled=0 is inert even inside the dates", !skinDisabled.includes(WINTER_SKIN_MARK))
+    check("skin: enabled=0 hands back the untouched page", skinDisabled === skinOff)
+    await setSeasonWindow(null)
+    const skinDefault = (await wget("/rules")).body
+    const defaultActive = resolveSeason({}, nowW).active
+    check("skin: with no pushed season it follows the documented 1..24 December window",
+      defaultActive ? skinDefault.includes(WINTER_SKIN_MARK) : !skinDefault.includes(WINTER_SKIN_MARK),
+      `month=${monthNow} day=${dayNow}`)
+    check("skin: a JSON response is never touched",
+      !(await wget("/api/public/status")).body.includes(WINTER_SKIN_MARK))
+
+    panelDb.raw.close()
+    wDb.raw.close()
+    await winterPanel.stop()
+  }
+
 } catch (e) {
   bad("suite", e && e.stack ? e.stack : String(e))
   console.error("--- panel output ---\n" + panel.output.split("\n").slice(-25).join("\n"))
   console.error("--- trusted output ---\n" + trusted.output.split("\n").slice(-25).join("\n"))
+  try { console.error("--- winter output ---\n" + winterPanel.output.split("\n").slice(-25).join("\n")) } catch {}
 } finally {
   await panel.stop()
   await trusted.stop()
   await limited.stop()
+  try { await winterPanel.stop() } catch {}
   await wait(200)
   try { rmSync(root, { recursive: true, force: true }) } catch {}
 }

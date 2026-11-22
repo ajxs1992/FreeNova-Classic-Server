@@ -21,13 +21,20 @@ import { pageGameSurface, pageSettings, pageRules } from "./gamepages.js"
 import { handlePublicApi } from "./publicapi.js"
 import { pageMotdV2 } from "./motd.js"
 import { pageBoards } from "./boards_page.js"
+import { handleWinter } from "./winter/index.js"
+import { applyWinterSkin } from "./winter/skin.js"
 
 export default {
   async fetch(request, env, ctx) {
     // One place adds the policy for pages that carry a token in their query
     // string (REVIEW.md §4.2 M3): a ?t= / ?k= / ?claim= URL must not leak
     // through Referer to flagcdn.com, Discord or any other third party.
-    return withSafeReferrer(request, await routeRequest(request, env, ctx))
+    const res = await withSafeReferrer(request, await routeRequest(request, env, ctx))
+    // Winterfest's seasonal skin (src/winter/skin.js). It is a response-level
+    // wrapper BY DESIGN: inside the season window every existing page gets the
+    // December palette, outside it `applyWinterSkin` returns the very same
+    // response object, so the panel is byte-for-byte unchanged from 25 Dec on.
+    return await applyWinterSkin(request, env, res)
   }
 }
 
@@ -71,6 +78,15 @@ async function routeRequest(request, env, ctx) {
       // (REVIEW.md §4.1 H2). Routed before the GET-only gate for that reason.
       if (request.method === "POST" && (path === "/top15" || path === "/top"))
         return await pageTop15(env, url, request)
+
+      // Winterfest panel surface (src/winter/). The POST (the no-JS "move slot X
+      // to Y" form) has to sit above the GET-only gate, exactly like the top15
+      // theme POST above. The GET routes are dispatched further down, AFTER the
+      // MOTD/compact skin is decided — otherwise an MSIE client would get the
+      // browser skin and its enhancement script. Nothing here mutates player
+      // state: a move is queued for the game as a `wf_tree_*` action.
+      if (request.method === "POST" && path === "/winter/tree")
+        return await handleWinter(request, env, url)
 
       if (request.method !== "GET")
         return new Response("method not allowed", { status: 405 })
@@ -188,6 +204,12 @@ async function routeRequest(request, env, ctx) {
         const res = await env.ASSETS.fetch(request)
         if (res && res.status !== 404) return res
       }
+
+      // Winterfest pages (src/winter/): GET only, and only now that the compact
+      // skin flag is final. Both the browser page and the in-game MOTD skin come
+      // out of the same renderer (src/winter/render.js).
+      if (path === "/winter" || path.startsWith("/winter/"))
+        return await handleWinter(request, env, url)
 
       const view = (url.searchParams.get("view") || url.searchParams.get("tab") || "").toLowerCase()
       if ((route === "/" || route === "/battlepass.php" || route === "/rsu.php") && view) {

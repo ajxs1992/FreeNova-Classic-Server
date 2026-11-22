@@ -386,3 +386,96 @@ CREATE INDEX IF NOT EXISTS idx_badges_player ON badges (steamid);
 -- lazily by src/schedule.js ensureScheduleDetailColumn() with a PRAGMA guard
 -- instead of here — running this file twice must stay harmless.
 
+
+-- ============================================================ Winterfest 2026
+-- Additive 2026-11-22 (docs/WINTERFEST.md §4 Phase 1, workstream 5).
+-- PANEL-SIDE MIRROR ONLY: the game (winterfest_core.amxx) owns every number —
+-- snowflakes, ornaments, tree slots, Advent claims, pass XP — and pushes a
+-- snapshot through the existing signed channel. Nothing here is authoritative
+-- and nothing here is ever shown as if it were: the pages read these tables and
+-- label them "per the game snapshot".
+--
+-- Safe migration path: every statement is IF NOT EXISTS, no ALTER, no UPDATE.
+-- Booting the runner over the existing live replica (server_local.mjs execs
+-- this file) only creates what is missing; src/winter/store.js repeats the same
+-- DDL lazily (keyed per DB object) so a deployment that never execs this file
+-- still gets the tables on the first push. src/winter/store.js is the consumer.
+CREATE TABLE IF NOT EXISTS winter_players (
+    steamid          TEXT PRIMARY KEY,
+    season           TEXT NOT NULL DEFAULT '',
+    snowflakes       INTEGER NOT NULL DEFAULT 0,
+    gifts_found      INTEGER NOT NULL DEFAULT 0,
+    tree_style       INTEGER NOT NULL DEFAULT 1,   -- 1 classic | 2 tall | 3 wide
+    tree_level       INTEGER NOT NULL DEFAULT 0,
+    ornaments_total  INTEGER NOT NULL DEFAULT 0,
+    advent_claimed   INTEGER NOT NULL DEFAULT 0,
+    seen_at          INTEGER NOT NULL DEFAULT 0    -- stale-push guard, like players.last_seen
+);
+
+-- The 24-slot tree: one ornament per slot, one slot per ornament.
+CREATE TABLE IF NOT EXISTS winter_tree (
+    steamid    TEXT NOT NULL,
+    slot       INTEGER NOT NULL,                   -- 1..24 (owner decision §6.1)
+    ornament   INTEGER NOT NULL,                   -- ornament id from winterfest.ini
+    moved_at   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, slot)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_winter_tree_ornament ON winter_tree (steamid, ornament);
+
+-- Ornament ownership cache (the game's inventory, replicated per ornament id).
+CREATE TABLE IF NOT EXISTS winter_ornaments (
+    steamid     TEXT NOT NULL,
+    ornament    INTEGER NOT NULL,
+    obtained_at INTEGER NOT NULL DEFAULT 0,
+    source      TEXT NOT NULL DEFAULT '',          -- present | advent | set | push
+    PRIMARY KEY (steamid, ornament)
+);
+
+-- Gift log: what this player opened, when, and what it paid. The claim_key
+-- makes a replayed push a no-op (the same rule as the BattlePass ledger).
+CREATE TABLE IF NOT EXISTS winter_gifts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    steamid     TEXT NOT NULL,
+    season      TEXT NOT NULL DEFAULT '',
+    instance    INTEGER NOT NULL DEFAULT 0,
+    rarity      INTEGER NOT NULL DEFAULT 0,        -- 0..2 (WF_RARITY_MAX)
+    reward_type   TEXT NOT NULL DEFAULT '',
+    reward_id     INTEGER NOT NULL DEFAULT 0,
+    reward_amount INTEGER NOT NULL DEFAULT 0,   -- snowflakes / XP the reward paid
+    claim_key     TEXT NOT NULL DEFAULT '',
+    opened_at     INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (steamid, claim_key)
+);
+CREATE INDEX IF NOT EXISTS idx_winter_gifts_player ON winter_gifts (steamid, opened_at DESC);
+
+-- Advent claim ledger, one row per player per season per day. The primary key
+-- IS the duplicate-claim guard: the second claim of a day can never insert.
+CREATE TABLE IF NOT EXISTS winter_advent (
+    steamid    TEXT NOT NULL,
+    season     TEXT NOT NULL DEFAULT '',
+    day        INTEGER NOT NULL,                   -- 1..24
+    claimed_at INTEGER NOT NULL DEFAULT 0,
+    claim_key  TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (steamid, season, day)
+);
+
+-- Winter Pass XP/tier. FREE TRACK ONLY (owner decision §6.2): there is no
+-- premium column and none is to be added without a new owner decision.
+CREATE TABLE IF NOT EXISTS winter_pass (
+    steamid    TEXT NOT NULL,
+    season     TEXT NOT NULL DEFAULT '',
+    xp         INTEGER NOT NULL DEFAULT 0,
+    tier       INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, season)
+);
+
+-- Season window + community goal as the game pushes them ('season' |
+-- 'community', JSON). Reading these is how the panel knows the season dates
+-- without a redeploy; an empty table means "use the documented default window"
+-- (1..24 December Europe/Paris).
+CREATE TABLE IF NOT EXISTS winter_meta (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL DEFAULT 0
+);

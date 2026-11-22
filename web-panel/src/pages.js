@@ -167,6 +167,7 @@ export async function pageHome(env, url) {
     <tr><td class='k'>Achievements</td><td><a href='/achievements'>/achievements</a></td></tr>
     <tr><td class='k'>Tournament</td><td><a href='/tournament'>/tournament</a> <span class='muted'>/ctop</span></td></tr>
     <tr><td class='k'>Events</td><td><a href='/events'>/events</a></td></tr>
+    <tr><td class='k'>Winterfest</td><td><a href='/winter'>/winter</a> <span class='muted'>December: tree, Advent, Winter Pass</span></td></tr>
     <tr><td class='k'>VIP</td><td><a href='/vip'>/vip</a> <span class='muted'>in-game /vip · /help</span></td></tr>
     <tr><td class='k'>Shop</td><td class='muted'>in-game only — N menu or /shop</td></tr>
     <tr><td class='k'>In-game</td><td class='muted'>N or /menu · /help · /profile · /bp · /shop · /vip</td></tr>

@@ -30,6 +30,7 @@ on:
       - '.github/workflows/panel.yml'
   pull_request:
     branches: [main]
+  workflow_dispatch:
     paths:
       - 'web-panel/**'
       - '.github/workflows/panel.yml'

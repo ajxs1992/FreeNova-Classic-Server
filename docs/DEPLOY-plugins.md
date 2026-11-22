@@ -260,3 +260,42 @@ them.
 * Coin economy: the four premium-tier `g_iCoins[] +=` sites (§8.3) are still
   unclamped; only the two admin paths are fixed.
 * The panel-side action token (§3.8) and the `?k=` admin password path (§8.7).
+
+---
+
+## 6. Deployment record — 2026-11-22
+
+Uploaded to the live server the panel calls **"CS 1.6 Vanilla"**
+(`cmux305a200lt01pppogfv4wj`, `193.70.81.30:27015`, ReHLDS) over SFTP, per file:
+
+| what | count | destination |
+|---|---|---|
+| rebuilt plugin binaries | 15 | `cstrike/addons/amxmodx/plugins/` |
+| `plugins.ini` (rt_planting before rt_core + two corrected comments) | 1 | `cstrike/addons/amxmodx/configs/plugins.ini` |
+
+Safety checks done first:
+
+* the 15 live binaries were byte-identical in size to this repo's pre-fix
+  snapshot (`0b8f301`), so nothing on the host had been hot-fixed behind our
+  back and the upload cannot revert someone else's change;
+* the four files compared (`plugins.ini`, `server.cfg`, `amxx.cfg`,
+  `mapcycle.txt`) were byte-identical between this repo and the host before the
+  upload, so the repo really is the source of truth for this server;
+* after the upload every one of the 16 files matched its local size on the host
+  (15/15 binaries, `plugins.ini` 7175 bytes).
+
+**Not yet activated.** AMX Mod X loads plugin binaries at server start only - a
+map change does not reload them - so the running server still has the old
+plugins in memory until it is restarted (panel Restart, or a stop/start).
+
+Rollback, if a plugin misbehaves after the restart:
+
+```sh
+git show 0b8f301:game-server/cstrike/addons/amxmodx/plugins/freenova_sync.amxx > /tmp/freenova_sync.amxx
+printf 'put /tmp/freenova_sync.amxx cstrike/addons/amxmodx/plugins/freenova_sync.amxx\n' \
+  | SFTP_PASS=... SSH_ASKPASS=... ssh-sftp -P 2022 cmux305a200lt01pppogfv4wj@193.70.81.30
+```
+
+then restart again. Rolling back `plugins.ini` alone restores the old
+`rt_core`/`rt_planting` order (corpse-planting disabled) without touching any
+binary.

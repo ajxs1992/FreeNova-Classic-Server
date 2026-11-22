@@ -641,3 +641,33 @@ curl -s 'https://leaderboard.fn-gaming.net/battlepass?steamid=<steamid>' | grep 
 plugin and `git show 28a18cf^:web-panel/<file>` for the panel, then restart both.
 The panel's `bp_xp`/`bp_tier` columns are additive: an old panel ignores them and
 an old plugin never sends them, so a partial rollback cannot corrupt a row.
+
+---
+
+## 9. Deployment record — round three, 2026-11-22 (~20:30 UTC)
+
+Three batches landed together: **BP XP as its own ledger** (`28a18cf` + 8), the
+**recovered plugin sources** (137 sources, `cstrike/addons/amxmodx/scripting`),
+and **retention round three** (missions/events config-driven, VIP audit,
+achievements payout, competitive season guard).
+
+Uploaded with `tools/deploy.sh`, which is new in this round: it lists the remote
+tree, uploads only files that differ by size, backs up what it is about to
+replace, and verifies the host afterwards.
+
+| target | files | verification |
+| --- | --- | --- |
+| `tools/deploy.sh plugins` | 95 (70 `.amxx` + 22 includes + `mapcycle.txt`) | `verified 95/95`; a second run says "nothing to deploy" |
+| `tools/deploy.sh panel` | 12 (`server_local.mjs`, `src/*`, `relay/*`, `schema.sql`, `package.json`, `HACK`…) | `verified 12/12` |
+
+After restarting both services from the panel:
+
+* game server: `70 plugins, 70 running`, no bad loads, no new `error_*.log`
+  (the newest is still `error_20261031.log` — the `item_defuser` one, fixed since);
+* panel: `/`, `/top15`, `/bp`, `/profile` all 200, MOTD
+  `/m/i/0-0-…/daily.htm` 200, and the live DB now has the **`bp_xp` / `bp_tier`**
+  columns the migration adds on boot (86 columns, up from 84).
+
+Not verified by this deployment: the BP ledger's behaviour with a real player
+(the server has only YaPB bots, which never push). The next human session is the
+proof, and `/bp` + the HUD + the panel profile are the three places to look.

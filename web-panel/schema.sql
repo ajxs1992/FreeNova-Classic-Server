@@ -479,3 +479,38 @@ CREATE TABLE IF NOT EXISTS winter_meta (
     value      TEXT NOT NULL DEFAULT '',
     updated_at INTEGER NOT NULL DEFAULT 0
 );
+
+-- ============================================================ Winterfest 2026 — the envelope
+-- Additive 2026-11-23 (docs/WINTERFEST-WORKSTREAMS.md row 15, the owner's
+-- envelope decision: docs/WINTERFEST.md §6.3). The inbox behind /mail and the
+-- red dot in the top bar.
+--
+-- ONE ROW PER MESSAGE PER RECIPIENT. A staff broadcast to "everyone" is a
+-- fan-out at send time (one row per steamid the panel knows), so read state is
+-- per player and a message can never be marked read for somebody else — the
+-- same reason this table has no shared "broadcast" row with a join table.
+--
+-- WHO WRITES WHAT
+--   panel  /admin?s=mail (staff session + CSRF) inserts rows; nothing else on
+--          the player side writes: /mail is read-only by steamid because the
+--          panel has no authenticated player session (docs §15.5 honest scope).
+--   game   reports back which ids the player read with `!mail` in the payload
+--          winter.mail_read (UPDATE read_at). The panel mirror stays a mirror.
+--
+-- Safe migration path: IF NOT EXISTS only, no ALTER, no UPDATE, no DROP — the
+-- runner (server_local.mjs) execs this file on every boot over the live replica,
+-- and src/winter/mail.js repeats the same DDL lazily, so a deployment that never
+-- execs this file still gets the table the first time a page needs it.
+CREATE TABLE IF NOT EXISTS winter_mail (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    steamid     TEXT NOT NULL,                  -- recipient (one row each)
+    kind        TEXT NOT NULL DEFAULT 'system', -- system | event | grant | admin
+    title       TEXT NOT NULL DEFAULT '',
+    body        TEXT NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL DEFAULT 0,
+    read_at     INTEGER NOT NULL DEFAULT 0,     -- 0 = unread
+    expires_at  INTEGER NOT NULL DEFAULT 0,     -- 0 = never; expired rows are invisible
+    payload     TEXT NOT NULL DEFAULT ''        -- optional JSON (grant/event reference)
+);
+CREATE INDEX IF NOT EXISTS idx_winter_mail_inbox  ON winter_mail (steamid, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_winter_mail_unread ON winter_mail (steamid, read_at);

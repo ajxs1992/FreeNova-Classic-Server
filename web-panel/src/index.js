@@ -23,6 +23,12 @@ import { pageMotdV2 } from "./motd.js"
 import { pageBoards } from "./boards_page.js"
 import { handleWinter } from "./winter/index.js"
 import { applyWinterSkin } from "./winter/skin.js"
+// The two dashboard surfaces the owner drew in the sidebar (docs/design/
+// WINTERFEST-DASHBOARD.md): Levels under PROGRESSION and the envelope in the top
+// bar. They are ordinary GET pages: /levels is informational (no claim path in
+// Phase 1) and /mail is read-only by steamid, so neither adds a POST route.
+import { pageLevels } from "./winter/levels.js"
+import { pageMail, unreadCount } from "./winter/mail.js"
 
 export default {
   async fetch(request, env, ctx) {
@@ -270,6 +276,15 @@ async function routeRequest(request, env, ctx) {
         case "/records":
         case "/hof":
         case "/halloffame":  return await pageAchievements(env, url)
+        // Winterfest dashboard pages (src/winter/levels.js, src/winter/mail.js).
+        // GET only: the levels page has nothing to claim and the inbox is
+        // read-only by steamid, so a POST to either falls through to the method
+        // gate above and is refused with 405 instead of inventing a write path.
+        // The envelope's red dot is the unread count in winter_mail.
+        case "/levels":      return await pageLevels(env, url, {
+                               unread: await unreadCount(env, url.searchParams.get("steamid") || "")
+                             })
+        case "/mail":        return await pageMail(env, url)
         // Read-only web landing pages. Purchases and equipping remain in game.
         case "/store":
         case "/shop":        return await pageGameSurface(env, url, "shop")

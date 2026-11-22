@@ -1,0 +1,33 @@
+# tests/winterfest/wf_mail_probe.expect
+#
+# Consumed by cs16-linux-base's test-plugin.sh: one POSIX extended regex per
+# line, every one must appear in the server console log; a line starting with
+# '!' must NOT appear.
+#
+#   printf 'winterfest_mail.amxx\n' >> build/server-freenova/cstrike/addons/amxmodx/configs/plugins.ini
+#   ./scripts/test-plugin.sh /path/to/FreeNova-Classic-Server/tests/winterfest/wf_mail_probe.sma \
+#       --profile freenova --bots 1
+#
+# The plugin under test is winterfest_mail.amxx (loaded by the profile's own
+# plugin list); the probe drives it through its natives.
+
+# The module came up and opened its own vault, not the core's.
+\[WF-MAIL\] vault 'freenova_wfm' open
+# The unread count is READ ON CONNECT - the log line the brief asks for.
+\[WF-MAIL\] .* unread=[0-9]+ cached=[0-9]+ core_pending=-?[0-9]+
+# The operator view from the server console (wf_mail_state in .commands).
+\[WF-MAIL\] .* unread=[0-9]+ cached=[0-9]+ core_pending=-?[0-9]+ reads=[0-9]+
+# The probe's own assertions.
+\[WF-MAIL-PROBE\] PASS deliver-once
+\[WF-MAIL-PROBE\] PASS one-row-only
+\[WF-MAIL-PROBE\] PASS unread-count
+\[WF-MAIL-PROBE\] PASS expired-hidden
+\[WF-MAIL-PROBE\] PASS index-lookup
+\[WF-MAIL-PROBE\] PASS mail-show-called
+\[WF-MAIL-PROBE\] PASS read-report
+\[WF-MAIL-PROBE\] PASS unread-after-read
+\[WF-MAIL-PROBE\] PASS read-is-idempotent
+\[WF-MAIL-PROBE\] done
+# Nothing may have failed, and the module must not have loaded badly.
+!\[WF-MAIL-PROBE\] FAIL
+!\[WF-MAIL\] ERROR

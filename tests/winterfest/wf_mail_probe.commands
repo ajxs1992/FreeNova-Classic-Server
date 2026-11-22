@@ -1,0 +1,10 @@
+# tests/winterfest/wf_mail_probe.commands
+#
+# Console commands cs16-linux-base sends after the map starts, 0.4 s apart. This
+# is the operator half: the same cache view an admin gets from the server
+# console, on the same functions the chat commands use.
+#
+# `wf_mail_state` with no target prints one line per connected client
+# ("unread=… cached=… core_pending=… reads=…") plus its five most recent
+# entries — the log line the expect file asserts.
+wf_mail_state

@@ -369,6 +369,8 @@ stock bool:GrantZgun(id, bool:bEnforceGate)
     set_task(ZGUN_REFRESH_TIME, "Task_Refresh", id + ZGUN_TASK_REFRESH);
 
     client_print(id, print_chat, "[ZG-7] You equipped the %s.", ZGUN_DISPLAY_NAME);
+    // lint:allow format-var - ZGUN_DISPLAY_NAME is a string literal define
+    // (see the #define), so it cannot carry a player-controlled format.
     client_print(id, print_center, ZGUN_DISPLAY_NAME);
 
     new iTier = FnVipUsable() ? fnvip_get_tier(id) : -1;
@@ -748,7 +750,7 @@ public Cmd_Info(id, level, cid)
         "[ZG-7] enabled=%s flag=^"%s^" vip_tier=%s min_tier=%s model=%s",
         szEnabled, g_szFlag[0] ? g_szFlag : "(none)",
         szTier, szMinTier, ZGUN_VIEW_MODEL);
-    client_print(id, print_chat, szLine);
+    client_print(id, print_chat, "%s", szLine);
     ZLog(szLine);
 
     formatex(szLine, charsmax(szLine),
@@ -756,14 +758,14 @@ public Cmd_Info(id, level, cid)
         ZGUN_SEQ_COUNT, ZGUN_SEQ_IDLE, ZGUN_SEQ_SHOOT1, ZGUN_SEQ_SHOOT2,
         ZGUN_SEQ_SHOOT3, ZGUN_SEQ_RELOAD, ZGUN_SEQ_DRAW,
         szDamage, ZGUN_UNSCOPED_PCT, ZGUN_MAX_AMMO);
-    client_print(id, print_chat, szLine);
+    client_print(id, print_chat, "%s", szLine);
     ZLog(szLine);
 
     new bModel = file_exists(ZGUN_VIEW_MODEL);
     new bVip = FnVipUsable();
     formatex(szLine, charsmax(szLine),
         "[ZG-7] model_present=%d freenova_vip=%d", bModel, bVip);
-    client_print(id, print_chat, szLine);
+    client_print(id, print_chat, "%s", szLine);
     ZLog(szLine);
 
     CountHolders();

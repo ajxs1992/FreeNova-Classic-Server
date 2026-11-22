@@ -441,3 +441,31 @@ with `git checkout 354280e -- web-panel` and a restart. No database or vault
 migration is needed in either direction: nothing in this round adds or renames a
 column, a vault key or a config key - the only new knob is the optional
 `ab_sql_timeout` cvar and the optional `FN_LOCAL_TRUST` env var.
+
+---
+
+## 7. Deployment record — round two, 2026-11-22 (16:5x UTC)
+
+Same server, same method. **13 rebuilt binaries**, no `plugins.ini` change:
+
+```
+battlepass_core fn_bans freenova_mapvote freenova_sync freenova_zgun
+postgres_engine reapi_healthnade rsu_matchstats rsu_stats rt_core rt_effects
+weapon_models weaponmenu
+```
+
+Pre-flight: all 13 live binaries were **size-identical** to this repo at `354280e`
+(the round-one deployment), so again no drift to clobber. Post-upload: **13/13
+matched** their local sizes on the host.
+
+Activation: panel restart, then `amx_plugins` read off the console ->
+**`70 plugins, 70 running`**, no bad loads. No new `error_*.log` was written
+(the newest is still `error_20261031.log`), and the three most recent daily logs
+(Nov 20-22) contain zero `Run time error` / `[AMXX]` lines.
+
+Rollback: same recipe as §6, with `354280e` as the revision.
+
+Not deployed here: `web-panel/**`. The Worker deployment is a separate artefact
+(`npm run deploy` against the owner's Cloudflare account, which this machine is
+not logged in to) - the panel changes are committed and tested but still need
+`wrangler deploy` from a machine with credentials.

@@ -19,6 +19,14 @@ tools/build/
 __pycache__/
 *.pyc
 
+# Operational credentials for tools/watch-server.py and tools/backup-pull.py:
+# the Discord webhook and the two SFTP passwords. They live in
+# ~/.config/freenova-watch/ (mode 600, outside this tree). Anything that looks
+# like a copy of them is ignored by name so a stray `cp` cannot stage a secret.
+freenova-watch/
+*.pass
+askpass.sh
+
 # OS / editor noise.
 .DS_Store
 *.orig

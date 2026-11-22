@@ -225,3 +225,22 @@ The game install itself (maps, models, sound, sprites, WADs, HLDS binaries,
 `steamapps/`) is **not** here, and neither are `node_modules/` or `.npm/` — see
 `README.md`. A restore from this repository restores the *server logic and
 config*, not the content.
+
+---
+
+## 5. Things deliberately retired (2026-11-22)
+
+| Retired | Why | How to bring it back |
+| --- | --- | --- |
+| **`cs_havana`** | every load died with `Host_Error: ED_ParseEdict: Model '*239' failed to precache because the item count is over the 512 limit` (`cstrike/sys_error.log`, 6 times between Oct 26 and Nov 16). The two core dumps on the host came from it. | `mv cstrike/maps/_retired/cs_havana.* cstrike/maps/` - but only after the plugin precache count is cut, otherwise the next load kills the server again |
+| **core dumps** (`core.15`, `core.16`, 418 MB) | the crash they recorded is understood and the map is retired; `cstrike/sys_error.log` is the useful artefact | re-enable cores (`ulimit -c unlimited` in the startup command) if a *new* crash needs a dump |
+| **`fn_ban_file`** (`.sma` + `.amxx`) | disabled stale fork of `advanced_bans`: it registers the same four `CBan_*` natives and the same five `amx_ban*` commands | `git show <sha>^:game-server/cstrike/addons/amxmodx/scripting/fn_ban_file.sma` |
+| **`freenova_chatcmds`** (`.sma` + `.amxx`) | never listed in `plugins.ini`, so its "load before freenova_panel" contract was void - dead weight | same recipe |
+
+Ownership of bans stays: `postgres_engine` (transport) -> `advanced_bans`
+(authoritative backend, owns the commands) -> `fn_bans` (high-level `fn_*` API and
+audit). Nothing else registers ban commands.
+
+Product decisions taken at the same time: **BP XP becomes its own ledger** (seeded
+at 0 for everyone, VIP bonus applies), and **backups live in a separate private
+repo** (`backup-freenova`), not in this one.

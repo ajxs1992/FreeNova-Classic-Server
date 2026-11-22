@@ -32,6 +32,11 @@ cheaper to decide now than later.
 
 ## Rotation checklist
 
+0. **2026-11-22 review note:** `fnweb_secret` and `freenova_reg_server_secret`
+   were printed into an operator session transcript while this repository was
+   being reviewed (a grep on `amxx.cfg` was not secret-aware). No value was copied
+   into a commit, a document or a ticket, but both should be treated as exposed
+   and rotated with the procedure in `docs/RUNBOOK.md` §3.
 1. `FNWEB_SECRET` / `SYNC_SECRET` -> new random value in `relay.env`, in
    `amxx.cfg` (`fnweb_secret`) and in the Worker secret (`wrangler secret put`).
 2. `REG_SECRET` -> same, plus `freenova_registration.cfg`.

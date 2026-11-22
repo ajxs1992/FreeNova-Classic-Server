@@ -25,6 +25,7 @@ coins. None of it is a rewrite; the fixes in §9 are small.
 - [7. Structure and maintainability](#7-structure-and-maintainability)
 - [8. Recommendations that need an operator decision](#8-recommendations-that-need-an-operator-decision)
 - [9. Fixes applied while reviewing](#9-fixes-applied-while-reviewing)
+- [9b. Applied since review](#9b-applied-since-review)
 - [10. Unverified / could not confirm](#10-unverified--could-not-confirm)
 - [11. Coverage](#11-coverage)
 
@@ -657,6 +658,64 @@ third-party includes (`bypass_guard.inc` ×2, `easy_http.inc`), not source bugs.
 The two plugins involved are disabled in `plugins.ini`, so nothing live is
 affected — but `bypass_guard.sma` and `ab_bypass_bridge.sma` cannot be rebuilt
 from this snapshot at all until those `.inc` files are recovered from the host.
+
+## 9b. Applied since review
+
+The plugin-side fixes `§5` and `§5.5` identified but deliberately left
+unapplied. Each is one commit; every one rebuilt the plugin with
+`tools/compile-plugins.sh` (which now has a `--only <name>` mode for exactly
+this) and replaced the tracked binary in
+`game-server/cstrike/addons/amxmodx/plugins/` in the same commit. Baseline and
+final full-tree result are identical:
+
+```
+before: compiled: 85   failed: 3   allowed-failures: 3
+after:  compiled: 85   failed: 3   allowed-failures: 3   (0 warnings in all 85 logs)
+```
+
+| Finding | File | Commit | Compile evidence (`--only`, 0 warnings) |
+|---|---|---|---|
+| §2.3 / §5.1 clutch pending key self-aliased | `freenova_clutch.sma` | `4c16413` | PASS; H1328 C13568 D11620 S16384; `freenova_clutch.amxx` 7402 → 8242 |
+| §5.2 admin coin paths bypass the wallet cap | `battlepass_core.sma` | `7236da0` | PASS; H7016 C164752 D94900 S262144; `battlepass_core.amxx` 66315 → 66158 |
+| §5.2 / §2.2 web grants not idempotent, one bad action poisons the batch | `freenova_sync.sma` | `f138da2` | PASS; H4928 C85996 D177980 S262144; `freenova_sync.amxx` 38540 → 39008 |
+| §5.2 event cvar never restored across a map change | `freenova_randevent.sma` | `affe6da` | PASS; H704 C6600 D4148 S16384; `freenova_randevent.amxx` 4350 → 4445 |
+| §5.2 SQL tuple freed under in-flight threaded saves | `rsu_core.sma` | `50bdeda` | PASS; H7392 C213632 D265284 S262144; `rsu_core.amxx` 93216 → 93103 |
+| §5.2 32-bit VIP expiry overflow on 2028-01-20 | `freenova_vip.sma` | `ca4a340` | PASS; H4328 C91168 D82012 S65536; `freenova_vip.amxx` 40345 → 43720 |
+| §5.2 frames exceed the default AMX stack | `freenova_registration.sma`, `freenova_calladmin.sma` | `402b61f` | PASS ×2; stack/heap 16384 → 65536 bytes (= 16384 cells); `freenova_registration.amxx` 21733 → 21632, `freenova_calladmin.amxx` 10540 → 11498 |
+| §5.3 central chat gate tested a library nobody registers | `fn_chat.sma` | `04d99b2` | PASS; H520 C1176 D1068 S16384; `fn_chat.amxx` 1838 → 1809 |
+| §5.5 player name used as the printf format | `weapon_models.sma`, `freenova_zgun.sma` | `da15da5` | PASS ×2; `weapon_models.amxx` 43569 → 43477, `freenova_zgun.amxx` 15812 → 17000 |
+| §5.5 warm-up cvars never restored across a map change | `simple_warmup.sma` | `4dda65e` | PASS; H852 C2856 D2216 S16384; `simple_warmup.amxx` 2543 → 2719 |
+| §5.3 achievement unlocked before its reward is durable | `freenova_achievements.sma` | `6af0278` | PASS; H1820 C27328 D12828 S16384; `freenova_achievements.amxx` 13360 → 13489 |
+| §5.3 playtime milestones never saved at `plugin_end` | `freenova_progression.sma` | `b49af9d` | PASS; H1480 C14548 D6824 S16384; `freenova_progression.amxx` 8044 → 8913 |
+| §5.3 seven dynamic arrays created and never destroyed | `advanced_bans.sma` | `739b719` | PASS; H3896 C106288 D534984 S16384; `advanced_bans.amxx` 56685 → 56711 |
+| §5.5 H1 `rt_core` cached `is_plugin_loaded("rt_planting")` before it was loaded; plus the two wrong `plugins.ini` comments | `configs/plugins.ini` | `822fe44` | not a source (no compile); full tree unchanged at 85/3/3 |
+
+`H`/`C`/`D`/`S` are the compiler's own header/code/data/stack-heap byte counts
+from `tools/build/plugins/logs/<name>.sma.log`.
+
+Operator decisions in §8 were **not** taken: BP-XP vs rank XP (§8.4), the four
+premium-tier coin writes (§8.3), the action token (§8.6) and the `?k=` admin
+password path (§8.7) are untouched. Deploy steps: `docs/DEPLOY-plugins.md`.
+
+Four things measured while applying, which correct or extend the findings
+above:
+
+1. **`fn_ban_file.sma` does register natives.** §5.3 says `plugins.ini:19`
+   claimed a native-provider duplication "it registers none". It registers four
+   (`CBan_BanPlayer`, `CBan_UnbanPlayer`, `CBan_OffBanPlayer`,
+   `CBan_AddBanPlayer`, `fn_ban_file.sma:409-412`) *as well as* the five
+   `amx_ban*` commands (`:428-433`). The comment was fixed to say both; the
+   conclusion (stale fork of `advanced_bans`) was right.
+2. **`advanced_bans` leaks eight handles, not seven.** §5.3 counted seven; the
+   fourth offban array (`g_off_seen`, `:401`) is the one missing.
+3. **`amxxpc` 1.10.0.5467 is not byte-reproducible.** Two builds of one
+   unchanged source gave 1808 and 1809 bytes with different hashes, so binary
+   size deltas of a few bytes mean nothing; the compiler's `H/C/D/S` line is the
+   stable evidence.
+4. **`freenova_vip.amxx` grew 3375 bytes for a 16-line change** while the
+   compiler reports +528 of code+data. A control patch of the same size in the
+   same file also lands near 43.6 KB, so the jump is where amxxpc's image
+   crosses a section boundary, not something this patch introduced.
 
 ## 10. Unverified / could not confirm
 

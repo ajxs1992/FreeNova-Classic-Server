@@ -2714,5 +2714,8 @@ stock client_printcolor(id, const fmt[], any:...)
     replace_all(msg, charsmax(msg), "!g", "^4");
     replace_all(msg, charsmax(msg), "!t", "^3");
     replace_all(msg, charsmax(msg), "!n", "^1");
-    client_print_color(id, print_team_default, msg);
+    // REVIEW.md 5.5: the caller's text was passed as the FORMAT. A player
+    // named "%s" then made client_print_color re-format garbage cells, so
+    // pass it as an argument instead.
+    client_print_color(id, print_team_default, "%s", msg);
 }

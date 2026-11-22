@@ -70,6 +70,10 @@ public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR)
 
+	// lint:allow library-missing - legacy provider name from before the RSU
+	// merge. No plugin in this tree registers "rsu_achievements", so this pause
+	// is a no-op today; the literal stays so an operator can drop that plugin
+	// back in and have this provider step aside.
 	if (LibraryExists("rsu_achievements", LibType_Library))
 	{
 		g_bPaused = true
@@ -600,5 +604,8 @@ stock client_printcolor(id, const fmt[], any:...)
 	replace_all(msg, charsmax(msg), "!t", "^3")
 	replace_all(msg, charsmax(msg), "!n", "^1")
 	replace_all(msg, charsmax(msg), "!Team", "^3")
-	client_print_color(id, print_team_default, msg)
+	// REVIEW.md 5.5: the caller's text was passed as the FORMAT. A player
+	// named "%s" then made client_print_color re-format garbage cells, so
+	// pass it as an argument instead.
+	client_print_color(id, print_team_default, "%s", msg)
 }

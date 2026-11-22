@@ -20,3 +20,17 @@ One line per change, with the verification that was actually run. Newest last.
   (`logged in as FreeNova CS 1.6 Bot#7057`) and `synced 5 command(s): events,
   map, players, status, top`; REST `GET /applications/{id}/guilds/{guild}/commands`
   confirms the same five names. Slash-command invocation itself needs a human.
+
+- **Presence that tells a story** (`bot.py`): `presence_for()` is a pure helper
+  that picks the line from the A2S snapshot - `de Nuke · 9/32 · defuse` /
+  `· 23 free` / plain, rotating the hint each refresh, `0/32 · waiting for
+  players` when empty, `· full house` when full, and an idle
+  `watching for the server to come back` when the server does not answer. The
+  loop is floored at 30 s regardless of config, and the presence is only
+  written when the line actually changes.
+  *Verified:* `py_compile`; pure-helper check of all five states plus map-kind
+  detection; restart → journal shows `presence: de Nuke · 9/32 · defuse (live)`.
+  Note: "warmup"/"knife round" are **not** detectable over A2S - A2S_PLAYER
+  carries no round state and A2S_RULES (cvars such as `mp_freezetime`) only
+  arrives as a ~40-datagram split reply that is lossy in practice (probed: two
+  of many chunks arrived). The code documents this rather than guessing.

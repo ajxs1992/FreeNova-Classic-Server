@@ -136,7 +136,9 @@ def humanise_map(mapname: str | None) -> str:
     name = mapname.strip()
     if not name:
         return "unknown map"
-    for prefix, label in (("de_", "de "), ("cs_", "cs "), ("awp_", "awp "), ("aim_", "aim ")):
+    for prefix, label in (("de_", "de "), ("cs_", "cs "), ("awp_", "awp "), ("aim_", "aim "),
+                          ("fy_", "fy "), ("he_", "he "), ("surf_", "surf "), ("kz_", "kz "),
+                          ("zm_", "zm "), ("deathrun_", "deathrun ")):
         if name.startswith(prefix):
             return label + name[len(prefix):].replace("_", " ").title()
     return name.replace("_", " ").title()
@@ -161,6 +163,75 @@ def map_pool(path: str | None) -> list[str]:
     except OSError:
         return []
     return [ln.strip() for ln in lines if ln.strip() and not ln.strip().startswith("//")]
+
+
+# --------------------------------------------------------------------- presence
+# A2S gives us the map, the player count and per-player score/connect time -
+# nothing about rounds. A2S_RULES (which would carry cvars such as mp_freezetime)
+# only arrives as a 40-datagram split reply that is routinely lossy, so a
+# "warmup"/"knife round" hint cannot be derived honestly today. What *is*
+# observable is the map, the population and the map type, so the presence tells
+# that story and rotates which part of it it shows.
+MAP_KINDS: tuple[tuple[str, str], ...] = (
+    ("deathrun_", "deathrun"),
+    ("surf_", "surf"),
+    ("kz_", "kreedz"),
+    ("zm_", "zombie"),
+    ("awp_", "AWP only"),
+    ("aim_", "aim"),
+    ("fy_", "iceworld"),
+    ("he_", "grenades only"),
+    ("de_", "defuse"),
+    ("cs_", "hostage rescue"),
+)
+
+
+def map_kind(mapname: str | None) -> str:
+    """Game mode implied by the map prefix; `custom` for anything else."""
+    name = (mapname or "").lower()
+    for prefix, label in MAP_KINDS:
+        if name.startswith(prefix):
+            return label
+    return "custom"
+
+
+@dataclass(frozen=True)
+class Presence:
+    """What the bot shows under its name, and how loudly."""
+
+    kind: str                       # offline / empty / live / full
+    verb: str                       # playing / watching
+    text: str
+    status: str                     # online / idle
+
+    def as_tuple(self) -> tuple[str, str, str, str]:
+        return (self.kind, self.verb, self.text, self.status)
+
+
+def presence_for(info: dict | None, cycle: int = 0, event_title: str | None = None) -> Presence:
+    """Pick the presence line for one refresh.
+
+    ``cycle`` rotates the extra hint (map type, free slots, a running event) so
+    the line is informative without flickering faster than Discord likes.
+    """
+    if not info:
+        return Presence("offline", "watching", "for the server to come back", "idle")
+
+    players = int(info.get("players") or 0)
+    maxp = int(info.get("max") or 0)
+    mapname = info.get("map") or ""
+    label = humanise_map(mapname)
+    count = f"{players}/{maxp}" if maxp else str(players)
+
+    if players <= 0:
+        return Presence("empty", "playing", f"{count} · waiting for players", "online")
+    if maxp and players >= maxp:
+        return Presence("full", "playing", f"{label} · {count} · full house", "online")
+
+    hints = [map_kind(mapname), f"{maxp - players} free" if maxp else "", event_title or ""]
+    hint = hints[cycle % len(hints)] if hints else ""
+    text = f"{label} · {count}" + (f" · {hint}" if hint else "")
+    return Presence("live", "playing", text, "online")
 
 
 # ------------------------------------------------------------------ A2S protocol
@@ -461,23 +532,29 @@ def build_bot(cfg: dict) -> commands.Bot:
         await _reply(interaction, content=ERROR_TEXT)
 
     # ---------------------------------------------------------------- presence
-    @tasks.loop(seconds=max(30, int(cfg.get("presence_refresh") or 60)))
-    async def presence_loop() -> None:
+    presence_state: dict[str, Any] = {"last": None, "cycle": 0}
+
+    async def apply_presence() -> None:
+        """Refresh the presence line, skipping the write when nothing changed."""
         info = await get_info(server)
-        if info:
-            activity = discord.Activity(
-                type=discord.ActivityType.playing,
-                name=f"{humanise_map(info['map'])} · {info['players']}/{info['max']}",
-            )
-            status = discord.Status.online
-        else:
-            activity = discord.Activity(type=discord.ActivityType.watching,
-                                        name="for the server to come back")
-            status = discord.Status.idle
+        desired = presence_for(info, presence_state["cycle"])
+        presence_state["cycle"] = (presence_state["cycle"] + 1) % 3
+        if desired.as_tuple() == presence_state["last"]:
+            return
+        verb = (discord.ActivityType.watching if desired.verb == "watching"
+                else discord.ActivityType.playing)
+        status = discord.Status.idle if desired.status == "idle" else discord.Status.online
         try:
-            await bot.change_presence(activity=activity, status=status)
+            await bot.change_presence(activity=discord.Activity(type=verb, name=desired.text),
+                                      status=status)
+            presence_state["last"] = desired.as_tuple()
+            log.info("presence: %s (%s)", desired.text, desired.kind)
         except Exception:                      # noqa: BLE001
             log.warning("presence update failed", exc_info=True)
+
+    @tasks.loop(seconds=max(30, int(cfg.get("presence_refresh") or 60)))
+    async def presence_loop() -> None:
+        await apply_presence()
 
     # ---------------------------------------------------------------- commands
     @bot.tree.command(name="status", description="Live status of the FreeNova Classic server")

@@ -105,7 +105,12 @@ public PrepareScreen(eData[], taskid)
 
 	client_print_color(id, print_team_red, "^4[CBAN]^1 Admin ^3%s^1 took a screenshot of you!", eData[ADMIN_NAME]);
 	client_print_color(id, print_team_red, "^4[CBAN]^1 SS Number: ^3%d^1/%d. Date: ^3%s^1", eData[SS_TAKEN], eData[SS_NUMBER], szDate);
-	client_print_color(id, print_team_red, "^4[CBAN]^1 Name: ^3%n^1 IP: ^3%s^1 SteamID: ^3%s^1", id, eData[PLAYER_IP], eData[PLAYER_STEAMID]);
+	// %n is not an AMXX format specifier: the format native raises run time
+	// error 10 on it (measured, tools/lint-plugins.py rule 2), which aborted the
+	// rest of this function. Resolve the name and pass it as %s.
+	new szPlayerName[MAX_NAME_LENGTH];
+	get_user_name(id, szPlayerName, charsmax(szPlayerName));
+	client_print_color(id, print_team_red, "^4[CBAN]^1 Name: ^3%s^1 IP: ^3%s^1 SteamID: ^3%s^1", szPlayerName, eData[PLAYER_IP], eData[PLAYER_STEAMID]);
 	client_print_color(id, print_team_red, "^4[CBAN]^1 This is a ^4Screenshot^1 taken on ^4%s^1 ^n", szServerName);
 
 	set_task(0.1, "TakeScreenshots", id + TASK_SS);

@@ -82,6 +82,15 @@ API_STATUS_STALE = {
     "updated": NOW_TS,
 }
 
+# live production shape: last_push seconds old, but the push still says 0 players
+API_STATUS_DISAGREE = {
+    "server": {"name": "FreeNova CS 1.6 | fn-gaming.net", "map": "de_dust2", "online": True,
+               "players": 0, "max": 32, "next_map": None, "last_push": NOW_TS - 11,
+               "stale": False},
+    "events": {"now": [], "next": None},
+    "updated": NOW_TS,
+}
+
 API_STATUS_OFFLINE = {
     "server": {"name": "FreeNova CS 1.6 | fn-gaming.net", "map": None, "online": False,
                "players": 0, "max": 32, "next_map": None, "last_push": NOW_TS - 5,
@@ -1378,11 +1387,11 @@ def test_server_state_from_api():
 def test_status_uses_the_api_when_fresh():
     import tempfile
 
-    async def boom(server, fresh=False):
-        raise AssertionError("a fresh panel answer must not need an A2S probe")
+    async def same_info(server, fresh=False):
+        return {"name": "FreeNova CS 1.6", "map": "de_dust2", "players": 9, "max": 32}
 
     original = bot.get_info
-    bot.get_info = boom
+    bot.get_info = same_info
     try:
         with tempfile.TemporaryDirectory() as tmp:
             cycle = os.path.join(tmp, "mapcycle.txt")
@@ -1401,6 +1410,29 @@ def test_status_uses_the_api_when_fresh():
     assert fields["Next map"] == "`de_inferno`", "next map comes from the mapcycle"
     assert fields[bot.t("cmd.status.event")] == "Double XP Weekend"
     assert embed.footer.text == "panel API · game push 12s ago"
+
+
+def test_status_prefers_a2s_when_the_panel_push_disagrees():
+    """A fresh push can still carry a stale count - show the live one and say so."""
+    import tempfile
+
+    async def live_info(server, fresh=False):
+        return {"name": "FreeNova CS 1.6", "map": "de_dust2", "players": 9, "max": 32}
+
+    original = bot.get_info
+    bot.get_info = live_info
+    try:
+        cfg = sample_cfg()
+        cfg["mapcycle"] = None
+        interaction = call_command("status", api={"/status": (200, API_STATUS_DISAGREE)}, cfg=cfg)
+    finally:
+        bot.get_info = original
+    embed = interaction.answer["embeds"][0]
+    fields = {field.name: field.value for field in embed.fields}
+    assert fields["Players"] == "**9/32**", "A2S is the live number"
+    assert fields[bot.t("cmd.status.panel_push")] == "0/32 - the A2S count above is live"
+    assert "its player count disagrees" in embed.footer.text
+    assert embed.colour.value == bot.COLOUR_OK
 
 
 def test_status_stale_shows_the_age_and_the_a2s_count():

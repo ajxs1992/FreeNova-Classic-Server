@@ -2,9 +2,17 @@
 """FreeNova CS 1.6 Discord bot.
 
 Answers questions about the Classic server and keeps a live presence:
-`/status`, `/players`, `/map`, `/top`, `/events`, `/profile`. Data comes
-straight from the game server (A2S over UDP), the map cycle file and the public
-leaderboard, so the bot keeps working even when the panel is down.
+`/status`, `/players`, `/map`, `/top`, `/profile`, `/events`, `/help`.
+
+Sources, each used for what it is good at:
+
+* the panel's public JSON API (`/api/public/status|top|player|events`) for the
+  boards, profiles, the event schedule and the status numbers - cached per
+  endpoint, because the API allows 120 requests/minute and sends no-store;
+* A2S over UDP for the presence line, `/players`, `/map`, the live "in game"
+  line of a profile, the up/down latch and the digest samples - the only thing
+  that works when the panel is down;
+* the HTML board page for one thing only: resolving a player name to a steamid.
 
 Config: ~/.config/freenova-bot/config.json (mode 600, never in git)
 
@@ -167,8 +175,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "profile.lookup_title": "Profile · {query}",
         "profile.lookup_title_plain": "Profile",
         "profile.lookup_footer": "Ask again with the name exactly as shown, or the STEAM_0:x:y:z id",
-        "profile.timeout_title": "Leaderboard timeout",
-        "profile.timeout": "{base} didn't answer in time - try again in a moment.",
         # events
         "events.title": "Events",
         "events.empty": ("Nothing scheduled right now. Events are published in this channel and "
@@ -231,6 +237,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "cmd.status.panel_age": "**{age} old**",
         "cmd.status.panel_offline": "The panel says the server is offline.",
         "cmd.status.panel_players_unknown": "count unknown while the push is stale",
+        "cmd.status.panel_push": "Panel push says",
+        "cmd.status.panel_push_value": "{players}/{max} - the A2S count above is live",
+        "cmd.status.source.panel_disagree": ("panel API · game push {age} ago · its player count "
+                                             "disagrees, so the A2S count is shown"),
         "cmd.status.source.panel": "panel API · game push {age} ago",
         "cmd.status.source.panel_none": "panel API · the game has not pushed yet",
         "cmd.status.source.panel_stale": "panel API · {age} old · player count unknown",
@@ -857,24 +867,7 @@ def _strip_tags(fragment: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
 
 
-def _text_of(block: str, pattern: str, group: int = 1) -> str:
-    match = re.search(pattern, block, re.S)
-    return _strip_tags(match.group(group)) if match else ""
 
-
-def _int_of(block: str, pattern: str, group: int = 1) -> int | None:
-    match = re.search(pattern, block, re.S)
-    if not match:
-        return None
-    try:
-        return int(match.group(group).replace(",", "").strip())
-    except (TypeError, ValueError):
-        return None
-
-
-def _steamid_of(block: str) -> str | None:
-    match = re.search(r"steamid=([A-Za-z0-9_%:]+)", block)
-    return urllib.parse.unquote(match.group(1)) if match else None
 
 
 @dataclass(frozen=True)
@@ -2002,22 +1995,33 @@ def status_embed(cfg_server: dict, state: ServerState | None, info: dict | None,
     """The `/status` card: the panel's numbers when it has fresh ones, A2S otherwise.
 
     Staleness is shown, never smoothed over: a stale push means the panel does
-    not know the player count, so the field says so and the A2S probe fills in
-    if it answered.
+    not know the player count, so the field says so and the A2S probe fills in.
+    A *fresh* push whose count contradicts the live probe is shown as well,
+    because a push can be recent and still carry a stale count - the A2S number
+    is the one on the card, and the panel's is named next to it.
     """
     now = now or datetime.now(timezone.utc)
     name = (state.name if state and state.name else cfg_server["name"])
-    mapname = state.map if state else None
-    players = state.players if state and state.has_players else None
-    maxp = state.max if state and state.has_players else None
-    source = "a2s"
-    if state is not None:
-        source = "panel" if not state.stale else "panel_stale"
-    if info:
-        mapname = mapname or info.get("map")
-        if players is None:
-            players, maxp = info.get("players"), info.get("max")
-            source = "panel_stale_a2s" if state and state.stale else "a2s"
+    live_players = info.get("players") if info else None
+    live_max = info.get("max") if info else None
+    panel_players = state.players if state and not state.stale else None
+    panel_max = state.max if state and not state.stale else None
+    disagree = (panel_players is not None and live_players is not None
+                and (panel_players != live_players
+                     or (panel_max is not None and live_max is not None and panel_max != live_max)))
+
+    if disagree:
+        players, maxp, source = live_players, live_max, "panel_disagree"
+    elif panel_players is not None:
+        players, maxp, source = panel_players, panel_max, "panel"
+    elif live_players is not None:
+        players, maxp = live_players, live_max
+        source = "panel_stale_a2s" if state and state.stale else "a2s"
+    else:
+        players, maxp = None, None
+        source = "panel_stale" if state is not None else "a2s"
+
+    mapname = (state.map if state else None) or (info.get("map") if info else None)
     nxt = (state.next_map if state and state.next_map else None) or next_map(pool, mapname)
 
     colour = COLOUR_OK
@@ -2039,6 +2043,10 @@ def status_embed(cfg_server: dict, state: ServerState | None, info: dict | None,
     if state is not None and state.active_events:
         embed.add_field(name=t("cmd.status.event"),
                         value=" · ".join(state.active_events), inline=False)
+    if disagree:
+        embed.add_field(name=t("cmd.status.panel_push"),
+                        value=t("cmd.status.panel_push_value", players=panel_players,
+                                max=panel_max), inline=True)
     if state is not None and state.stale:
         if state.push_age is not None:
             embed.add_field(name=t("cmd.status.panel_data"),
@@ -2051,6 +2059,8 @@ def status_embed(cfg_server: dict, state: ServerState | None, info: dict | None,
     if source == "panel":
         footer = (t("cmd.status.source.panel", age=fmt_age(state.push_age))
                   if state and state.push_age is not None else t("cmd.status.source.panel_none"))
+    elif source == "panel_disagree":
+        footer = t("cmd.status.source.panel_disagree", age=fmt_age(state.push_age or 0))
     elif source == "panel_stale":
         footer = t("cmd.status.source.panel_stale", age=fmt_age(state.push_age or 0))
     elif source == "panel_stale_a2s":
@@ -2344,15 +2354,20 @@ def build_bot(cfg: dict) -> commands.Bot:
     @command_guard()
     async def status_cmd(interaction: discord.Interaction) -> None:
         now = datetime.now(timezone.utc)
-        api = await get_api(base, "/status", ttl=STATUS_TTL)
+        # both sources at once: the panel answers with its own numbers, A2S keeps
+        # them honest (a fresh push can still carry a stale player count)
+        api, info = await asyncio.gather(
+            get_api(base, "/status", ttl=STATUS_TTL),
+            get_info(server),
+        )
         state = server_state_from_api(api.data, now) if api.ok else None
-        # the A2S probe is the fallback and the tie-breaker while the push is stale
-        info = None
-        if state is None or state.stale:
-            info = await get_info(server)
         if state is None and info is None:
             await _reply(interaction, embed=offline_embed(server))
             return
+        if (state is not None and not state.stale and state.players is not None
+                and info is not None and state.players != info.get("players")):
+            log.warning("panel push says %s/%s but A2S says %s/%s - showing A2S",
+                        state.players, state.max, info.get("players"), info.get("max"))
         embed = status_embed(server, state, info, map_pool(cfg.get("mapcycle")), api, now)
         # "when is it busiest?" - straight from our own probe samples
         samples = await asyncio.to_thread(load_samples, samples_path, now.timestamp() - 86400)

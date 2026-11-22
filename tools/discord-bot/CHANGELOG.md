@@ -380,3 +380,20 @@ One line per change, with the verification that was actually run. Newest last.
   state mapping (all six states), file-overrides-title merge, overdue/cancelled
   markers, file fallback footer, 5-minute cache (two reads → one request), and
   stale-transition skipping. Tests 83 → 91.
+
+- **`/status` cross-checks the panel push against A2S** (`bot.py`): the command
+  now asks the panel **and** the game server at the same time (`asyncio.gather`,
+  so the answer time is the slower of the two, not the sum). When the two agree
+  the card is the panel's; when they disagree - observed live:
+  `last_push` 11 s old, `stale:false`, `players:0` while A2S saw 9 - the card
+  shows the **A2S** count, a `Panel push says: 0/32 - the A2S count above is
+  live` field, and the footer
+  `panel API · game push 9s ago · its player count disagrees, so the A2S count is shown`;
+  the journal logs `panel push says 0/32 but A2S says 9/32 - showing A2S`.
+  *Verified against production:* the real callback rendered exactly
+  `Players: **9/32**`, `Panel push says: 0/32`, that footer, with
+  `GET /api/public/status` at the same moment reporting `players: 0, stale:
+  false, last_push: now-11s` and an A2S probe reporting `9/32` (three rounds,
+  same result). This is a panel/game-push bug outside this bot's boundary -
+  reported, not worked around silently. Tests 91 → 92 (a fresh-but-wrong push
+  keeps the A2S number and names the panel's).

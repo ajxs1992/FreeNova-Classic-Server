@@ -2,18 +2,19 @@
 
 A small, read-only Discord bot for **CS 1.6 Classic** (`193.70.81.30:27015`).
 
-It answers questions about the game server straight from A2S over UDP and about
-players from the public leaderboard over HTTPS, so it keeps working when the
-web panel is down. It never writes to the game server.
+It reads the game server straight from A2S over UDP and everything about
+players, boards and events from the panel's public JSON API, so it keeps
+answering when either side is having a bad day. It never writes to the game
+server or the panel.
 
 | Command | What it answers |
 | --- | --- |
-| `/status` | server name, map, players, next map, probe time |
-| `/players [count]` | who is on right now, by score, with time played |
+| `/status` | panel status (map, players/max, online, next map, running event), A2S fallback, honest staleness |
+| `/players [count]` | who is on right now, by score, with time played (A2S) |
 | `/map` | current map, next map, position in the cycle |
-| `/top [period] [count]` | the leaderboard (all time; week/month say they are not published yet) |
-| `/profile <name or STEAM_0:x:y:z>` | rank, XP, K/D, playtime, battle pass (ephemeral) |
-| `/events [count]` | the event schedule with countdowns |
+| `/top [period] [count] [metric]` | the board: lifetime / this week / this month, by XP or kills, with its coverage caveat |
+| `/profile <name or STEAM_0:x:y:z or 0-0-123>` | rank, playtime, coins, battle-pass tier, badges + whether that name is in game now (ephemeral) |
+| `/events [count]` | the panel's schedule with countdowns, plus anything pinned in `events.json` |
 | `/help` | the list above, generated from the live command tree |
 
 Plus, automatically:
@@ -149,9 +150,81 @@ option table) is covered by the tests.
 5. Restart the unit and check the command appears (`/help` too - it is built
    from the tree, so it cannot go stale).
 
+## Data sources
+
+Three sources, each used for what it is actually good at:
+
+| Source | Used for | Freshness |
+| --- | --- | --- |
+| **Panel JSON API** (`https://leaderboard.fn-gaming.net/api/public/*`, contract in `docs/PUBLIC-API.md`) | `/status` numbers, `/top`, `/profile`, `/events`, the daily digest's leader | cached per endpoint (below) |
+| **A2S** (UDP, `server.host:port`) | presence line, `/players`, `/map`, `/profile`'s "in game now", the up/down latch, the peak/coverage samples | 5 s cache, refreshed every `presence_refresh` |
+| **HTML** (`/top15?q=<name>`) | **only** resolving a player *name* to a steamid - the one thing the API does not do | per lookup |
+
+Endpoints the bot reads (all public, no session, no token, `Cache-Control:
+no-store`, 120 requests/minute per client address):
+
+| Endpoint | Command | Cache |
+| --- | --- | --- |
+| `GET /api/public/status` | `/status` | 20 s |
+| `GET /api/public/top?period=week\|month\|all&limit=15&metric=xp\|kills` | `/top` | 30 s per period+metric |
+| `GET /api/public/player/<steamid>` | `/profile` | 60 s per player |
+| `GET /api/public/events` | `/events`, notices, presence hint | **5 min** |
+
+A 200 is cached, a 404 (real "no snapshot") is cached, but a 429/5xx/timeout is
+never cached - so a hiccup cannot get stuck in the cache. A 429 says "the panel
+is rate-limiting me" instead of inventing an answer. Status is *not* cached
+longer than 20 s because `/status` is the command people use to check right now.
+
+**Staleness is shown, not smoothed over.** The panel only knows the player count
+while the game's signed push is < 180 s old; when it is older the API sends
+`players: null, stale: true` and `/status` says so (`Panel data: 10 m old`,
+players `—`, and the A2S probe fills the count in). The presence line always
+uses A2S, because it updates every 60 s.
+
+**A fresh push can still be wrong.** Observed in production: `last_push` 11 s
+old, `stale: false`, `players: 0` - while A2S reported 9 connected players (the
+game's push is not a live count). So `/status` always probes A2S alongside the
+API: when the two agree the card is the panel's, when they disagree the card
+shows the **A2S** count and names the panel's next to it (`Panel push says:
+0/32 - the A2S count above is live`), and the journal logs
+`panel push says 0/32 but A2S says 9/32 - showing A2S`. A wrong number is never
+presented as fact; check the game-side push if that warning keeps appearing.
+
+## Leaderboard, periods and coverage
+
+`/top` reads the API for all three periods. Weekly and monthly values are
+`counter now − counter first seen in the period`, so the API reports
+`coverage.complete: false` until it has seen a whole period: the bot puts that
+in the footer (`Week 47 · 2026 · tracked since <date> · 15 players observed`)
+instead of pretending the board is final. An empty period is not "no data":
+
+> No finished week yet - the board started tracking <date> (Week 47 · 2026), so
+> there is nothing to rank. Lifetime numbers are on `/top all`.
+
+`metric=kills` is exposed as `/top metric`; `count` is sliced locally from one
+`limit=15` request so every count shares the same cache entry.
+
+## Profile and badges
+
+`/profile` takes a name, `STEAM_0:0:123` or the packed `0-0-123` (the API
+accepts both). A steamid goes straight to `/api/public/player/<steamid>`; a name
+is resolved through the board's search page first and still refuses to guess
+when several players match. The card shows what the API publishes - rank
+(`Unranked` when the player has no XP), playtime, coins, battle-pass tier/XP and
+**badges as plain text** (`Weekly #1 · Week 46 · 2026`, `Monthly #1 · …`,
+`Weekly top 3 · …`, `Weekly top-3 streak · …`) - and A2S answers the live
+question by **name match** (`in game now · 7h 27m played, 12 pts` / `not on the
+server right now` / `n players share this name`). A 404 from the API is a real
+"the panel has no snapshot for this steamid yet", a 400 is a steamid the API
+could not parse, and neither is ever reported as a parse failure.
+
 ## Events
 
-`~/.config/freenova-bot/events.json` is a list (or `{"events": [...]}`) of:
+**Primary source: the panel's schedule** (`/api/public/events`, 5-minute cache).
+`~/.config/freenova-bot/events.json` is the **override**: a list (or
+`{"events": [...]}`) of entries whose `title` matches a panel row replaces that
+row, and anything else in the file is shown alongside it - for events pinned by
+hand.
 
 ```json
 [
@@ -162,26 +235,17 @@ option table) is covered by the tests.
 ```
 
 `start`/`end` accept ISO-8601 (`Z` or offset), epoch seconds or
-`YYYY-MM-DD HH:MM` (read as UTC); `when` is free text for events without a
-date. The bot re-reads the file within 30 s of a change and posts one start and
-one end notice per event to `channels.events`, remembering what it announced in
-`state.json` (so restarts do not double-post; bookkeeping is pruned after 14
-days). `/events` shows running first, then upcoming, then anything that ended
-in the last 24 hours.
+`YYYY-MM-DD HH:MM` (read as UTC); `when` is free text for entries without a
+date. The file is re-read within 30 s of a change.
 
-## Leaderboard source
-
-`https://leaderboard.fn-gaming.net` has no JSON API (`/api/*`, `?format=json`
-and `?period=week` all answer 404 or the same HTML), so rows come from the
-public HTML board by class selectors (`table.champ`, `td.r2`/`td.r3`,
-`tr.row`, `td.idx`, `a.pname`, `span.xp`, `img.crest`). Player lookups use the
-board's own search (`/top15?q=`) and then `/profile?steamid=…`.
-
-`fetch_leaderboard()` is the only place that knows about the source;
-`_fetch_rows()` is the one function a JSON endpoint would replace. Weekly and
-monthly boards do not exist yet, so `/top week` and `/top month` say so rather
-than inventing numbers - flip `PERIOD_DATA_AVAILABLE` when the board serves
-them.
+The panel's own lifecycle state is respected, not guessed from the clock: a row
+the scheduler has not activated is `🟠 overdue` ("was due 2 h ago · the
+scheduler has not started it") and is **never** announced as running, a
+cancelled row is `⛔ cancelled`, an ended one `⚪`. Start/end notices still post
+to `channels.events`, one per transition, tracked in `state.json` (pruned after
+14 days) - and a transition older than 30 minutes is recorded as announced
+without being posted, so a restart in the middle of an event does not shout
+"starts now" for something that began at noon.
 
 ## Duplicate alerts (the judgement call)
 
@@ -246,10 +310,20 @@ the source exists.
    every restart (check for `synced N command(s) to guild …`); without it the
    global set can take up to an hour. `/help` lists what the bot registered.
 4. **Does it answer but with old data?** A2S results are cached for 5 s and the
-   presence refreshes every `presence_refresh` seconds; `/status` always probes
-   (and falls back to "offline" within ~2 s). If the game server itself is
-   down, the bot stays online and says so - that is not a bot problem.
-5. **Nothing in the channel but the journal is fine?** Check the channel ids in
+   presence refreshes every `presence_refresh` seconds; `/status` asks the panel
+   (20 s cache) and probes A2S when the push is stale. `/events` follows the
+   panel on a **five-minute** cache, so a just-created panel event can take up
+   to 5 min to appear - that is the rate-limit budget, not a bug.
+5. **Does `/status` say the panel data is stale?** That is the panel being
+   honest: the game has not pushed for >180 s, so the panel refuses to state a
+   player count. The bot shows the A2S count instead. If it *stays* stale for
+   hours, the game's push is broken (`srv_push`), not the bot.
+6. **Did the panel rate-limit it?** `panel API rate-limited the bot on <path>`
+   in the journal, and the command says "the panel is rate-limiting me". The
+   limit is 120 requests/minute per client address; the bot's caches normally
+   keep it far below that. Nothing to fix unless something else on the same
+   host is hammering the API.
+7. **Nothing in the channel but the journal is fine?** Check the channel ids in
    `config.json` and that the bot has *Send Messages* + *Embed Links* there;
    "no events channel configured" / "could not resolve channel" in the journal
    names the missing piece.

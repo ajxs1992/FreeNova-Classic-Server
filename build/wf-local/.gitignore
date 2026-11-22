@@ -1,0 +1,5 @@
+# Everything here is produced by scripts/wf-local.sh: the copied HLDS tree
+# (~2.4 GB, hard-linked), the console log, the panel DB copy and the pid/fifo
+# files. None of it is committed; only this file is.
+*
+!.gitignore

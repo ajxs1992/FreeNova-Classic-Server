@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design viewer</title>
+<link rel="stylesheet" href="gallery.css">
+</head>
+<body data-view="viewer">
+<div class="viewer-shell">
+  <div class="viewer-bar">
+    <div class="left">
+      <a class="btn" href="index.html">&larr; gallery</a>
+      <div>
+        <p class="viewer-title" id="v-title">loading&hellip;</p>
+        <p class="viewer-sub" id="v-sub"></p>
+      </div>
+      <span id="v-badges"></span>
+    </div>
+    <div class="right">
+      <span class="viewer-sub" id="pos"></span>
+      <button class="btn" id="prev" title="previous reference (left arrow)">&larr; prev</button>
+      <button class="btn" id="next" title="next reference (right arrow)">next &rarr;</button>
+      <button class="btn" data-zoom="fit" aria-pressed="true">fit</button>
+      <button class="btn" data-zoom="1" aria-pressed="false">100%</button>
+      <button class="btn" data-zoom="2" aria-pressed="false">200%</button>
+      <button class="btn" id="toggle-compare" aria-pressed="false" title="reference vs live (c)">compare</button>
+      <button class="btn" id="toggle-overlay" aria-pressed="false" title="overlay at 50% (o)">overlay</button>
+    </div>
+  </div>
+
+  <div class="compare-settings" id="compare-settings">
+    <label for="base-url">base URL</label>
+    <input id="base-url" type="text" spellcheck="false" placeholder="https://leaderboard.fn-gaming.net">
+    <button class="btn" data-preset="https://leaderboard.fn-gaming.net">live panel</button>
+    <button class="btn" data-preset="http://127.0.0.1:18101">local wf-local.sh</button>
+    <button class="btn primary" id="reload-live">reload live pane</button>
+    <span class="viewer-sub">loading <code id="target-url"></code></span>
+  </div>
+
+  <main class="stage" id="stage"></main>
+  <p class="hint" id="hint"></p>
+  <div class="foot">
+    <span>Reference images are read-only inputs; this gallery never writes to them.</span>
+    <a href="../SPEC-MATRIX.md">measured spec for this page</a>
+    <a href="manifest.json">manifest.json</a>
+    <span>Serve with <code>./serve.sh</code> (or <code>python3 -m http.server</code> in this directory).</span>
+  </div>
+</div>
+<script src="manifest.js"></script>
+<script src="gallery.js"></script>
+</body>
+</html>

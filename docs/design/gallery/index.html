@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Winterfest design gallery</title>
+<link rel="stylesheet" href="gallery.css">
+</head>
+<body data-view="index">
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Winterfest <span class="accent">design gallery</span></h1>
+      <p class="sub" id="counts">loading manifest&hellip;</p>
+    </div>
+    <div>
+      <a class="btn" href="../SPEC-MATRIX.md">SPEC-MATRIX.md</a>
+      <a class="btn" href="manifest.json">manifest.json</a>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <button class="chip" data-filter="all" aria-pressed="true">all</button>
+    <button class="chip" data-filter="exists" aria-pressed="false">exists</button>
+    <button class="chip" data-filter="new" aria-pressed="false">new</button>
+    <button class="chip" data-filter="duplicate" aria-pressed="false">duplicates</button>
+    <input id="search" type="search" placeholder="filter by name, route or text&hellip;" aria-label="Filter references">
+  </div>
+
+  <main id="grid" class="grid" aria-live="polite"></main>
+
+  <p class="hint">
+    Click a tile for the viewer: full-size image, arrow-key navigation, zoom and a compare mode
+    that puts the reference next to the live page. Works from <code>file://</code>; only the
+    compare iframe needs a network or a local server. Start a server with
+    <code>./serve.sh</code>.
+  </p>
+</div>
+<script src="manifest.js"></script>
+<script src="gallery.js"></script>
+</body>
+</html>

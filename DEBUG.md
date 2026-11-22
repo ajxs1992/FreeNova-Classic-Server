@@ -388,6 +388,42 @@ REVIEW §7.
 | `6f4baeb` /u/ | `/u/STEAM_0:0:1` → 404 | 200, mints `STEAM_0:0:1` |
 | `4521483` build | no way to compile anything | 85/88 PASS, 3 known-unbuildable, `ALLOW_FAIL` for CI |
 
+## 11. CI workflows: linted and executed locally, but GitHub cannot start them
+
+Every workflow in `.github/workflows/` was validated and then run step by step
+on this host:
+
+```
+$ /tmp/actionlint .github/workflows/*.yml          # actionlint 1.7.7
+(no output: 0 findings across 4 workflows)
+$ python3 -c "import yaml,sys; [yaml.safe_load(open(p)) for p in sys.argv[1:]]" \
+    .github/workflows/*.yml .github/ISSUE_TEMPLATE/*.yml
+ok 7                                              # plus tomllib on .gitleaks.toml
+$ node --check over `git ls-files 'web-panel/*.js' …`
+73 files OK
+$ cd web-panel && node test_harness.mjs | tail -1
+PASS panel smoke suite
+$ ALLOW_FAIL="bypass_guard.sma ab_bypass_bridge.sma freenova_http_probe.sma" ./tools/compile-plugins.sh
+compiled: 85   failed: 3   allowed-failures: 3     (exit 0)
+$ /tmp/gitleaks git . --config .gitleaks.toml --redact --no-banner
+no leaks found                                     (exit 0, 28 commits)
+$ /tmp/gitleaks with default rules only, same tree
+exit 1, 5 findings — all inside the allowlisted snapshot paths
+$ decoy repo, real config, a secret outside the allowlist
+exit 1  -> "generic-api-key | web-panel/scripts/decoy.mjs:1"   (a sibling
+             file `amxx.cfg.bak` is NOT covered by `amxx.cfg` — the anchoring works)
+$ integrity summary step against the real manifests
+Total drift: 11 file(s)   (game-server 1, web-panel 10)   [reported, not enforced]
+```
+
+**On GitHub, however, every run ends in `startup_failure` after ~1 s**: the push
+that added the workflows, a manual `gh workflow run integrity.yml`, and
+Dependabot's own `dynamic/dependabot/dependabot-updates` runs from earlier in the
+day. Since Dependabot's workflow is not ours, this is an account/repository-level
+blocker (Actions availability / billing / spending limit), not a defect in these
+files. `README.md` lists it as a known issue. The first push's run id was
+45030199190 (`path = BuildFailed`, 0 jobs).
+
 ## 10. Could not verify
 
 1. **AMXX `hash_string` output case — inferred, not read.** If it emitted

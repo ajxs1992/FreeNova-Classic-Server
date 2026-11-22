@@ -94,6 +94,18 @@ game re-validates before it spends a coin. `docs/ARCHITECTURE.md` has the detail
    not applied, because they need a plugin rebuild and operator sign-off.
 4. **`plugins.ini` comments are load-order contracts.** Two of them are wrong
    (`REVIEW.md` §5.3); the rest must be respected when enabling a plugin.
+5. **GitHub reports 20 advisories (8 high) against the committed
+   `web-panel/package-lock.json`.** They are all in the `wrangler`
+   devDependency tree, which is never deployed and never installed by CI
+   (`panel.yml` runs no `npm install`), but the lockfile is stale and should be
+   refreshed — `npm install` on a branch, then re-run the smoke suite.
+6. **Actions cannot start on this repository yet.** Every run — the four
+   workflows here, a manual `workflow_dispatch`, and Dependabot's own updates —
+   ends in `startup_failure` within a second. The workflow files parse and
+   lint clean (`actionlint 1.7.7`, 0 findings) and every step was executed
+   locally with the results in `DEBUG.md` §11, so this is an account/repository
+   setting (Actions availability, billing or a spending limit), not the YAML.
+   Turn Actions on in Settings → Actions before relying on these badges.
 
 ## What is *not* in the snapshot
 

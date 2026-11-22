@@ -35,6 +35,9 @@ The panel serves players **right now**. So:
 Every page must work with **JS disabled**, at **1280 / 1672 / 1920** wide, and
 render an honest empty state for a player with no data. No new dependencies.
 
+As built so far: `V2-AS-BUILT.md` (the dashboard at `/v2`, plus the diff against
+its reference). Measurements for the other pages come from `SPEC-MATRIX.md`.
+
 ## Route inventory to replace (45 today)
 
 Dashboard / home: `/` `/home` `/hub`

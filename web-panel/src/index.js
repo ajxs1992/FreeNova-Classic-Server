@@ -21,28 +21,13 @@ import { pageGameSurface, pageSettings, pageRules } from "./gamepages.js"
 import { handlePublicApi } from "./publicapi.js"
 import { pageMotdV2 } from "./motd.js"
 import { pageBoards } from "./boards_page.js"
-import { handleWinter } from "./winter/index.js"
-import { applyWinterSkin } from "./winter/skin.js"
-import { pageWinterSpin } from "./winter/spin.js"
-import { handleV2 } from "./v2/index.js"
-// The two dashboard surfaces the owner drew in the sidebar (docs/design/
-// WINTERFEST-DASHBOARD.md): Levels under PROGRESSION and the envelope in the top
-// bar. They are ordinary GET pages: /levels is informational (no claim path in
-// Phase 1) and /mail is read-only by steamid, so neither adds a POST route.
-import { pageLevels } from "./winter/levels.js"
-import { pageMail, unreadCount } from "./winter/mail.js"
 
 export default {
   async fetch(request, env, ctx) {
     // One place adds the policy for pages that carry a token in their query
     // string (REVIEW.md §4.2 M3): a ?t= / ?k= / ?claim= URL must not leak
     // through Referer to flagcdn.com, Discord or any other third party.
-    const res = await withSafeReferrer(request, await routeRequest(request, env, ctx))
-    // Winterfest's seasonal skin (src/winter/skin.js). It is a response-level
-    // wrapper BY DESIGN: inside the season window every existing page gets the
-    // December palette, outside it `applyWinterSkin` returns the very same
-    // response object, so the panel is byte-for-byte unchanged from 25 Dec on.
-    return await applyWinterSkin(request, env, res)
+    return withSafeReferrer(request, await routeRequest(request, env, ctx))
   }
 }
 
@@ -86,15 +71,6 @@ async function routeRequest(request, env, ctx) {
       // (REVIEW.md §4.1 H2). Routed before the GET-only gate for that reason.
       if (request.method === "POST" && (path === "/top15" || path === "/top"))
         return await pageTop15(env, url, request)
-
-      // Winterfest panel surface (src/winter/). The POST (the no-JS "move slot X
-      // to Y" form) has to sit above the GET-only gate, exactly like the top15
-      // theme POST above. The GET routes are dispatched further down, AFTER the
-      // MOTD/compact skin is decided — otherwise an MSIE client would get the
-      // browser skin and its enhancement script. Nothing here mutates player
-      // state: a move is queued for the game as a `wf_tree_*` action.
-      if (request.method === "POST" && path === "/winter/tree")
-        return await handleWinter(request, env, url)
 
       if (request.method !== "GET")
         return new Response("method not allowed", { status: 405 })
@@ -208,30 +184,10 @@ async function routeRequest(request, env, ctx) {
         url.searchParams.set("compact", "1")
 
       // Rank emblems, processed medals, badges, /i icons from ./assets
-      // /winter/*.png is the dashboard's cropped art (assets/winter/). Narrow to
-      // image extensions so it can never shadow the /winter/* pages below.
-      if (env.ASSETS && (path === "/logo.png" || path.startsWith("/ranks/") || path.startsWith("/badges/") || path.startsWith("/medals/") || path.startsWith("/i/") || path.startsWith("/missions/") || path.startsWith("/bp/") || /^\/winter\/(?:icons\/)?[a-z0-9_-]+\.(png|jpe?g|webp|svg)$/i.test(path))) {
+      if (env.ASSETS && (path === "/logo.png" || path.startsWith("/ranks/") || path.startsWith("/badges/") || path.startsWith("/medals/") || path.startsWith("/i/") || path.startsWith("/missions/") || path.startsWith("/bp/"))) {
         const res = await env.ASSETS.fetch(request)
         if (res && res.status !== 404) return res
       }
-
-      // /winter/spin (workstream 13, src/winter/spin.js): a read-only viewer, so
-      // it is dispatched here — before the /winter/* catch-all in winter/index.js,
-      // which does not own this page. One line, no other change to this file.
-      if (path === "/winter/spin")
-        return await pageWinterSpin(request, env, url)
-
-      // Winterfest pages (src/winter/): GET only, and only now that the compact
-      // skin flag is final. Both the browser page and the in-game MOTD skin come
-      // out of the same renderer (src/winter/render.js).
-      if (path === "/winter" || path.startsWith("/winter/"))
-        return await handleWinter(request, env, url)
-
-      // The v2 design rebuild (src/v2/). /v2/… only: the routes below keep
-      // serving the live panel untouched until each replacement is verified
-      // (docs/design/PANEL-REBUILD.md — cutover is one page per commit).
-      if (path === "/v2" || path.startsWith("/v2/"))
-        return await handleV2(request, env, url)
 
       const view = (url.searchParams.get("view") || url.searchParams.get("tab") || "").toLowerCase()
       if ((route === "/" || route === "/battlepass.php" || route === "/rsu.php") && view) {
@@ -292,15 +248,6 @@ async function routeRequest(request, env, ctx) {
         case "/records":
         case "/hof":
         case "/halloffame":  return await pageAchievements(env, url)
-        // Winterfest dashboard pages (src/winter/levels.js, src/winter/mail.js).
-        // GET only: the levels page has nothing to claim and the inbox is
-        // read-only by steamid, so a POST to either falls through to the method
-        // gate above and is refused with 405 instead of inventing a write path.
-        // The envelope's red dot is the unread count in winter_mail.
-        case "/levels":      return await pageLevels(env, url, {
-                               unread: await unreadCount(env, url.searchParams.get("steamid") || "")
-                             })
-        case "/mail":        return await pageMail(env, url)
         // Read-only web landing pages. Purchases and equipping remain in game.
         case "/store":
         case "/shop":        return await pageGameSurface(env, url, "shop")

@@ -2,9 +2,6 @@
 // Game remains the spender. Staff POSTs queue actions; HMAC stays on game POSTs.
 import { ensureOpsTables } from "./sync.js"
 import { ensureScheduleDetailColumn } from "./schedule.js"
-// The envelope's staff section (docs/WINTERFEST-WORKSTREAMS.md row 15). Every
-// byte of it lives in src/winter/mail.js, so this file only routes to it.
-import { renderMailSection, handleMailAdminPost } from "./winter/mail.js"
 
 const OWNER = "STEAM_0:0:683671116"
 const OPS_STEAM = "STEAM_0:0:0"
@@ -271,7 +268,6 @@ function shell(session, section, inner) {
     ["players", "Players"],
     ["catalog", "Catalog"],
     ["events", "Events"],
-    ["mail", "Mail"],
     ["logs", "Audit log"],
     ["diagnostics", "Diagnostics"]
   ]
@@ -1015,17 +1011,6 @@ export async function handleAdmin(request, env) {
     return redirect("/admin?s=events")
   }
 
-  if (request.method === "POST" && path === "/admin/mail") {
-    if (!session) return new Response("forbidden", { status: 403 })
-    const body = await parseBody(request)
-    if (!body.csrf || body.csrf !== session.csrf)
-      return new Response("csrf required", { status: 403 })
-    const result = await handleMailAdminPost(env, session, body)
-    if (result.status !== 200)
-      return page("Admin", shell(session, "mail", `<h2>Mail</h2><p class="err">${esc(result.error)}</p>`))
-    return redirect("/admin?s=mail")
-  }
-
   if (request.method === "POST" && path === "/admin/catalog") {
     if (!session) return new Response("forbidden", { status: 403 })
     const body = await parseBody(request)
@@ -1047,7 +1032,6 @@ export async function handleAdmin(request, env) {
   if (section === "players") return page("Admin", await renderPlayers(env, session, url))
   if (section === "catalog") return page("Admin", await renderCatalog(env, session))
   if (section === "events") return page("Admin", await renderEvents(env, session, url))
-  if (section === "mail") return page("Admin", shell(session, "mail", await renderMailSection(env, session, url)))
   if (section === "logs") return page("Admin", await renderLogs(env, session, url))
   if (section === "diagnostics") return page("Admin", await renderDiagnostics(env, session))
   return page("Admin", await renderOverview(env, session))

@@ -36,35 +36,16 @@ game pushing through HMAC-signed batches; that guard is the reason the panel
 never shows stale data over newer data. Changing the store is a separate project
 with its own risk and buys nothing a player can see.
 
-## 3. Conflicts that must be decided before code
-
-1. **Premium Battle Pass.** The spec asks for *Free + Premium tracks* and a
-   purchase. The owner's earlier decision (recorded in `docs/WINTERFEST.md` §6)
-   was **"free track only — no premium column anywhere"**. Which wins? A paid
-   track also needs a payment path (see §3.4).
-2. **Advent rules.** Earlier decision: 24 calendar days, a missed day stays
-   claimable until the season closes **at half value**. The spec now says missed
-   rewards are **hidden and unclaimable** during the event, become visible after
-   **24 December**, and an **Advent Pass ($1.99)** unlocks them. These are
-   different products; pick one.
-3. **Timezone.** Spec: "Romania's timezone" (Europe/Bucharest). Implemented:
-   **Europe/Paris** (the owner said "eng/fr/germany, part of Europe"). One hour
-   apart — and it decides when the daily reset, Advent unlock and pass rollover
-   happen. Pick one and it is a single constant.
-4. **Payments.** The Advent Pass and any premium track imply real money. There is
-   no payment integration in this project. Options: (a) no paid tiers this
-   season; (b) Stripe Checkout (needs an account, webhooks, refund policy,
-   VAT/consumer-law handling); (c) manual grants by an admin. Decide, because
-   (b) is a project, not a feature.
-5. **Achievement count.** "120 seasonal achievements" is a content programme, not
-   a page: each needs a trigger, a reward and a test. Propose 20 for December and
-   the full set as a season-long build.
-6. **Shop scope.** A real product catalogue (skins, models, frames, effects) with
-   rarity, previews and purchase history is the biggest single gap. Question:
-   is December's shop **cosmetic-only with coins/gingerbread** (no money), or does
-   it also sell for real money?
-7. **Kill effects / trails / animated frames.** These need client assets
-   (fastdl). Registry entries are cheap; shipping them is gated by download speed.
+## 3. Conflicts — all resolved 2026-11-22 (owner)
+| # | question | decision |
+| --- | --- | --- |
+| 1 | Premium Battle Pass | **Yes** — free + premium tracks, premium is an entitlement |
+| 2 | Advent rules | **One-day window**: claimable on its date only, then expired. Whole calendar buyable at the end (Advent Pass). The half-value catch-up is withdrawn |
+| 3 | Timezone | **Europe/Paris** |
+| 4 | Payments | **Stripe later**; now an orders/entitlements model with manual + automatic grants |
+| 5 | Achievements | 20 in December, the full set across the season (still a content programme) |
+| 6 | Shop | Cosmetics for Coins and GingerBread; real money only for premium BP + Advent Pass |
+| 7 | Effects/trails/animations | Registry now, shipping gated by client download speed |
 
 ## 4. December vs January (what the deadline allows)
 **December (must work on day one):** Dashboard, Profile (Overview + Tree tabs),

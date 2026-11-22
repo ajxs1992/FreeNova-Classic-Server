@@ -154,21 +154,49 @@ and 2 were built to say "cosmetic id X", not "this hardcoded model".
 
 ---
 
-## 6. Decisions (owner, 2026-11-22)
+## 6. Decisions (owner, 2026-11-22 — final)
 
 1. **Tree placement: fixed grid.** 24 slots per tree; the three tree styles ship
-   three different slot layouts (classic triangle, tall, wide). Ornaments are
-   dragged between slots on the panel; in game `/tree` shows `level`, how many of
-   the 24 slots are filled and the next milestone.
-2. **Winter Pass: free track only.** 30 tiers, no paid track anywhere in the
-   schema — if that changes, the BattlePass machinery is already there, but no
-   premium column is created now.
-3. **Advent: 24 calendar days, 1-24 December.** Day *n* unlocks on 1 December 2026.
-   A day that was missed stays **claimable until the season closes** (24 December
-   23:59 Europe/Paris) at **half value** — a late joiner is not punished, and nobody
-   can cheapen the first days by skipping them.
-4. **Presents: 6-10 spots per map** (default 8; per-map override in the ini).
-   **Dying never drops a present.** Death drops a **snowflake pouch** worth a few
-   snowflakes instead: it gives kills a small reward without making a death cost
-   the thing you were hunting, and it gives other players a reason to move.
+   three different slot layouts. In game `/tree` shows style, level, `filled/24`,
+   the next milestone and the panel link.
+2. **Battle Pass has TWO tracks: free and premium.** Premium is a real product:
+   an entitlement per player (season-scoped), not a column that exists for
+   decoration. See §7 for how money reaches it.
+3. **Advent is a one-day window per day.** Day *n* unlocks on its date, is
+   claimable **that day only**, and after that day it expires — no half-value
+   catch-up (that earlier rule is withdrawn). At the end of the season a player
+   can buy **the whole calendar** with real money ("Advent Pass"), which unlocks
+   every missed day at once. The layout is a vertical illustrated village on a
+   path: the player starts at the bottom and scrolls up through the days, and
+   may scroll up and down to see the whole track, but **future rewards stay
+   hidden until their day**.
+4. **Timezone: Europe/Paris** everywhere — daily reset, Advent unlock, pass
+   rollover, week/month boards. One constant, no exceptions.
+5. **Payments: Stripe later, entitlements now.** Nothing this season charges a
+   card automatically. Build the *shape* now: a `products` catalogue, `orders`
+   with a status machine, `entitlements` per player, **manual grants** from the
+   admin panel and **automatic grants** from gameplay. Stripe plugs into the
+   same `orders` table later without touching the reward logic.
+6. **Presents: 6-10 spots per map** (default 8). **Dying never drops a present** —
+   it drops a snowflake pouch (5 by default).
+7. **Currency is GingerBread** (`gb`); "snowflake" survives as the ornament set
+   name only.
+8. **Shop sells cosmetics for Coins and GingerBread.** Real money is limited to
+   the Battle Pass premium track and the Advent Pass until Stripe is wired.
+
+## 7. The entitlement model (what "buying" means until Stripe)
+
+```
+products      (id, kind, season, name, price_coins, price_gb, price_money_cents, active)
+orders        (id, steamid, product_id, amount_cents, currency, status, created_at, paid_at, provider, provider_ref)
+entitlements  (steamid, product_id, season, granted_at, source, expires_at, order_id)
+```
+- `orders.status` walks `pending → paid → fulfilled` (or `failed`/`refunded`).
+- An **entitlement** is the only thing gameplay reads: "does this player own the
+  premium track / the Advent Pass?" It is granted by: a paid order (Stripe,
+  later), a manual admin grant, or an automatic in-game grant.
+- **Fulfilment is idempotent** on `order_id` + `player`, the same claim-key
+  discipline as every other reward in this project.
+- Stripe integration, when it lands, is: create a `pending` order → Checkout
+  Session → webhook flips it to `paid` → fulfil. No reward code changes.
 

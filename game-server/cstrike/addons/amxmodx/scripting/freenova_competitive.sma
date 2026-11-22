@@ -786,7 +786,16 @@ ComputeSeasonPrize(id)
                          g_iMissionProgress[id][MSN_MVP] >= g_iMissionTarget[MSN_MVP])
     // Rank-based (owner ruling): ranks 1-3 podium, 4-15 qualifier.
     // Below rank 15 the mission/victor fallbacks apply, never thresholds.
-    new iRank = CompRank(id)
+    //
+    // A player with no points and no wins this season has no standing to rank.
+    // Without this gate an empty or half-loaded rank cache made everybody rank
+    // 1, so the first claimant took the 10,000 coin champion tier for free -
+    // while the web panel (comp_points > 0 || comp_wins > 0) and
+    // freenova_sync's own refusal ("You need tournament points or wins to
+    // claim prizes!") both refuse the same player. Points are clamped at 0 by
+    // teamkill penalties, so wins are checked as well.
+    new bool:bHasStanding = (iPoints > 0 || iWins > 0)
+    new iRank = bHasStanding ? CompRank(id) : 0
     if (iRank == 1)
         return 10000
     if (iRank == 2)

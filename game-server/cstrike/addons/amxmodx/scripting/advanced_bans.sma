@@ -559,9 +559,9 @@ public plugin_cfg()
 	CreateUnbanEntity();
 }
 
-#if defined USING_SQL
 public plugin_end()
 {
+#if defined USING_SQL
 	if( g_hSQLiteConn != Empty_Handle )
 	{
 		SQL_FreeHandle(g_hSQLiteConn);
@@ -572,8 +572,24 @@ public plugin_end()
 		SQL_FreeHandle(g_hSQLiteTuple);
 		g_hSQLiteTuple = Empty_Handle;
 	}
-}
 #endif
+
+	// plugin_init() creates these handles and nothing ever destroyed them, so
+	// every reload - changelevel included - leaked them: the four offban arrays,
+	// the ban trie and ban array, and the ban-limit arrays. REVIEW.md §5.3.
+	if( g_off_name ) ArrayDestroy(g_off_name);
+	if( g_off_steamid ) ArrayDestroy(g_off_steamid);
+	if( g_off_ip ) ArrayDestroy(g_off_ip);
+	if( g_off_seen ) ArrayDestroy(g_off_seen);
+#if MAX_BANS <= 0
+	if( g_trie ) TrieDestroy(g_trie);
+	if( g_array ) ArrayDestroy(g_array);
+#endif
+#if !defined MAX_BANLIMITS
+	if( g_maxban_times ) ArrayDestroy(g_maxban_times);
+	if( g_maxban_flags ) ArrayDestroy(g_maxban_flags);
+#endif
+}
 
 public CreateUnbanEntity()
 {

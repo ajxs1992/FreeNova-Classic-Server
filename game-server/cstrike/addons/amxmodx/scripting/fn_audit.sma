@@ -16,6 +16,7 @@ new Trie:g_confirm;
 new g_lastCase[24];
 new g_cvarLastCase;
 new g_cvarCasesFile;
+new g_cvarKeepDays, g_cvarKeepRows;
 
 public plugin_natives()
 {
@@ -41,6 +42,13 @@ public plugin_init()
 	g_confirm = TrieCreate();
 	g_cvarLastCase = register_cvar("fn_audit_last_case", "");
 	g_cvarCasesFile = register_cvar("fn_cases_file", "fn_cases.log");
+
+	/* Retention. The journal is append-only and nobody reads it from the game
+	 * host, so without a bound it grows for the life of the install. 0 in either
+	 * cvar disables that particular bound; both 0 disables pruning entirely. */
+	g_cvarKeepDays = register_cvar("fn_cases_keep_days", "30");
+	g_cvarKeepRows = register_cvar("fn_cases_keep_rows", "50000");
+
 	register_concmd("fn_cases", "cmdCases", ADMIN_ADMIN, "- recent case IDs");
 	if( !LibraryExists("fn_core", LibType_Library) )
 	{
@@ -49,6 +57,16 @@ public plugin_init()
 		return;
 	}
 	fn_health_set("audit", "ok");
+
+	/* Once shortly after boot, then once a day. Both are cheap (one file pass,
+	 * and the second one only after the file has grown past the row cap). */
+	set_task(30.0, "taskPruneJournal");
+	set_task(86400.0, "taskPruneJournal", _, _, _, "b");
+}
+
+public taskPruneJournal()
+{
+	PruneJournal();
 }
 
 public _case_new(plugin, params)
@@ -157,11 +175,8 @@ public _ban_last_case(plugin, params)
  * Line: time|server|event|case|admin|target|action|detail (pipes stripped). */
 journalEvent(const event[], const case_id[], admin, target, const action[], const detail[])
 {
-	new dir[96], fname[64], path[192];
-	get_datadir(dir, charsmax(dir));
-	get_pcvar_string(g_cvarCasesFile, fname, charsmax(fname));
-	if (!fname[0]) copy(fname, charsmax(fname), "fn_cases.log");
-	formatex(path, charsmax(path), "%s/%s", dir, fname);
+	new path[192];
+	JournalPath(path, charsmax(path));
 	new f = fopen(path, "at");
 	if (!f) return;
 	new ec[32], cc[28], ac[64], dc[192];
@@ -177,6 +192,137 @@ journalEvent(const event[], const case_id[], admin, target, const action[], cons
 	formatex(line, charsmax(line), "%s|%s|%s|%s|%d|%d|%s|%s^n", stamp, srv, ec, cc, admin, target, ac, dc);
 	fputs(f, line);
 	fclose(f);
+}
+
+/* Bounded retention for the case journal.
+ *
+ * Keeps rows newer than fn_cases_keep_days, then - if the file is still longer
+ * than fn_cases_keep_rows - only the newest fn_cases_keep_rows of them.
+ *
+ * Two safety properties worth stating, because this deletes player-visible
+ * audit data:
+ *   - the result is written to <file>.prune and renamed over the original, so an
+ *     interrupted prune leaves the journal intact;
+ *   - a row whose timestamp cannot be compared (anything that is not the
+ *     "YYYY-MM-DD HH:MM:SS" prefix this plugin writes) is KEPT. Dropping a line
+ *     because it could not be dated would be worse than keeping it.
+ */
+PruneJournal()
+{
+	new keep_days = get_pcvar_num(g_cvarKeepDays);
+	new keep_rows = get_pcvar_num(g_cvarKeepRows);
+
+	if( keep_days <= 0 && keep_rows <= 0 )
+		return; /* retention disabled */
+
+	new path[192], tmp[208], prune[208];
+	JournalPath(path, charsmax(path));
+	if( !file_exists(path) )
+		return;
+
+	formatex(tmp, charsmax(tmp), "%s.prune", path);
+	formatex(prune, charsmax(prune), "%s.prune2", path);
+
+	new cutoff[24];
+	cutoff[0] = 0;
+	if( keep_days > 0 )
+		/* format_time() takes an explicit timestamp; get_time() only formats now,
+		 * and the journal stamps are local time (get_time() with no stamp), so
+		 * format_time with the same format keeps the comparison honest across
+		 * a DST or timezone change instead of drifting by an hour. */
+		format_time(cutoff, charsmax(cutoff), "%Y-%m-%d %H:%M:%S", get_systime() - keep_days * 86400);
+
+	/* Pass 1: age bound. */
+	new in = fopen(path, "rt");
+	if( !in )
+		return;
+	new out = fopen(tmp, "wt");
+	if( !out )
+	{
+		fclose(in);
+		return;
+	}
+
+	new line[512], kept = 0, dropped = 0;
+	while( fgets(in, line, charsmax(line)) )
+	{
+		if( !line[0] )
+			continue;
+		if( cutoff[0] && !JournalRowNewer(line, cutoff) )
+		{
+			dropped++;
+			continue;
+		}
+		fputs(out, line);
+		kept++;
+	}
+	fclose(in);
+	fclose(out);
+
+	/* Pass 2: row bound, only when the age bound was not enough. */
+	if( keep_rows > 0 && kept > keep_rows )
+	{
+		new skip = kept - keep_rows;
+		in = fopen(tmp, "rt");
+		out = fopen(prune, "wt");
+		if( in && out )
+		{
+			new n = 0, redropped = 0;
+			while( fgets(in, line, charsmax(line)) )
+			{
+				if( n++ < skip )
+				{
+					redropped++;
+					continue;
+				}
+				fputs(out, line);
+			}
+			dropped += redropped;
+			kept -= redropped;
+		}
+		if( in ) fclose(in);
+		if( out ) fclose(out);
+		if( file_exists(prune) )
+		{
+			delete_file(tmp);
+			rename_file(prune, tmp);
+		}
+	}
+
+	if( !dropped )
+	{
+		delete_file(tmp);
+		return;
+	}
+
+	delete_file(path);
+	rename_file(tmp, path);
+	log_amx("[FN-AUDIT] journal pruned: %d kept, %d dropped (keep_days %d, keep_rows %d)",
+		kept, dropped, keep_days, keep_rows);
+}
+
+/* "<YYYY-MM-DD HH:MM:SS>|..." - compare the 19-char stamp lexicographically,
+ * which is why the format is ISO-like. Anything that does not look like a stamp
+ * is treated as newer, i.e. kept. */
+bool:JournalRowNewer(const row[], const cutoff[])
+{
+	new stamp[20];
+	copy(stamp, charsmax(stamp), row);
+	if( strlen(stamp) < 19 )
+		return true;
+	if( stamp[4] != '-' || stamp[7] != '-' || stamp[10] != ' ' || stamp[13] != ':' )
+		return true;
+	return (strcmp(stamp, cutoff) >= 0);
+}
+
+JournalPath(path[], len)
+{
+	new dir[96], fname[64];
+	get_datadir(dir, charsmax(dir));
+	get_pcvar_string(g_cvarCasesFile, fname, charsmax(fname));
+	if( !fname[0] )
+		copy(fname, charsmax(fname), "fn_cases.log");
+	formatex(path, len, "%s/%s", dir, fname);
 }
 
 public _case_note(plugin, params)

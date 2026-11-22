@@ -18,7 +18,9 @@
 #define MASTERY_SKINS_FILE      "mastery_skins.ini"
 #define VAULT_NAME              "freenova_weapon_skins"
 
-#define MAX_PLAYERS             32
+// MAX_PLAYERS comes from amxconst.inc; a local redefinition cannot differ
+// from the engine's limit, and would shadow it silently if it ever did
+// (REVIEW.md 5.5).
 #define MAX_SKINS_PER_GROUP     64
 #define SKIN_NAME_LEN           32
 #define MODEL_PATH_LEN          128

@@ -98,11 +98,15 @@ async function verifyGamePost(request, env, path) {
   if (!nonce || nonce.length > 64 || /[^\w.-]/.test(nonce))
     return { ok: false, response: json({ ok: false, error: "bad nonce" }, 401) }
     try {
-    const replay = await env.DB.prepare(`SELECT value FROM meta WHERE key = ?1`).bind("nonce:" + nonce).first()
-    if (replay) return { ok: false, response: json({ ok: false, error: "replayed nonce" }, 401) }
-    await env.DB.prepare(
-      `INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2`
+    // Single-statement replay guard: the INSERT is the claim, so two concurrent
+    // replays of the same signed request cannot both pass a check-then-insert
+    // window. DO NOTHING (not DO UPDATE) so the winner is the only writer and
+    // meta.changes tells us whether this request owns the nonce.
+    const claim = await env.DB.prepare(
+      `INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO NOTHING`
     ).bind("nonce:" + nonce, String(now)).run()
+    const owned = claim && claim.meta ? Number(claim.meta.changes || 0) : 1
+    if (owned !== 1) return { ok: false, response: json({ ok: false, error: "replayed nonce" }, 401) }
   } catch {
     return { ok: false, response: json({ ok: false, error: "nonce store unavailable" }, 401) }
   }

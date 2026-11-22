@@ -110,6 +110,21 @@ panel_up() {
   return 1
 }
 
+# The pid listening on the panel port, if `ss -p` can see it (same user).
+panel_pid_on_port() {
+  ss -ltnpH 2>/dev/null | grep -E ":${PANEL_PORT} " | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2
+}
+
+# Is that pid *our* panel? Its environment carries PANEL_DB=<our copy>, which no
+# other process on this box has. This is what keeps `stop` from ever killing a
+# panel another agent (or the live stack) is running.
+panel_pid_is_ours() {
+  local p=${1:-}
+  [ -n "$p" ] || return 1
+  [ -r "/proc/$p/environ" ] || return 1
+  tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -qxF "PANEL_DB=$PANEL_DB"
+}
+
 http_code() { # http_code <url> -> the status code, 000 when nothing answers
   local url=$1 code=""
   if have curl; then
@@ -481,6 +496,14 @@ boot_game() {
   docker image inspect "$IMAGE" >/dev/null 2>&1 || die "container image $IMAGE not found
      Build it once in the runtime: cd $RUNTIME && ./scripts/setup.sh   (or make image)"
 
+  # A previous run whose docker client was killed can leave a *stopped* container
+  # behind holding the name (docker's --rm cleanup is done by the client). Remove
+  # that shell so `docker run` is never refused for a conflict.
+  if docker inspect "$NAME" >/dev/null 2>&1 && ! container_running; then
+    note "removing the leftover container $NAME from an earlier run"
+    docker rm -f "$NAME" >/dev/null 2>&1
+  fi
+
   # rotate, then mark, so status/smoke can scope to this boot
   [ -f "$LOG" ] && mv -f "$LOG" "$LOG.1"
   : > "$LOG"
@@ -541,7 +564,14 @@ stop_game() {
     local i=0
     while [ "$i" -lt 40 ] && container_running; do sleep 0.25; i=$((i + 1)); done
     container_running && docker stop -t 5 "$NAME" >/dev/null 2>&1
+    # Let the docker client exit on its own (it is what removes the container);
+    # only kill it if it hangs, and force the container away afterwards so the
+    # name is free for the next boot.
+    i=0
+    while [ "$i" -lt 20 ] && pid_alive "$GAME_PID"; do sleep 0.25; i=$((i + 1)); done
     pid_alive "$GAME_PID" && kill -TERM "$(cat "$GAME_PID")" 2>/dev/null
+    sleep 0.3
+    docker inspect "$NAME" >/dev/null 2>&1 && docker rm -f "$NAME" >/dev/null 2>&1
   fi
   pid_alive "$HOLDER_PID" && kill -TERM "$(cat "$HOLDER_PID")" 2>/dev/null
   rm -f "$FIFO" "$GAME_PID" "$HOLDER_PID"
@@ -579,8 +609,11 @@ start_panel() {
   [ -f "$PANEL_DB" ] || copy_panel_db || true
 
   if panel_up; then
-    if pid_alive "$PANEL_PID"; then
-      note "the panel is already up on http://$PANEL_HOST:$PANEL_PORT/"
+    local live_pid
+    live_pid=$(panel_pid_on_port)
+    if panel_pid_is_ours "$live_pid"; then
+      echo "$live_pid" > "$PANEL_PID"
+      note "the panel is already up on http://$PANEL_HOST:$PANEL_PORT/ (pid $live_pid)"
       return 0
     fi
     die "TCP $PANEL_PORT answers, but this script did not start that process.
@@ -624,16 +657,23 @@ start_panel() {
 }
 
 stop_panel() {
-  local quiet=${1:-0}
-  if pid_alive "$PANEL_PID"; then
-    [ "$quiet" = 1 ] || say "stopping the panel"
-    kill -TERM "$(cat "$PANEL_PID")" 2>/dev/null
+  local quiet=${1:-0} pids=() p
+  if pid_alive "$PANEL_PID"; then pids+=("$(cat "$PANEL_PID")"); fi
+  p=$(panel_pid_on_port); [ -n "$p" ] && pids+=("$p")
+
+  local killed=0 pid
+  for pid in "${pids[@]+"${pids[@]}"}"; do
+    # Only ever a panel that carries our PANEL_DB, and only once.
+    panel_pid_is_ours "$pid" || continue
+    [ "$quiet" = 1 ] || say "stopping the panel (pid $pid)"
+    kill -TERM "$pid" 2>/dev/null
     local i=0
-    while [ "$i" -lt 20 ] && pid_alive "$PANEL_PID"; do sleep 0.2; i=$((i + 1)); done
-    pid_alive "$PANEL_PID" && kill -9 "$(cat "$PANEL_PID")" 2>/dev/null
-  else
-    [ "$quiet" = 1 ] || note "the panel is not running"
-  fi
+    while [ "$i" -lt 20 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.2; i=$((i + 1)); done
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+    killed=1
+    break
+  done
+  [ "$killed" = 1 ] || { [ "$quiet" = 1 ] || note "the panel is not running"; }
   rm -f "$PANEL_PID"
   if panel_up; then
     warn "something still answers on http://$PANEL_HOST:$PANEL_PORT/ - that process was not started by this script, so it is left alone"
@@ -708,12 +748,12 @@ cmd_status() {
   fi
   printf '%-22s %s\n' "game log"    "${LOG#$ROOT/}$( [ -f "$LOG" ] && printf ' (%s lines)' "$(wc -l < "$LOG")")"
 
-  if pid_alive "$PANEL_PID"; then
-    if panel_up; then
-      printf '%-22s %s\n' "panel" "running  http://$PANEL_HOST:$PANEL_PORT/ (pid $(cat "$PANEL_PID"))"
-    else
-      printf '%-22s %s\n' "panel" "process up, not answering on $PANEL_PORT yet"
-    fi
+  local live_panel
+  live_panel=$(panel_pid_on_port)
+  if panel_pid_is_ours "$live_panel" && panel_up; then
+    printf '%-22s %s\n' "panel" "running  http://$PANEL_HOST:$PANEL_PORT/ (pid $live_panel)"
+  elif panel_pid_is_ours "$live_panel"; then
+    printf '%-22s %s\n' "panel" "process up (pid $live_panel), not answering on $PANEL_PORT yet"
   elif panel_up; then
     printf '%-22s %s\n' "panel" "not ours - tcp/$PANEL_PORT answers (another process)"
   else

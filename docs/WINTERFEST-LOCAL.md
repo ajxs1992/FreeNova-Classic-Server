@@ -233,7 +233,100 @@ from the console and points at `build/wf-local/run/smoke.log` and `logs amxx`.
 
 Actual output from this machine (2026-11-22, `de_dust2`):
 
-<!-- SMOKE-OUTPUT -->
+Actual output from this machine (2026-11-22, `de_dust2`, after
+`bash scripts/wf-local.sh reset`). Two other local stacks were running on the box
+at the time and already held `udp/27016` and `tcp/18101` (another agent's
+`wf-local` container, and a V2 panel fixture), so this run used the port override
+the script documents — same tree, same plugins, same assertions, only the numbers
+differ:
+
+```sh
+WF_PORT=27086 WF_PANEL_PORT=18106 bash scripts/wf-local.sh smoke
+```
+
+```
+==> booting de_dust2 on UDP 27086 (container wf-proof) - log: build/wf-local/server.log
+     waiting for Round_Start......................................
+ ok boot reached Round_Start
+==> assertions (log: build/wf-local/run/smoke.log)
+  ok   plugin loaded: winterfest_core
+        [FreeNova winterfest_core] ready (build 3, 52 features)
+  ok   plugin loaded: winterfest_gifts
+        [FreeNova winterfest_gifts] ready (build 3, 12 features)
+  ok   plugin loaded: winterfest_menu
+        [FreeNova winterfest_menu] ready (build 3, 22 features)
+  ok   plugin loaded: winterfest_atmos
+        [FreeNova winterfest_atmos] ready (build 3, 14 cvars, 3 commands, 5 tasks)
+  ok   plugin loaded: winterfest_killfeed
+        [FreeNova winterfest_killfeed] ready (build 3, 6 cvars, 3 commands, 1 event)
+  ok   plugin loaded: winterfest_snow
+        [FreeNova winterfest_snow] ready (build 1)
+  ok   plugin loaded: winterfest_reindeer
+        [FreeNova winterfest_reindeer] ready (build 1)
+  ok   plugin loaded: winterfest_spin
+        [FreeNova winterfest_spin] ready (build 1, 10 sectors)
+  ok   plugin loaded: winterfest_progress
+        [FreeNova winterfest_progress] ready
+  ok   plugin loaded: winterfest_mail
+        [FreeNova winterfest_mail] ready (build 1, 2 cvars, 4 commands, menu 5)
+  ok   core parsed the config
+        L 11/22/2026 - 22:27:14: [winterfest_core.amxx] [WF] config: 3 rarities, 30 ornaments, 6 sets, 24 advent days, 30 pass tiers
+  ok   config enabled + vault
+        L 11/22/2026 - 22:27:14: [winterfest_core.amxx] [WF] vault 'freenova_wf' open, config enabled, season 'Winterfest' 20000101-20991231
+  ok   season window read
+        L 11/22/2026 - 22:27:14: [winterfest_core.amxx] [WF] vault 'freenova_wf' open, config enabled, season 'Winterfest' 20000101-20991231
+  ok   presents resolved
+        L 11/22/2026 - 22:27:14: [winterfest_gifts.amxx] [WF-GIFTS] 7 present spot(s) on de_dust2 from map rows - ok (rule: 6-10, default 8)
+  ok   presents spawned (open)
+        L 11/22/2026 - 22:27:16: [winterfest_gifts.amxx] [WF-GIFTS] spawned 7/7 present glow(s)
+  ok   spin wheel ready
+        L 11/22/2026 - 22:27:14: [winterfest_spin.amxx] [WF-SPIN] ready: 10 sector(s), total weight 100, free_per_day 1 (display only), reset 00:00 Europe/Paris, cap 10, step=650ms, fade rare+; core=yes season=open
+  ok   spin sees the season
+        L 11/22/2026 - 22:27:14: [winterfest_spin.amxx] [WF-SPIN] ready: 10 sector(s), total weight 100, free_per_day 1 (display only), reset 00:00 Europe/Paris, cap 10, step=650ms, fade rare+; core=yes season=open
+  ok   atmos active
+        [WF-ATMOS] active (plugin_cfg): window 01-01..12-31 (every year, config) open=1 forced=0 snow=1 rate=6 radius=300 height=220 life=8 scale=2 kind=1 bombfx=1
+  ok   progress ready
+        L 11/22/2026 - 22:27:14: [winterfest_progress.amxx] [WF-PROG] ready: Winterfest 2026 season 2026, window open, 14 contract(s), 12 achievement(s), core=yes
+  ok   pouch on
+        L 11/22/2026 - 22:27:14: [winterfest_gifts.amxx] [WF-GIFTS] pouch on (5 GingerBread, 30s)
+  ok   modes config read
+        L 11/22/2026 - 22:27:14: [winterfest_snow.amxx] [WF-SNOW] modes.ini: snow=1 rounds=3 damage=12 slow=0.55 ammo=8 freeze=1.5s rotation=0/6
+  ok   no bad load
+  ok   no load failures
+  ok   no run time error
+  ok   no terminated plugin
+  ok   no AMXX error
+  ok   no [WF] ERROR
+  ok   no paused Winterfest
+  ok   no closed season
+     amxx plugins: 83 plugins, 83 running
+  ok   10 Winterfest plugin(s) listed as running
+  ok   presents per map: 7 spot(s) configured, 7 spawned
+  ok   spot count inside the owner rule (6-10, default 8)
+  ok   panel answers on http://127.0.0.1:18106/
+
+RESULT ok  33 checks passed  (log build/wf-local/server.log)
+connect 127.0.0.1:27086        # in the CS 1.6 console
+panel   http://127.0.0.1:18106/
+winter  http://127.0.0.1:18106/winter
+rcon    rcon_password wflocal    (then: rcon <command> from the client)
+logs    build/wf-local/server.log  /  build/wf-local/panel/panel.log
+```
+
+`de_dust2` ships **7** present spots of its own (`[presents]` in
+`winterfest.ini`), which is inside the owner's 6-10 rule; maps with no rows of
+their own fall back to the 8-spot `*` set, so `FY_SNOW`-style rotation maps do not
+need a row. To prove the other maps too:
+
+```sh
+WF_MAP=fy_snow bash scripts/wf-local.sh smoke     # the generic * row set
+```
+
+Verified the same way: `[WF-GIFTS] 8 present spot(s) on fy_snow from generic *
+rows - ok (rule: 6-10, default 8)` and `spawned 8/8 present glow(s)`.
+
+The reasons behind each documented line, and what a human still has to check, are
+in `docs/WINTERFEST-DEV.md` §11.
 
 ## 7. Everyday use
 

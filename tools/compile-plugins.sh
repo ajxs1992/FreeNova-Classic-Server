@@ -109,6 +109,14 @@ else
 fi
 
 # ---- report ----------------------------------------------------------------
+# ALLOW_FAIL: space-separated source names that are known not to build from this
+# snapshot (missing third-party includes). They are reported but do not fail the
+# run, so CI catches *new* breakage instead of staying red forever.
+#   ALLOW_FAIL="bypass_guard.sma ab_bypass_bridge.sma freenova_http_probe.sma"
+ALLOW_FAIL=${ALLOW_FAIL:-}
+allowed=0
+is_allowed() { case " $ALLOW_FAIL " in *" $1 "*) return 0 ;; esac; return 1; }
+
 pass=0; fail=0
 while read -r rc name; do
   [ -n "${name:-}" ] || continue
@@ -116,6 +124,13 @@ while read -r rc name; do
     pass=$((pass + 1))
     printf 'PASS %s\n' "$name"
   else
+    if is_allowed "$name"; then
+      fail=$((fail + 1))
+      allowed=$((allowed + 1))
+      mi=$(missing_includes "$SRC/$name")
+      printf 'FAIL %s: known-unbuildable (allowed:%s)\n' "$name" "${mi:-no missing include found}"
+      continue
+    fi
     fail=$((fail + 1))
     reason=$(grep -m1 -E 'error|warning|fatal|bad_alloc|cannot' "$LOGS/$name.log" 2>/dev/null | sed 's/^[[:space:]]*//')
     [ -n "$reason" ] || reason="compiler exited $rc"
@@ -127,5 +142,5 @@ done < "$OUT/.status"
 rm -f "$OUT/.status"
 
 echo
-echo "compiled: $pass   failed: $fail   output: $OUT"
-[ "$fail" -eq 0 ] || exit 1
+echo "compiled: $pass   failed: $fail   allowed-failures: $allowed   output: $OUT"
+[ $((fail - allowed)) -eq 0 ] || exit 1

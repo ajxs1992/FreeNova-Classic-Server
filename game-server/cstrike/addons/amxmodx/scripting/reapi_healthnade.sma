@@ -409,6 +409,13 @@ public touch_healthnade_drop(const eEnt, const id) {
 		iToAdd = iWpAmmo - iPlayerAmmo;
 	}
 
+	// Sound only when the player already had nades: this branch goes through
+	// giveNade()->giveAmmo(), which sets m_rgAmmo directly and so never reaches
+	// the engine. The other branch hands the item over with DLLFunc_Touch, and
+	// the engine already plays this exact sound itself (ReGameDLL
+	// CBasePlayerItem::DefaultTouch, weapons.cpp:650). REVIEW.md 5.5 called this
+	// test inverted; it is not - negating it would double the sound in one branch
+	// and leave the other silent. Upstream HealthNade 0.0.25f has it the same way.
 	if(iPlayerAmmo) {
 		emit_sound(id, CHAN_ITEM, "items/gunpickup2.wav", VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 	}

@@ -832,6 +832,38 @@ def test_registered_command_table():
     assert profile.parameters[0].name == "player" and profile.parameters[0].required is True
 
 
+def test_cooldown_remaining():
+    bucket: dict[str, list[float]] = {}
+    assert bot.cooldown_remaining(bucket, "u1", 0.0, 2, 10.0) == 0.0
+    assert bot.cooldown_remaining(bucket, "u1", 1.0, 2, 10.0) == 0.0
+    wait = bot.cooldown_remaining(bucket, "u1", 2.0, 2, 10.0)
+    assert 7.9 < wait <= 8.0, f"third call inside the window waits ~8 s (got {wait})"
+    assert bot.cooldown_remaining(bucket, "u2", 2.0, 2, 10.0) == 0.0, "per user, not global"
+    assert bot.cooldown_remaining(bucket, "u1", 11.0, 2, 10.0) == 0.0, "window slides"
+    assert bot.cooldown_remaining(bucket, "u1", 12.0, 0, 0) == 0.0, "rate 0 means no limit"
+
+
+def test_command_guard_rate_limits_profile():
+    """Two /profile calls are fine, the third inside 20 s is answered with a cooldown."""
+    bot.COOLDOWN_BUCKETS.clear()
+    instance = bot.build_bot(sample_cfg())
+    try:
+        with stub_http({"top15?q=": SEARCH_HTML, "/profile?": PROFILE_HTML}):
+            first = FakeInteraction()
+            asyncio.run(instance.tree.get_command("profile").callback(first, "ajxs"))
+            second = FakeInteraction()
+            asyncio.run(instance.tree.get_command("profile").callback(second, "ajxs"))
+            third = FakeInteraction()
+            asyncio.run(instance.tree.get_command("profile").callback(third, "ajxs"))
+    finally:
+        bot.COOLDOWN_BUCKETS.clear()
+    assert first.answer["embeds"], "the first call answers with the profile"
+    assert second.answer["embeds"], "the second call is still inside the limit"
+    assert third.answer.get("ephemeral") is True
+    assert third.answer["content"].startswith("Easy there")
+    assert not third.answer.get("embeds"), "the blocked call does not hit the leaderboard"
+
+
 # ----------------------------------------------------------------------- runner
 def main() -> int:
     tests = sorted((name, obj) for name, obj in globals().items()

@@ -221,3 +221,17 @@ One line per change, with the verification that was actually run. Newest last.
   (first cycle prunes, a second call inside the interval is skipped, the next
   day prunes again) → **55/55 tests pass**; restart → journal shows
   `sample log pruned: 20 row(s) kept` right after the first probe.
+
+- **Per-user cooldowns on the expensive commands** (`bot.py`): `/profile`
+  (2 per 20 s), `/top` and `/events` (3 per 30 s) go through
+  `cooldown_remaining()`, a sliding-window helper in `command_guard`. A blocked
+  call answers immediately and ephemerally ("Easy there - that one can be used
+  again in 18s") and never reaches the leaderboard, so one person cannot hammer
+  the public site through the bot. Buckets are in memory, so a restart clears
+  them. Also `prune_samples()` now reads the log once instead of twice.
+  *Verified:* `py_compile`; new tests `test_cooldown_remaining` (window slides,
+  per-user isolation, rate 0 disables) and
+  `test_command_guard_rate_limits_profile` (call 1 and 2 answer with the
+  profile, call 3 is ephemeral "Easy there…" with no embed) → **57/57 tests
+  pass**; restart → login, `synced 7 command(s)`, presence line, REST still
+  shows the same seven commands.

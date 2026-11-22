@@ -36,6 +36,7 @@ import functools
 import html
 import json
 import logging
+import math
 import os
 import re
 import socket
@@ -246,6 +247,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "offline.footer": "A2S over UDP · checked just now",
         "error.generic": ("Something went wrong on my side - the server and the leaderboard are "
                           "still up. Try again in a moment."),
+        "error.cooldown": "Easy there - that one can be used again in {seconds}s.",
     },
     # "fr": {…} - drop a translation in here and set "language": "fr" in config.json
 }
@@ -1116,9 +1118,9 @@ def load_samples(path: str, since: float | None = None) -> list[dict]:
 def prune_samples(path: str, keep: int = SAMPLE_KEEP, now: float | None = None) -> int:
     """Drop samples older than `keep` seconds; returns how many survived."""
     now = time.time() if now is None else now
-    rows = [row for row in load_samples(path) if row["t"] >= now - keep]
-    total = sum(1 for _ in load_samples(path))
-    if total != len(rows):
+    everything = load_samples(path)
+    rows = [row for row in everything if row["t"] >= now - keep]
+    if len(rows) != len(everything):
         try:
             tmp = f"{path}.tmp"
             with open(tmp, "w", encoding="utf-8") as fh:
@@ -1559,13 +1561,51 @@ async def _reply(interaction: discord.Interaction, *, content: str | None = None
         log.warning("could not answer %s", instrument(interaction), exc_info=True)
 
 
-def command_guard(ephemeral: bool = False):
-    """Defer early (3 s budget), log, and answer with an apology on failure."""
+# -------------------------------------------------------------------- cooldowns
+# Per-user, per-command limits in front of the expensive commands (the ones that
+# hit the public leaderboard). Sliding window, kept in memory - a restart clears
+# it, which is exactly what we want for a bot this small.
+COOLDOWN_BUCKETS: dict[str, dict[str, list[float]]] = {}
+
+
+def cooldown_remaining(bucket: dict[str, list[float]], key: str, now: float,
+                       rate: int, per: float) -> float:
+    """Seconds the caller has to wait, or 0 when the call is allowed now.
+
+    ``rate`` calls per ``per`` seconds per ``key`` (a user id); the oldest
+    stamp that still counts decides how long the wait is.
+    """
+    if rate <= 0 or per <= 0:
+        return 0.0
+    stamps = [stamp for stamp in bucket.get(key, []) if now - stamp < per]
+    bucket[key] = stamps
+    if len(stamps) >= rate:
+        return max(0.0, per - (now - stamps[0]))
+    stamps.append(now)
+    return 0.0
+
+
+# ---------------------------------------------------------------------- errors
+def command_guard(ephemeral: bool = False, rate: int = 0, per: float = 60.0):
+    """Defer early (3 s budget), rate-limit, log, and apologise on failure."""
 
     def decorator(func: Callable[..., Any]):
+        command_name = func.__name__
+
         @functools.wraps(func)
         async def wrapper(interaction: discord.Interaction, *args: Any, **kwargs: Any) -> None:
             started = time.monotonic()
+            if rate:
+                user_key = str(getattr(interaction.user, "id", 0))
+                bucket = COOLDOWN_BUCKETS.setdefault(command_name, {})
+                wait = cooldown_remaining(bucket, user_key, time.monotonic(), rate, per)
+                if wait > 0:
+                    log.info("cooldown: %s asked for %s again after %.1fs", user_key,
+                             command_name, per - wait)
+                    await _reply(interaction, content=t("error.cooldown",
+                                                        seconds=max(1, math.ceil(wait))),
+                                 ephemeral=True)
+                    return
             try:
                 if not interaction.response.is_done():
                     await interaction.response.defer(thinking=True, ephemeral=ephemeral)
@@ -1904,7 +1944,7 @@ def build_bot(cfg: dict) -> commands.Bot:
         await _reply(interaction, embed=embed)
 
     @bot.tree.command(name="top", description=t("cmd.top.desc"))
-    @command_guard()
+    @command_guard(rate=3, per=30.0)
     @app_commands.describe(period=t("cmd.top.period"), count=t("cmd.top.count"))
     @app_commands.choices(period=[
         app_commands.Choice(name=t("cmd.top.choice.all"), value="all"),
@@ -1938,7 +1978,7 @@ def build_bot(cfg: dict) -> commands.Bot:
         await _reply(interaction, embed=embed)
 
     @bot.tree.command(name="profile", description=t("cmd.profile.desc"))
-    @command_guard(ephemeral=True)
+    @command_guard(ephemeral=True, rate=2, per=20.0)
     @app_commands.describe(player=t("cmd.profile.player"))
     async def profile_cmd(interaction: discord.Interaction, player: str) -> None:
         result = await _in_thread(lookup_profile, base, player, budget=HTTP_TIMEOUT * 2 + 1)
@@ -1954,7 +1994,7 @@ def build_bot(cfg: dict) -> commands.Bot:
                      ephemeral=True)
 
     @bot.tree.command(name="events", description=t("cmd.events.desc"))
-    @command_guard()
+    @command_guard(rate=3, per=30.0)
     @app_commands.describe(count=t("cmd.events.count"))
     async def events_cmd(interaction: discord.Interaction,
                          count: app_commands.Range[int, 1, 10] = 5) -> None:

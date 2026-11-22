@@ -222,14 +222,21 @@ def main():
             c += len(files)
         counts[src["local"]] = c
 
-    with open(os.path.join(repo, "SNAPSHOT.md"), "w") as fh:
-        fh.write("# FreeNova backup snapshot\n\n")
-        fh.write(f"Taken {time.strftime('%Y-%m-%d %H:%M:%S %Z')} by `tools/backup-pull.py`.\n\n")
-        fh.write("| tree | files |\n| --- | --- |\n")
-        for k, v in counts.items():
-            fh.write(f"| `{k}/` | {v} |\n")
-        fh.write("\nExcluded on purpose: engine/steam binaries, `steamapps/`, `Steam/`, "
-                 "`valve/`, core dumps, `node_modules/`.\n")
+    # SNAPSHOT.md carries the time the snapshot was taken, so rewriting it on a
+    # run that changed nothing would make every night a commit of its own. Only
+    # write it when the mirror actually moved files (or when it is missing).
+    snapshot = os.path.join(repo, "SNAPSHOT.md")
+    if total_fetch or total_stale or not os.path.exists(snapshot):
+        with open(snapshot, "w") as fh:
+            fh.write("# FreeNova backup snapshot\n\n")
+            fh.write(f"Taken {time.strftime('%Y-%m-%d %H:%M:%S %Z')} by `tools/backup-pull.py`.\n\n")
+            fh.write("| tree | files |\n| --- | --- |\n")
+            for k, v in counts.items():
+                fh.write(f"| `{k}/` | {v} |\n")
+            fh.write("\nExcluded on purpose: engine/steam binaries, `steamapps/`, `Steam/`, "
+                     "`valve/`, core dumps, `node_modules/`.\n")
+    else:
+        log("SNAPSHOT.md left as it is: no file changed")
 
     if not git(repo, "rev-parse", "--git-dir", check=False).returncode == 0:
         log("no git repository at " + repo)

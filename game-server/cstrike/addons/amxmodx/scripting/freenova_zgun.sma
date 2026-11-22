@@ -83,6 +83,7 @@ new g_pDebug;
 
 // String arrays are declared without the char: tag on this compiler.
 new g_szFlag[8];
+new g_szCfgPath[128];
 
 // =================================================================== init ==
 
@@ -156,41 +157,58 @@ public plugin_precache()
 
 public plugin_cfg()
 {
-    // write_file() takes a path (not a handle) and appends when the line index
-    // is left out, so the config is deleted and rebuilt line by line.
-    if (file_exists(CONFIG_NAME))
-        delete_file(CONFIG_NAME);
+    // REVIEW.md 5.5: this used to delete and rewrite its own config file on
+    // every map start, so an operator edit lasted until the next changelevel
+    // (and the whole file was rewritten for nothing each map). Write the
+    // defaults once, when the file is absent, then execute it - which the old
+    // code never did, so the file was documentation that changed nothing.
+    new szCfgDir[96];
+    get_configsdir(szCfgDir, charsmax(szCfgDir));
+    formatex(g_szCfgPath, charsmax(g_szCfgPath), "%s/%s", szCfgDir, CONFIG_NAME);
 
+    if (!file_exists(g_szCfgPath))
+        WriteDefaultZgunConfig();
+
+    server_cmd("exec %s", g_szCfgPath);
+    server_exec();
+
+    // The file is authoritative for the flag cvar, so read it back now.
+    RefreshFlagString();
+}
+
+// Writes the documented defaults. Only called when the file does not exist.
+WriteDefaultZgunConfig()
+{
     new szSpecs[128];
     formatex(szSpecs, charsmax(szSpecs),
         "// clip 10, bolt cycle %.1f s, reload %.1f s, deploy %.1f s",
         ZGUN_BOLT_TIME, ZGUN_RELOAD_TIME, ZGUN_DRAW_TIME);
 
-    write_file(CONFIG_NAME, "// FreeNova ZG-7 Zgun - VIP custom sniper");
-    write_file(CONFIG_NAME, "//");
-    write_file(CONFIG_NAME, "// VIP gate is the AMX Mod X flag letter below. Grant it with:");
-    write_file(CONFIG_NAME, "//    amx_addadmin STEAM_0:0:12345678 t");
-    write_file(CONFIG_NAME, "// or in game:   set_flags PlayerName t");
-    write_file(CONFIG_NAME, "// Leave it empty to require a FreeNova VIP tier instead.");
-    write_file(CONFIG_NAME, "freenova_zgun_flag t");
-    write_file(CONFIG_NAME, "");
-    write_file(CONFIG_NAME, "// Also accept an active FreeNova VIP tier as an alternative path");
-    write_file(CONFIG_NAME, "freenova_zgun_allow_vip_tier 1");
-    write_file(CONFIG_NAME, "");
-    write_file(CONFIG_NAME, "// Minimum tier for that path (1 = VIP, 2 = VIP+, 3 = Elite)");
-    write_file(CONFIG_NAME, "freenova_zgun_min_tier 1");
-    write_file(CONFIG_NAME, "");
-    write_file(CONFIG_NAME, "// 0 = /zgun hands over the gun, 1 = /zgun opens the menu");
-    write_file(CONFIG_NAME, "freenova_zgun_menu_on_command 0");
-    write_file(CONFIG_NAME, "");
-    write_file(CONFIG_NAME, "// 1 = the gun is dropped when the round ends instead of kept");
-    write_file(CONFIG_NAME, "freenova_zgun_drop_on_death 1");
-    write_file(CONFIG_NAME, "");
-    write_file(CONFIG_NAME, "// Specs: 260 damage scoped, x0.45 unscoped, 30 reserve rounds,");
-    write_file(CONFIG_NAME, szSpecs);
-    write_file(CONFIG_NAME, "");
-    write_file(CONFIG_NAME, "// Extra staff logging");
-    write_file(CONFIG_NAME, "freenova_zgun_debug 0");
+    write_file(g_szCfgPath, "// FreeNova ZG-7 Zgun - VIP custom sniper");
+    write_file(g_szCfgPath, "//");
+    write_file(g_szCfgPath, "// VIP gate is the AMX Mod X flag letter below. Grant it with:");
+    write_file(g_szCfgPath, "//    amx_addadmin STEAM_0:0:12345678 t");
+    write_file(g_szCfgPath, "// or in game:   set_flags PlayerName t");
+    write_file(g_szCfgPath, "// Leave it empty to require a FreeNova VIP tier instead.");
+    write_file(g_szCfgPath, "freenova_zgun_flag t");
+    write_file(g_szCfgPath, "");
+    write_file(g_szCfgPath, "// Also accept an active FreeNova VIP tier as an alternative path");
+    write_file(g_szCfgPath, "freenova_zgun_allow_vip_tier 1");
+    write_file(g_szCfgPath, "");
+    write_file(g_szCfgPath, "// Minimum tier for that path (1 = VIP, 2 = VIP+, 3 = Elite)");
+    write_file(g_szCfgPath, "freenova_zgun_min_tier 1");
+    write_file(g_szCfgPath, "");
+    write_file(g_szCfgPath, "// 0 = /zgun hands over the gun, 1 = /zgun opens the menu");
+    write_file(g_szCfgPath, "freenova_zgun_menu_on_command 0");
+    write_file(g_szCfgPath, "");
+    write_file(g_szCfgPath, "// 1 = the gun is dropped when the round ends instead of kept");
+    write_file(g_szCfgPath, "freenova_zgun_drop_on_death 1");
+    write_file(g_szCfgPath, "");
+    write_file(g_szCfgPath, "// Specs: 260 damage scoped, x0.45 unscoped, 30 reserve rounds,");
+    write_file(g_szCfgPath, szSpecs);
+    write_file(g_szCfgPath, "");
+    write_file(g_szCfgPath, "// Extra staff logging");
+    write_file(g_szCfgPath, "freenova_zgun_debug 0");
 }
 
 // ================================================================== VIP gate ==

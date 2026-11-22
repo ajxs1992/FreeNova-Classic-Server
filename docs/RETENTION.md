@@ -266,3 +266,90 @@ then change the map. To run a fixed window: copy one of the `[window]` rows into
 place and set `mode = schedule` (windows only) or `mode = both` (windows plus
 dice). To keep the current random behaviour: leave `mode = random`, or delete
 the file.
+
+---
+
+## 3. VIP: what it actually grants
+
+Tiers are `VIP` (1), `VIP+` (2), `VIP Elite` (3); higher tiers include lower
+ones. Everything below was checked against the source, not against the comments
+in the config files — several of those are wrong (see the end of this section).
+
+### The honest table
+
+| Perk | Tier | Applied by | Key (default) |
+|---|---|---|---|
+| Chat tier tag / coloured name | VIP | `freenova_vip.sma` `HandleChat` | `vip_tag` (VIP), `vip_tier_tags` (1) |
+| Join / leave notice | VIP | `Task_VipIn`, `client_disconnected` | `vip_in_out` (1) |
+| Scoreboard badge | VIP | `Task_SetVipTab` | `vip_tab` (1) |
+| Kill AP + money (kill / headshot / knife variants, AP capped) | VIP | `client_death` | `vip_ap_kill` 10, `vip_ap_hs` 10, `vip_ap_kill_knife` 15, `vip_ap_hs_knife` 20, `vip_money_kill` 400, `vip_money_hs` 600, `vip_max_ap` 200 |
+| CT defuse kit on spawn | VIP | `OnPlayerSpawn` | `vip_defusekit` (1) |
+| Rank-XP multiplier | VIP | `fnvip_get_xp_multiplier` → `battlepass_core` `crxranks_user_receive_xp` | `fnvip_mult_xp_1..3` (**vip.cfg: 1.10 / 1.20 / 1.30**) |
+| Coin multiplier (kill coins only) | VIP | `fnvip_get_coin_multiplier` → `battlepass_core` | `fnvip_mult_coin_1..3` (**vip.cfg: 1.05 / 1.10 / 1.15**) |
+| Spawn armour (kevlar + helm) | VIP | `battlepass_core` (not this plugin) | — |
+| Player model | VIP / VIP+ | `weapon_models.sma` (`PMODEL_VIP` need 1 for `vip_ct`/`vip_tero`, 2 for `s1_vip_*`) | — |
+| Spawn money | VIP+ | `OnPlayerSpawn` | `vip_start_money` (1000) |
+| VIP Armory `/vmenu` (+ per-map blocklist) | VIP+ | `Cmd_VMenu`, `ArmoryAccess`, `configs/vipMaps.ini` | `vip_mode` (1) |
+| Damage-indicator HUD | VIP+ | `client_damage` | `vip_bulletdmg` (1), `vip_bulletdmg_mode` (5) |
+| Parachute | VIP+ | `parachute.sma` (reads this plugin's cvar) | `vip_parachute` (1) |
+| Double jump (fallback only when BattlePass has no jump, hard cap 1 air jump) | Elite | `Fwd_VipPreThink` | `vip_jump` (1) |
+| Extra daily contract (150 coins) + auto-claim of ready contracts | VIP | `freenova_missions.sma` via `fnvip_get_tier` | — |
+| Free daily rerolls (1 / 2 / 3 / 4 by tier) and reroll cost (200 / 200 / 150 / 100) | VIP | `freenova_missions.sma` | — |
+| Free-VIP night (whole server gets tier 1) | everyone | `Task_CheckFreeVip` | `vip_free` (1), `vip_free_start` (22), `vip_free_end` (8) |
+| 72 h VIP+ trial, once per SteamID | — | `fnvip_claim_registration_trial`, called from `freenova_registration.sma` | — |
+| 24 h VIP trials bought with coins | 1/2/3 per purchase | `battlepass_core` shop → `fnvip_grant` | — |
+| Discord / registration ad ticker, trial expiry reminders | — | `Task_AdTick`, `TrialReminders` | `fnvip_ad_enabled`, `fnvip_ad_interval` |
+
+### Perks the code or the configs imply, that nothing applies
+
+Each of these is registered (so `amx_cvar` shows it and `vipConfig.cfg` documents
+it) but no code path reads or honours it.
+
+| Claim | Evidence |
+|---|---|
+| **BattlePass XP multiplier.** `vip.cfg` says "BattlePass XP multipliers (progression layer reads these via fnvip)" and `freenova_vip.inc` documents `fnvip_get_bp_multiplier` as 1.05/1.10/1.15. | `grep -rn fnvip_get_bp_multiplier` finds only the `register_native` and the include: **nothing calls it**. VIP boosts *rank* XP; BattlePass XP is not boosted at all. |
+| **Kill / headshot HP bonuses** (`vip_hp_kill`, `vip_hp_hs`, `vip_hp_kill_knife`, `vip_hp_hs_knife`), documented in `vipConfig.cfg` "VIP Kill / Headshot Bonuses" | `client_death` grants AP and money only; the four cvars are never read. The code comments say HP-on-kill was removed on purpose: HP is the BattlePass Vampire skill. |
+| `vip_max_hp` ("VIP Max Limits") | never read. Only `vip_max_ap` is. |
+| Spawn HP / AP (`vip_start_hp`, `vip_start_ap`) | never read. Spawn armour belongs to `battlepass_core`, which explicitly owns it. |
+| `vip_admin_flag` ("flag required for the Admin model") | never read; the admin model is keyed on `ADMIN_BAN` inside `weapon_models.sma`. |
+| `vip_model 0` disables VIP models | read only to skip *this* plugin's model precache. Models are applied by `weapon_models.sma`, so 0 does not remove them. |
+| `fnvip_has_benefit` / `FNVIP_BENEFIT_*` ("benefit gate") | no plugin in the tree calls it; the gate is inert. Its own comment puts VIP skins at VIP+ while `web-panel/src/vip.js` sells shop skins at tier 1. |
+| `vip_jump 2` = triple jump (`vipConfig.cfg`) | `Fwd_VipPreThink` hard-caps at one air jump; 2 can never be honoured. |
+| `vip_show_hud` (documented in `vipConfig.cfg`) | no such cvar exists any more — the stats HUD moved to `freenova_hud`. |
+| Advertised magnitudes: the web panel says `+50 / +100 / +150 %` XP and `1.5x / 2.0x / 2.5x` coins | live values are the ones in `vip.cfg`: `+10 / +20 / +30 %` XP and `1.05x / 1.10x / 1.15x` coins. The in-game `/vip` page is computed from the cvars and therefore shows the low numbers; the web page is hardcoded and wrong. |
+
+Unused tier defines (`TIER_MODEL`, `TIER_PARACHUTE`, `TIER_MULTIJUMP`,
+`TIER_FREEVIP`) are leftovers; the real gates are the ones in the table above.
+`vipConfig.cfg` is regenerated only when missing, so its stale text survives an
+update — it is documentation, not behaviour.
+
+### What changed in this round
+
+1. **Free-VIP could get stuck.** `Task_CheckFreeVip` returned immediately when
+   `vip_free` was 0, so switching the event off with the cvar (or while the
+   server was inside the window) left every player who had been granted the
+   event flag holding VIP until the map changed. The guard was redundant —
+   `IsFreeVipTime()` already answers false when the cvar is off — so it now
+   always falls through to the teardown branch.
+2. **The HP cvars stopped advertising a perk nobody gets.** `vip_hp_hs` (10),
+   `vip_hp_kill_knife` (15) and `vip_hp_hs_knife` (20) now default to 0, like
+   `vip_hp_kill` already did, with a comment saying HP-on-kill is the BattlePass
+   Vampire skill. Nothing reads them either way, so no gameplay changed.
+3. **The `/vip` benefit table says what it does.** It now lists the Elite
+   double jump (only when `vip_jump` is on) and the VIP extra contract /
+   auto-claim (only when `freenova_missions` is loaded), and the player-model row
+   no longer claims VIP gets no model — VIPs do (`vip_ct`, `vip_tero`).
+
+### Left to the owner (no code change made)
+
+* **BattlePass XP multiplier**: build it (a BP-XP credit hook) or delete
+  `fnvip_mult_bp_*` and the `fnvip_get_bp_multiplier` native. It is currently a
+  promise the server does not keep, and `battlepass_core` is owned elsewhere.
+* **The advertised numbers**: either raise `fnvip_mult_xp_*` / `fnvip_mult_coin_*`
+  to the +50/100/150 % the panel sells, or fix `web-panel/src/vip.js`. This is a
+  money/XP decision, so it was not touched.
+* **Kill HP**: keep it as a BattlePass Vampire exclusive (current behaviour) or
+  turn the four cvars back on with a cap. Both are balance calls.
+* **`vip_model`, `vip_admin_flag`**: they only mean something inside
+  `weapon_models.sma`, which was out of scope here.
+* **Triple jump**: honouring `vip_jump 2` is a movement/exploit decision.

@@ -1,6 +1,7 @@
 name: plugins
 
-# Compiles every AMXX plugin in the snapshot.
+# Compiles every AMXX plugin in the snapshot, and runs the static rules that
+# catch the bug classes this tree keeps producing (tools/lint-plugins.py).
 #
 # tools/compile-plugins.sh picks its runner itself: it tries the bundled
 # `scripting/amxxpc` (a 32-bit i386 ELF) natively, and falls back to
@@ -31,6 +32,8 @@ on:
     paths:
       - 'game-server/cstrike/addons/amxmodx/scripting/**'
       - 'tools/compile-plugins.sh'
+      - 'tools/lint-plugins.py'
+      - 'tests/lint-plugins/**'
       - '.github/workflows/plugins.yml'
   pull_request:
   workflow_dispatch:
@@ -38,6 +41,8 @@ on:
     paths:
       - 'game-server/cstrike/addons/amxmodx/scripting/**'
       - 'tools/compile-plugins.sh'
+      - 'tools/lint-plugins.py'
+      - 'tests/lint-plugins/**'
       - '.github/workflows/plugins.yml'
 
 permissions:
@@ -48,6 +53,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    # Static rules for the bug classes this tree keeps producing (see the tool's
+    # docstring). Pure python3, no i386 userland and no container, so it is a
+    # separate job: seconds, not minutes. It exits non-zero on the first
+    # unacknowledged finding and reports `lint:allow`-ed ones as ALLOW, so the
+    # gate is "no NEW bug class", not "no pattern anywhere".
+    name: static rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Check the checker
+        # bad/clean/allowed fixtures: every rule must fire, a clean file must be
+        # quiet, and lint:allow must suppress. Keeps the linter honest without
+        # depending on what the live tree happens to contain.
+        run: ./tools/lint-plugins.py --self-test
+
+      - name: Lint the plugins
+        run: ./tools/lint-plugins.py
+
   compile:
     name: amxxpc
     runs-on: ubuntu-latest

@@ -23,6 +23,7 @@ diffed against from now on.
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How a player action flows plugin → HMAC → panel → SQLite → page, with the tables and the endpoint shapes |
 | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | Deploy the panel, deploy a plugin, rotate the HMAC secrets, restore from this snapshot |
 | [`docs/DEPLOY-plugins.md`](docs/DEPLOY-plugins.md) | The one-shot plugin deploy: which `.amxx` to upload, which server, the per-file SFTP recipe, restart, verify, rollback |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | What runs unattended on the ops machine: the A2S watch daemon, the nightly backup, their systemd units, and what to do when an alert fires |
 | [`SECRETS.md`](SECRETS.md) | Every path that holds a live credential or player data, and the rotation checklist |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch/commit style and the checks that must pass |
 

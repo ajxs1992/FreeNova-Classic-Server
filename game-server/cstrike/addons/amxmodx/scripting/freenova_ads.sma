@@ -60,6 +60,43 @@ new g_iAdCount
 new g_iNextAd
 new g_iLastAd = -1
 
+// Fallback rotation: the ad set this plugin shipped with before ads.ini existed,
+// used when the file is missing or yields nothing usable.
+//
+// Why it exists: LoadAds() used to log "config missing, no ads will show" and
+// return, so a single botched SFTP upload of configs/freenova/ads.ini silently
+// turned advertising off until somebody read the log. Ads are content, not
+// configuration - the plugin should degrade to the built-in set and say so.
+// The texts are the live ads.ini contents, so a fallback is not a content change:
+// it is what the panel's rotation shows today.
+new const g_FallbackType[] =
+{
+    AD_CHAT,
+    AD_HUD,
+    AD_CHAT,
+    AD_CHAT,
+    AD_CHAT,
+    AD_HUD,
+    AD_CHAT,
+    AD_CHAT,
+    AD_CHAT | AD_HUD
+}
+
+new const g_FallbackText[][] =
+{
+    "Join our Discord: discord.gg/dqrWHhQykp - news, events and support!",
+    "Fast downloads on fn-gaming.net\\nMissing maps, sprays and sound mods install automatically",
+    "Need gear or skills? Type /shop in chat to open the store.",
+    "Want perks? Type /vip to see VIP tiers, benefits and the armory.",
+    "Check your progress with /rank - level, XP, leaderboard and unlocks in one place.",
+    "Quick commands: /shop  /vip  /rank  /panel",
+    "Web panel on the go: type /panel to open the FreeNova panel in your browser.",
+    "Website + fastdl: fn-gaming.net - missing files download from our fastdl automatically.",
+    "Tell a friend about FreeNova - and grab your role on discord.gg/dqrWHhQykp!"
+}
+
+#define FALLBACK_COUNT  (sizeof g_FallbackText)
+
 new g_pEnabled
 new g_pInterval
 new g_pStartDelay
@@ -185,14 +222,14 @@ LoadAds()
 
     if (!file_exists(szPath))
     {
-        log_amx("[FreeNova Ads] config missing, no ads will show: %s", szPath)
+        LoadFallbackAds("config missing")
         return
     }
 
     new fp = fopen(szPath, "rt")
     if (!fp)
     {
-        log_amx("[FreeNova Ads] cannot open config: %s", szPath)
+        LoadFallbackAds("cannot open config")
         return
     }
 
@@ -262,9 +299,30 @@ LoadAds()
     fclose(fp)
 
     if (!g_iAdCount)
-        log_amx("[FreeNova Ads] no usable ads in %s", szPath)
-    else
-        log_amx("[FreeNova Ads] loaded %d ads from %s", g_iAdCount, szPath)
+    {
+        LoadFallbackAds("no usable ads in config")
+        return
+    }
+
+    log_amx("[FreeNova Ads] loaded %d ads from %s", g_iAdCount, szPath)
+}
+
+// Replace the rotation with the built-in set and say why. Never fatal: an empty
+// rotation is never a reason to fall silent.
+LoadFallbackAds(const reason[])
+{
+    g_iAdCount = 0
+    g_iNextAd = 0
+    g_iLastAd = -1
+
+    for (new i = 0; i < FALLBACK_COUNT && g_iAdCount < MAX_ADS; i++)
+    {
+        copy(g_szText[g_iAdCount], charsmax(g_szText[]), g_FallbackText[i])
+        g_iType[g_iAdCount] = g_FallbackType[i]
+        g_iAdCount++
+    }
+
+    log_amx("[FreeNova Ads] %s - using %d built-in ads instead", reason, g_iAdCount)
 }
 
 // ------------------------------------------------------------- rotation

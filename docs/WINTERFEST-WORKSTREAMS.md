@@ -18,7 +18,22 @@ deploy.
 | 9 | **Progression extras** — Christmas missions, seasonal achievements, daily login | starting | `winterfest_progress.sma`, `configs/freenova/winterfest/missions.ini` |
 | 10 | **Community systems** — Secret Santa, gift-between-players, lottery, community goal | queued (needs 5) | `winterfest_social.sma`, panel tables via owner of 5 |
 | 11 | **Santa's Revenge / Grinch / elf / boss fight** | queued (needs 7) | `winterfest_santa.sma`, `winterfest_grinch.sma` |
+| 13 | **Spin Wheel** — daily free spin, tokens, prize table | starting | `winterfest_spin.sma`, `configs/freenova/winterfest/spin.ini`, `web-panel/src/winter/spin*` |
+| 14 | **Levels page** — XP curve, per-level rewards, progress | starting | `web-panel/src/winter/levels*` |
+| 15 | **Messaging (the envelope)** — inbox, announcements, admin broadcast | starting | `winterfest_mail.sma`, `web-panel/src/winter/mail*`, `winter_mail` table |
 | 12 | **Admin & analytics** — event controls, reward grants, analytics | queued (needs 1+5) | `winterfest_admin.sma`, panel admin section |
+
+## Owner decisions recorded 2026-11-22 (second round)
+
+1. **Currency is GingerBread.** The game-side core was built as "snowflakes";
+   it is renamed to **gingerbread** (id `gb`), and "snowflake" survives only as
+   the ornament *set* name. The dashboard reference is authoritative.
+2. **Spin Wheel ships** — a daily free spin plus bought/earned spins, with a
+   prize table in config.
+3. **The Levels page exists** — XP curve and per-level rewards, reachable from
+   the sidebar.
+4. **The envelope exists** — an in-panel inbox for system announcements and
+   admin broadcasts (player-to-player mail is a later step).
 
 ## Rules every workstream follows
 

@@ -79,11 +79,10 @@ A headless screenshot at 1672×941 placed next to the reference, plus a second a
 regions, same proportions, same palette. Fonts may differ (no webfont is loaded
 in the reference; use a system stack that matches the weight/letter-spacing).
 
-## Open questions for the owner
-1. **GingerBread vs Snowflake** — the mock's currency is *GingerBread*; the
-   game-side core was built as *snowflakes*. Rename to GingerBread (design wins)
-   and keep "snowflake" for the ornament set?
-2. **Spin Wheel** — new feature: daily free spin for coins/gingerbread/rewards.
-   Phase 1 or later?
-3. **Envelope** — no messaging system exists. Drop it, or point it at Discord?
-4. **Levels page** — new route; what does it show (XP curve, level rewards)?
+## Decisions (owner, 2026-11-22)
+1. **GingerBread wins.** The core's "snowflakes" currency is renamed to
+   gingerbread (`gb`); "snowflake" stays as the ornament set name only.
+2. **Spin Wheel ships** — daily free spin + earned spins, prize table in config.
+3. **Envelope ships** — an inbox for system announcements and admin broadcasts.
+   Player-to-player mail is explicitly a later step.
+4. **Levels page ships** — XP curve and per-level rewards.

@@ -3465,13 +3465,29 @@ async function loadEventsList(env) {
   })
 }
 
-// One snapshot per render; per-event boards re-sort it in JS by the event
-// metric (same LIMIT 30 pattern the detail board always used).
-async function loadEventBoardRows(env) {
+// SQL column for an event metric. Same vocabulary as playerEventScore() below
+// and BASELINE_EXPR in sync.js; anything unknown falls back to kills.
+const EVENT_BOARD_SQL = {
+  kills: "kills",
+  headshots: "headshots",
+  wins: "wins",
+  mvps: "mvps",
+  xp: "xp",
+  c4: "(IFNULL(ach_plants,0)+IFNULL(ach_defuses,0))"
+}
+
+// Candidate set for an event board. It used to be ordered by kills for every
+// metric, so a "most XP" / "most wins" / "most C4" event only ever considered
+// the 100 players with the most kills: anyone outside that set could never
+// appear, and the page told them "your rank: outside the top 10" from a
+// truncated set. Ordering (and therefore truncating) by the event's own metric
+// makes the board honest. The column is whitelisted - never request input.
+async function loadEventBoardRows(env, metric) {
+  const col = EVENT_BOARD_SQL[String(metric || "").toLowerCase()] || EVENT_BOARD_SQL.kills
   try {
     const { results } = await env.DB.prepare(
       `SELECT steamid, name, kills, headshots, wins, mvps, xp, coins, ach_plants, ach_defuses
-       FROM players ORDER BY kills DESC LIMIT 100`).all()
+       FROM players ORDER BY ${col} DESC LIMIT 100`).all()
     return results || []
   } catch { return [] }
 }
@@ -3563,7 +3579,7 @@ export async function pageEvents(env, url) {
     let lb = ""
     let board = []
     if (isGoal || measurable) {
-      board = eventBoardSort(await loadEventBoardRows(env), metric === "none" ? "kills" : metric).slice(0, 10)
+      board = eventBoardSort(await loadEventBoardRows(env, metric), metric === "none" ? "kills" : metric).slice(0, 10)
       lb = board.map((r, i) => `<tr>
       <td class='pos c'>${i < 3 ? `<img class='trophy' src='/medals/medal_0${i + 1}.png' width='19' height='22' alt='#${i + 1}'>` : `#${i + 1}`}</td>
       <td class='player'>${esc(r.name)}</td>
@@ -3692,18 +3708,23 @@ export async function pageEvents(env, url) {
   else if (show === "upcoming") filtered = ordered.filter(e => stateOf(e) === "upcoming")
   else if (show === "mine") filtered = p ? ordered.filter(e => progressOf(e).mine > 0) : []
 
-  // One players snapshot per render; each goal card re-sorts it in JS by its
-  // own metric (the LIMIT 30 pattern the detail board already used).
-  let boardRows = []
-  if (show !== "past" && filtered.some(e => {
-    const pr = progressOf(e)
-    return pr.measurable || String(e.type || "").toLowerCase() === "community_goal"
-  })) boardRows = await loadEventBoardRows(env)
+  // One candidate set per distinct event metric, loaded up front: the query is
+  // ordered and limited by that metric, so a "most XP" card can never be scored
+  // off a top-100-by-kills slice. boardFor() stays synchronous because the card
+  // renderer below is a plain .map().
   const boardCache = new Map()
   const boardFor = (metric) => {
     const m = metric === "none" ? "kills" : metric
-    if (!boardCache.has(m)) boardCache.set(m, eventBoardSort(boardRows, m))
-    return boardCache.get(m)
+    return boardCache.get(m) || []
+  }
+  if (show !== "past") {
+    const wanted = new Set()
+    for (const e of filtered) {
+      const pr = progressOf(e)
+      if (pr.measurable || String(e.type || "").toLowerCase() === "community_goal")
+        wanted.add(eventMetricKey(e) === "none" ? "kills" : eventMetricKey(e))
+    }
+    for (const m of wanted) boardCache.set(m, eventBoardSort(await loadEventBoardRows(env, m), m))
   }
 
   let cards = ""

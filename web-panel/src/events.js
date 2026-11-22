@@ -101,8 +101,9 @@ export async function pageEvents(env, url) {
 
     let board = []
     if (isGoal || measurable) {
-      const rows = await loadEventBoardRows(env)
-      board = eventBoardSort(rows, metric === "none" ? "kills" : metric).slice(0, 10)
+      const boardMetric = metric === "none" ? "kills" : metric
+      const rows = await loadEventBoardRows(env, boardMetric)
+      board = eventBoardSort(rows, boardMetric).slice(0, 10)
     }
     let myRank = 0
     if (p && board.length) {

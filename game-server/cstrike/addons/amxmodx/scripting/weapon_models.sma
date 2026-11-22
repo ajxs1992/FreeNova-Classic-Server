@@ -113,6 +113,18 @@ new g_ConfigPath[128];
 new g_szCustomSkinsPath[128];
 
 new g_SkinCount[GROUP_COUNT];
+
+// Precache budget control - see docs/PRECACHE-BUDGET.md.
+//
+// GoldSrc gives a map load one precache table and kills the server at the 513th
+// item; this plugin is the largest consumer in the stack, because every live row
+// of skins_menu.cfg is a viewmodel plus a player model (144 distinct .mdl today).
+// fn_skins_precache_max caps how many rows *per group* are precached; 0 precaches
+// everything, which is what every build before this one did. Rows are taken in
+// config order, so slot 0 (the in-plugin Default) is always kept and the capped
+// skins are always the tail of a group.
+new g_pPrecacheMax;
+new g_PrecachedCount[GROUP_COUNT];
 new g_SkinNames[GROUP_COUNT][MAX_SKINS_PER_GROUP][SKIN_NAME_LEN];
 new g_ViewModels[GROUP_COUNT][MAX_SKINS_PER_GROUP][MODEL_PATH_LEN];
 new g_PlayerModels[GROUP_COUNT][MAX_SKINS_PER_GROUP][MODEL_PATH_LEN];
@@ -154,6 +166,15 @@ new g_pCustomOrderCost;
 
 public plugin_precache()
 {
+    // The cap has to be known HERE and not in plugin_init: once plugin_init
+    // runs the models are already in the table. So create the cvar now and exec
+    // an optional per-plugin config that can set it, exactly the way
+    // reapi_healthnade reads its model cvars before it precaches. A value set
+    // in amxx.cfg arrives after this point and only caps what players may wear
+    // (EnforcePrecacheCap), it cannot shrink the table.
+    g_pPrecacheMax = register_cvar("fn_skins_precache_max", "0");
+    ExecPrecacheCfg();
+
     BuildConfigPath();
     LoadSkinsConfig();
     LoadMasterySkinsConfig();
@@ -193,6 +214,14 @@ public plugin_init()
     register_concmd("fn_skin_orders", "Cmd_AdminSkinOrders", ADMIN_BAN, "- List custom skin orders");
 
     register_event("CurWeapon", "EventCurWeapon", "be", "1=1");
+}
+
+public plugin_cfg()
+{
+    // amxx.cfg is executed after plugin_precache, so a cap that only lands here
+    // cannot give the map its precache slots back - but it must still stop a
+    // player being handed a model this map never loaded.
+    EnforcePrecacheCap();
 }
 
 public plugin_natives()
@@ -805,17 +834,67 @@ bool:AddSkin(group, const skinName[], const viewModel[], const playerModel[], vi
     return true;
 }
 
-PrecacheLoadedModels()
+// Optional early config for fn_skins_precache_max. Same pattern reapi_healthnade
+// uses for HealthNade.cfg: the file is optional, and exec'ing it here (rather
+// than relying on amxx.cfg) is the only way the value exists in time to matter.
+ExecPrecacheCfg()
 {
+    new szPath[PLATFORM_MAX_PATH];
+    get_configsdir(szPath, charsmax(szPath));
+    add(szPath, charsmax(szPath), "/plugins/weapon_models.cfg");
+
+    if (!file_exists(szPath))
+        return;
+
+    server_cmd("exec %s", szPath);
+    server_exec();
+}
+
+// Lower the usable count to the cap if it arrived late (see plugin_cfg).
+EnforcePrecacheCap()
+{
+    new cap = get_pcvar_num(g_pPrecacheMax);
+
+    if (cap <= 0)
+        return;
+
     for (new group = 0; group < GROUP_COUNT; group++)
     {
-        for (new i = 0; i < g_SkinCount[group]; i++)
+        if (g_PrecachedCount[group] > cap)
+            g_PrecachedCount[group] = cap;
+    }
+}
+
+PrecacheLoadedModels()
+{
+    new cap = get_pcvar_num(g_pPrecacheMax);
+    new loaded, held;
+
+    for (new group = 0; group < GROUP_COUNT; group++)
+    {
+        new limit = g_SkinCount[group];
+
+        if (cap > 0 && limit > cap)
+            limit = cap;
+
+        // What the rest of the plugin may hand out this map.
+        g_PrecachedCount[group] = limit;
+        loaded += limit;
+        held += g_SkinCount[group] - limit;
+
+        for (new i = 0; i < limit; i++)
         {
             if (g_ViewModels[group][i][0] && file_exists(g_ViewModels[group][i]))
                 precache_model(g_ViewModels[group][i]);
             if (g_PlayerModels[group][i][0] && file_exists(g_PlayerModels[group][i]))
                 precache_model(g_PlayerModels[group][i]);
         }
+    }
+
+    if (held > 0)
+    {
+        log_amx("[FreeNova Skins] fn_skins_precache_max %d: %d of %d skins precached, %d held back from the map precache budget",
+            cap, loaded, loaded + held, held);
     }
 }
 
@@ -1435,6 +1514,11 @@ LoadForcedPlayerModel(id)
 bool:CanUseSkin(id, group, skin)
 {
     if (skin < 0 || skin >= g_SkinCount[group])
+        return false;
+
+    // Not in the table this map (fn_skins_precache_max): never hand the engine a
+    // model it did not precache, and never let a menu offer one.
+    if (skin >= g_PrecachedCount[group])
         return false;
 
     if (skin == 0)

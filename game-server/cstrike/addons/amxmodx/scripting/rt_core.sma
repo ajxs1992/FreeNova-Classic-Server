@@ -434,10 +434,13 @@ public MessageHook_ClCorpse() {
 	set_entvar(iEnt, var_owner, iPlayer);
 	set_entvar(iEnt, var_team, iPlTeam);
 
+	// ClCorpse carries the origin as a fixed-point int (coord * 128). Dividing
+	// in integer arithmetic first threw the fractional part away, so every
+	// corpse sat up to a unit off the floor (REVIEW.md 5.5). Convert first.
 	new Float:fVecOrigin[3];
-	fVecOrigin[0] = float(get_msg_arg_int(2) / 128);
-	fVecOrigin[1] = float(get_msg_arg_int(3) / 128);
-	fVecOrigin[2] = float(get_msg_arg_int(4) / 128);
+	fVecOrigin[0] = float(get_msg_arg_int(2)) / 128.0;
+	fVecOrigin[1] = float(get_msg_arg_int(3)) / 128.0;
+	fVecOrigin[2] = float(get_msg_arg_int(4)) / 128.0;
 	//get_entvar(iPlayer, var_origin, fVecOrigin);
 	engfunc(EngFunc_SetOrigin, iEnt, fVecOrigin);
 

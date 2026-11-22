@@ -2295,6 +2295,20 @@ stock VipChat(id, const szMessage[], any:...)
 // ============================================================
 // INTERNAL GRANT/REVOKE
 // ============================================================
+// now + seconds, saturated at INT_MAX. A 10-year ("permanent", 3650-day)
+// grant is 315360000 s, and a 32-bit cell wraps negative past 2028-01-20: the
+// entitlement then silently never applied while the command printed success.
+// REVIEW.md §5.2.
+stock GrantExpiry(now, seconds)
+{
+    if (seconds > 0 && now > 2147483647 - seconds)
+    {
+        log_amx("[FreeNova VIP] expiry clamped at 2147483647 (now=%d +%ds would overflow)", now, seconds);
+        return 2147483647;
+    }
+    return now + seconds;
+}
+
 bool:fnGrant(id, tier, seconds, source, reason[] = "")
 {
     if (!g_bValid[id] || tier < FNVIP_VIP || tier > FNVIP_ELITE || seconds <= 0)
@@ -2304,14 +2318,14 @@ bool:fnGrant(id, tier, seconds, source, reason[] = "")
     formatex(szKey, charsmax(szKey), "ent#%s#%d#%d", g_szAuth[id], tier, source);
 
     new now = get_systime();
-    new expire = now + seconds;
+    new expire = GrantExpiry(now, seconds);
 
     new ts, szOld[24];
     if (nvault_lookup(g_Vault, szKey, szOld, charsmax(szOld), ts))
     {
         new oldExpire = str_to_num(szOld);
         if (oldExpire > now)
-            expire = oldExpire + seconds; // extend (spec §13 option)
+            expire = GrantExpiry(oldExpire, seconds); // extend (spec §13 option)
         // if already expired, fall through to fresh grant
     }
 

@@ -140,9 +140,11 @@ stock arm_close_task(id)
 }
 
 public show_pistol_menu(id) {
-    new szTitle[64];
-    FN_MenuTitle(szTitle, charsmax(szTitle), "Pistol Menu");
-    formatex(szTitle, charsmax(szTitle), "%s^n\wRound 1 Loadout", szTitle);
+    new szTitle[64], szBase[64];
+    // Two buffers: formatex() writes in place, so formatex(t, n, "%s...", t)
+    // duplicated its own prefix into the menu title.
+    FN_MenuTitle(szBase, charsmax(szBase), "Pistol Menu");
+    formatex(szTitle, charsmax(szTitle), "%s^n\wRound 1 Loadout", szBase);
     new menu = menu_create(szTitle, "pistol_handler");
 
     menu_additem(menu, "\wDesert Eagle", "1", 0);
@@ -221,9 +223,10 @@ public pistol_handler(id, menu, item) {
 }
 
 public show_smg_menu(id) {
-    new szTitle[64];
-    FN_MenuTitle(szTitle, charsmax(szTitle), "SMG Menu");
-    formatex(szTitle, charsmax(szTitle), "%s^n\wRound 2 Loadout", szTitle);
+    new szTitle[64], szBase[64];
+    // Two buffers (see show_pistol_menu).
+    FN_MenuTitle(szBase, charsmax(szBase), "SMG Menu");
+    formatex(szTitle, charsmax(szTitle), "%s^n\wRound 2 Loadout", szBase);
     new menu = menu_create(szTitle, "smg_handler");
 
     menu_additem(menu, "\wFAMAS", "1", 0);
@@ -290,9 +293,10 @@ public smg_handler(id, menu, item) {
 }
 
 public show_rifle_menu(id) {
-    new szTitle[64];
-    FN_MenuTitle(szTitle, charsmax(szTitle), "Weapon Menu");
-    formatex(szTitle, charsmax(szTitle), "%s^n\wSelect your weapon", szTitle);
+    new szTitle[64], szBase[64];
+    // Two buffers (see show_pistol_menu): formatex() writes in place.
+    FN_MenuTitle(szBase, charsmax(szBase), "Weapon Menu");
+    formatex(szTitle, charsmax(szTitle), "%s^n\wSelect your weapon", szBase);
     new menu = menu_create(szTitle, "menu_handler");
 
 

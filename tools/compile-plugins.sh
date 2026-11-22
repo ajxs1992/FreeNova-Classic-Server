@@ -104,7 +104,7 @@ esac
 # amxxpc 1.10.0.5467 dies with 'std::bad_alloc' instead of naming a missing
 # include file, so resolve the includes ourselves to say something useful.
 missing_includes() {
-  local sma=$1 inc out
+  local sma=$1 inc out=""
   for inc in $(sed -n 's/^[[:space:]]*#include[[:space:]]*<\([^>]*\)>.*/\1/p' "$sma"); do
     if [ ! -f "$SRC/include/$inc.inc" ] && [ ! -f "$SRC/include/$inc" ]; then
       out="${out:-} $inc.inc"

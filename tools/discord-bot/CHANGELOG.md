@@ -397,3 +397,13 @@ One line per change, with the verification that was actually run. Newest last.
   same result). This is a panel/game-push bug outside this bot's boundary -
   reported, not worked around silently. Tests 91 → 92 (a fresh-but-wrong push
   keeps the A2S number and names the panel's).
+
+- **Post-crash tidy** (`bot.py`, `test_bot.py`): the events reload log no longer
+  repeats every 30 s when the schedule is empty (it compares
+  `(source, count)` against the cache instead of re-computing the count), and
+  the badge fixture now carries all four kinds the API can award
+  (`weekly_champion`, `monthly_champion`, `weekly_top3`, `weekly_streak3`), each
+  asserted as plain text in the profile embed. *Verified:* `py_compile`, `ruff
+  --select F,E9,B` clean, **92/92 tests**; restart → one
+  `events: 0 panel + 0 pinned = 0 event(s) [panel]` line and a quiet journal
+  afterwards; all four API-backed commands re-rendered against production.

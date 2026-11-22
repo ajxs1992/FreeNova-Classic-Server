@@ -146,7 +146,12 @@ API_PLAYER = {
     "playtime_minutes": 447,
     "badges": [{"kind": "weekly_champion", "period": "2026-W46",
                 "label": "Weekly #1 · Week 46 · 2026"},
-               {"kind": "weekly_top3", "period": "2026-W45", "label": "Weekly top 3 · Week 45 · 2026"}],
+               {"kind": "monthly_champion", "period": "2026-10",
+                "label": "Monthly #1 · October 2026"},
+               {"kind": "weekly_top3", "period": "2026-W45",
+                "label": "Weekly top 3 · Week 45 · 2026"},
+               {"kind": "weekly_streak3", "period": "2026-W44",
+                "label": "Top 3 three weeks running · Week 44 · 2026"}],
     "updated": NOW_TS,
 }
 
@@ -622,7 +627,10 @@ def test_player_from_api():
     assert profile.coins == 2400 and profile.playtime_minutes == 447
     assert profile.playtime_seconds == 447 * 60
     assert profile.badge_labels() == ("Weekly #1 · Week 46 · 2026",
-                                      "Weekly top 3 · Week 45 · 2026")
+                                      "Monthly #1 · October 2026",
+                                      "Weekly top 3 · Week 45 · 2026",
+                                      "Top 3 three weeks running · Week 44 · 2026"), \
+        "all four badge kinds the API can award"
     assert profile.url == "https://x/profile?steamid=1"
 
     unranked = bot.player_from_api(API_PLAYER_UNRANKED)
@@ -745,8 +753,10 @@ def test_profile_embeds_from_the_api():
     fields = {field.name: field.value for field in main.fields}
     assert fields["Playtime"] == "7h 27m"
     assert fields["Coins"] == "2,400"
-    assert "Weekly #1 · Week 46 · 2026" in fields["Badges"]
-    assert "Weekly top 3 · Week 45 · 2026" in fields["Badges"]
+    assert fields["Badges"] == ("Weekly #1 · Week 46 · 2026 · Monthly #1 · October 2026 · "
+                                "Weekly top 3 · Week 45 · 2026 · "
+                                "Top 3 three weeks running · Week 44 · 2026"), \
+        "badges are plain text, in the API's order"
     assert "STEAM_0:0:683671116" in main.footer.text
     assert "1 other player(s) share this name" in main.footer.text
     assert battle_pass.description == "Tier 18 / 60 · 17,889 BP XP"
@@ -1414,7 +1424,6 @@ def test_status_uses_the_api_when_fresh():
 
 def test_status_prefers_a2s_when_the_panel_push_disagrees():
     """A fresh push can still carry a stale count - show the live one and say so."""
-    import tempfile
 
     async def live_info(server, fresh=False):
         return {"name": "FreeNova CS 1.6", "map": "de_dust2", "players": 9, "max": 32}

@@ -2152,7 +2152,7 @@ def build_bot(cfg: dict) -> commands.Bot:
     presence_state: dict[str, Any] = {"last": None, "cycle": 0}
     sample_state: dict[str, Any] = {}
     event_cache: dict[str, Any] = {"mtime": object(), "pinned": [], "list": [],
-                                   "source": "", "updated": None}
+                                   "source": "", "count": -1, "updated": None}
     store = StateStore()
     alerts_cfg = cfg.get("alerts") or {}
     digest_cfg = cfg.get("digest") or {}
@@ -2181,10 +2181,10 @@ def build_bot(cfg: dict) -> commands.Bot:
         source = "panel" if api.ok else "file"
         if api.ok and pinned:
             source = "panel+file"
-        if (source, len(merged)) != (event_cache["source"], len(merged)) or not event_cache["list"]:
+        if (source, len(merged)) != (event_cache["source"], event_cache["count"]):
             log.info("events: %d panel + %d pinned = %d event(s) [%s]", len(panel), len(pinned),
                      len(merged), source)
-        event_cache.update(list=merged, source=source,
+        event_cache.update(list=merged, source=source, count=len(merged),
                            updated=_opt_int((api.data or {}).get("updated")) if api.ok else None)
         return merged
 

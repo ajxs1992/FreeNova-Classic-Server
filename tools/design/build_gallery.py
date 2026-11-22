@@ -123,6 +123,8 @@ def build() -> tuple[dict, list[str]]:
             "probes": ref.get("probes", {}),
             "geometry": measured["geometry"],
             "palette": measured["palette"],
+            "palette_bands": measured["palette_bands"],
+            "palette_hero_sampled": measured["palette_hero_sampled"],
             "palette_note": measured["palette_note"],
             "shell": {
                 "inherits": bool(ref.get("inherits_shell")),
@@ -175,6 +177,8 @@ def build() -> tuple[dict, list[str]]:
             "probes": {},
             "geometry": measured["geometry"],
             "palette": measured["palette"],
+            "palette_bands": measured["palette_bands"],
+            "palette_hero_sampled": measured["palette_hero_sampled"],
             "palette_note": measured["palette_note"],
             "shell": {"inherits": True, "exceptions": []},
             "hero_inventory": {},
@@ -258,6 +262,9 @@ def geometry_hero(ref: dict) -> str:
     if doc:
         return (f"{doc['height_px']} px ({doc['top']} to {doc['bottom']}) "
                 f"| from `{doc['source']}`; bottom border is not separable from the art")
+    if hero.get("top_border_source") == "top-bar":
+        return (f"top at {hero['top_border_y']} px (measured top bar) "
+                "| bottom edge is art, not a line; height not separable - estimated")
     return "no separable bottom border | top border found, bottom joins the first card row; estimated"
 
 
@@ -293,7 +300,10 @@ def palette_table(ref: dict) -> list[str]:
     for band in ("top_bar", "sidebar", "hero", "main", "footer"):
         colours = ref["palette"].get(band)
         if not colours:
-            rows.append(f"| {band} | not present on this page |")
+            if band == "hero":
+                rows.append("| hero | not sampled - the hero's bottom edge is not separable from the art |")
+            else:
+                rows.append(f"| {band} | not present on this page |")
             continue
         cells = ", ".join(f"`{c['hex']}` {c['share']}%" for c in colours)
         rows.append(f"| {band} | {cells} |")
@@ -387,10 +397,16 @@ def matrix(manifest: dict, warnings: list[str]) -> str:
         g = ref["geometry"]
         up, low = g["columns_upper"], g["columns_lower"]
         hero = g["hero"]["height_px"]
+        if hero:
+            hero_cell = f"{hero} px"
+        elif g["hero"]["top_border_y"] is not None or ref.get("hero_doc"):
+            hero_cell = "not separable"
+        else:
+            hero_cell = "none found"
         out.append(
             f"| `{os.path.basename(ref['image'])}` | {md_escape(ref['title'])} | `{ref['route']}` | {ref['status']} | "
             f"{g['sidebar']['px']} px | {g['top_bar']['height_px']} px | "
-            f"{str(hero) + ' px' if hero else 'none'} | {up['count']} / {low['count']} | "
+            f"{hero_cell} | {up['count']} / {low['count']} | "
             f"{ref['element_count']} | {len(ref['blockers'])} |"
         )
     out.append("")
@@ -490,6 +506,17 @@ def matrix(manifest: dict, warnings: list[str]) -> str:
         for warning in warnings:
             out.append(f"- {warning}")
         out.append("")
+    out.append("## Opening the gallery")
+    out.append("")
+    out.append("```sh")
+    out.append("docs/design/gallery/serve.sh          # picks a free port and prints the URL")
+    out.append("python3 -m http.server -d docs/design/gallery 8000   # or plain python")
+    out.append("```")
+    out.append("")
+    out.append("The site also opens by double-clicking `docs/design/gallery/index.html`: it reads "
+               "`manifest.js`, so no fetch is needed. Only the compare iframe needs a running panel; "
+               "point it at a local build with `?base=http://127.0.0.1:18101`.")
+    out.append("")
     out.append("## Verification")
     out.append("")
     out.append("- `python3 -m json.tool docs/design/gallery/manifest.json`")

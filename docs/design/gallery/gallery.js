@@ -172,6 +172,63 @@
       history.replaceState(null, "", "viewer.html?" + q.toString());
     }
 
+    function drawDetails() {
+      var r = ref();
+      var body = document.getElementById("details-body");
+      body.textContent = "";
+      var g = r.geometry || {};
+      var geo = el("div", { "class": "geo" });
+      function cell(label, value) {
+        var c = el("div", { "class": "cell" });
+        c.appendChild(el("b", { text: value }));
+        c.appendChild(document.createTextNode(label));
+        return c;
+      }
+      var up = g.columns_upper || {}, low = g.columns_lower || {};
+      geo.appendChild(cell("sidebar", (g.sidebar && g.sidebar.px) ? g.sidebar.px + " px" : "n/a"));
+      geo.appendChild(cell("top bar", (g.top_bar && g.top_bar.height_px) ? g.top_bar.height_px + " px" : "n/a"));
+      var hero = g.hero || {};
+      geo.appendChild(cell("hero", hero.height_px ? hero.height_px + " px" : "not measurable"));
+      geo.appendChild(cell("columns (upper band)", up.count + (up.intervals && up.intervals.length ? " \u00b7 " + up.intervals.map(function (i) { return i[0] + "-" + i[1]; }).join(" / ") : "")));
+      geo.appendChild(cell("columns (lower band)", low.count + (low.intervals && low.intervals.length ? " \u00b7 " + low.intervals.map(function (i) { return i[0] + "-" + i[1]; }).join(" / ") : "")));
+      geo.appendChild(cell("card radius", (g.card_radius && g.card_radius.px) ? g.card_radius.px + " px" : "not measurable"));
+      body.appendChild(geo);
+
+      var pal = el("div", { "class": "pal" });
+      ["top_bar", "sidebar", "hero", "main", "footer"].forEach(function (band) {
+        var colours = (r.palette || {})[band];
+        var row = el("div", { "class": "band" });
+        row.appendChild(el("span", { text: band.replace("_", " ") }));
+        if (!colours || !colours.length) {
+          row.appendChild(el("span", { text: "band not present on this page" }));
+        } else {
+          colours.forEach(function (c) {
+            var sw = el("span", { "class": "sw", title: c.hex + " \u2014 " + c.share + "%" });
+            var chip = el("i");
+            chip.style.background = c.hex;
+            sw.appendChild(chip);
+            sw.appendChild(document.createTextNode(c.share + "%"));
+            row.appendChild(sw);
+          });
+        }
+        pal.appendChild(row);
+      });
+      body.appendChild(pal);
+
+      if (r.blockers && r.blockers.length) {
+        body.appendChild(el("h4", { text: "blockers before this page can be built honestly" }));
+        var ul = el("ul");
+        r.blockers.forEach(function (b) { ul.appendChild(el("li", { text: b })); });
+        body.appendChild(ul);
+      }
+      if (r.ambiguous && r.ambiguous.length && !/duplicate file/.test(r.ambiguous[0])) {
+        body.appendChild(el("h4", { text: "ambiguous / estimated" }));
+        var ul2 = el("ul");
+        r.ambiguous.forEach(function (b) { ul2.appendChild(el("li", { text: b })); });
+        body.appendChild(ul2);
+      }
+    }
+
     function drawChrome() {
       var r = ref();
       document.title = r.title + " \u2014 design gallery";
@@ -287,6 +344,7 @@
     function draw() {
       remember();
       drawChrome();
+      drawDetails();
       drawStage();
     }
 
@@ -341,6 +399,8 @@
       else if (e.key === "2") { zoom = "2"; compare = false; draw(); }
       else if (e.key === "Escape") { compare = false; overlay = false; draw(); }
     });
+
+    if (params.get("details") === "1") document.getElementById("details").open = true;
 
     draw();
   }

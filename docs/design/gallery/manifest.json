@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-11-22T21:23:47Z",
+  "generated_at": "2026-11-22T21:30:29Z",
   "generator": "tools/design/build_gallery.py",
   "reference_dir": "../refs/winterfest/",
   "counts": {
@@ -176,6 +176,7 @@
         "hero": {
           "top_border_y": 87,
           "bottom_border_y": null,
+          "top_border_source": "detected",
           "height_px": null,
           "estimated": true,
           "note": "hero top border measured; bottom border not separable from the first card row"
@@ -393,6 +394,39 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          306,
+          0,
+          1672,
+          87
+        ],
+        "sidebar": [
+          0,
+          94,
+          292,
+          933
+        ],
+        "main": [
+          306,
+          91,
+          1672,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1672,
+          941
+        ],
+        "hero": [
+          306,
+          88,
+          1672,
+          307
+        ]
+      },
+      "palette_hero_sampled": true,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -612,6 +646,7 @@
         "hero": {
           "top_border_y": 89,
           "bottom_border_y": 305,
+          "top_border_source": "detected",
           "height_px": 216,
           "estimated": false,
           "note": "hero top and bottom borders measured"
@@ -821,6 +856,39 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          308,
+          0,
+          1672,
+          89
+        ],
+        "sidebar": [
+          0,
+          94,
+          294,
+          933
+        ],
+        "main": [
+          308,
+          309,
+          1672,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1672,
+          941
+        ],
+        "hero": [
+          308,
+          89,
+          1672,
+          305
+        ]
+      },
+      "palette_hero_sampled": true,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -1034,6 +1102,7 @@
         "hero": {
           "top_border_y": 89,
           "bottom_border_y": 305,
+          "top_border_source": "detected",
           "height_px": 216,
           "estimated": false,
           "note": "hero top and bottom borders measured"
@@ -1287,6 +1356,39 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          308,
+          0,
+          1672,
+          89
+        ],
+        "sidebar": [
+          0,
+          94,
+          294,
+          933
+        ],
+        "main": [
+          308,
+          309,
+          1672,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1672,
+          941
+        ],
+        "hero": [
+          308,
+          89,
+          1672,
+          305
+        ]
+      },
+      "palette_hero_sampled": true,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -1348,11 +1450,12 @@
           "note": "height = where the edge-free strip under the currency pills ends"
         },
         "hero": {
-          "top_border_y": null,
+          "top_border_y": 84,
           "bottom_border_y": null,
           "height_px": null,
+          "top_border_source": "top-bar",
           "estimated": true,
-          "note": "no long horizontal border under the top bar"
+          "note": "hero top anchored at the measured top bar height; no long horizontal border found"
         },
         "columns_upper": {
           "probe_fraction": 0.6,
@@ -1541,6 +1644,33 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          307,
+          0,
+          1672,
+          84
+        ],
+        "sidebar": [
+          0,
+          94,
+          293,
+          933
+        ],
+        "main": [
+          307,
+          88,
+          1672,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1672,
+          941
+        ]
+      },
+      "palette_hero_sampled": false,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -1751,11 +1881,12 @@
           "note": "height = where the edge-free strip under the currency pills ends"
         },
         "hero": {
-          "top_border_y": null,
+          "top_border_y": 84,
           "bottom_border_y": null,
           "height_px": null,
+          "top_border_source": "top-bar",
           "estimated": true,
-          "note": "no long horizontal border under the top bar"
+          "note": "hero top anchored at the measured top bar height; no long horizontal border found"
         },
         "columns_upper": {
           "probe_fraction": 0.84,
@@ -1924,6 +2055,33 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          307,
+          0,
+          1671,
+          84
+        ],
+        "sidebar": [
+          0,
+          94,
+          293,
+          933
+        ],
+        "main": [
+          307,
+          88,
+          1671,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1671,
+          941
+        ]
+      },
+      "palette_hero_sampled": false,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -2127,6 +2285,7 @@
         "hero": {
           "top_border_y": 88,
           "bottom_border_y": null,
+          "top_border_source": "detected",
           "height_px": null,
           "estimated": true,
           "note": "hero top border measured; bottom border not separable from the first card row"
@@ -2320,34 +2479,35 @@
             "hex": "#829bca",
             "share": 4.3
           }
-        ],
-        "hero": [
-          {
-            "hex": "#111233",
-            "share": 5.5
-          },
-          {
-            "hex": "#ecf1f9",
-            "share": 4.4
-          },
-          {
-            "hex": "#870c0d",
-            "share": 4.1
-          },
-          {
-            "hex": "#b9c8e2",
-            "share": 4.0
-          },
-          {
-            "hex": "#1e548f",
-            "share": 3.9
-          },
-          {
-            "hex": "#021d43",
-            "share": 3.8
-          }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          311,
+          0,
+          1672,
+          88
+        ],
+        "sidebar": [
+          0,
+          94,
+          297,
+          933
+        ],
+        "main": [
+          311,
+          92,
+          1672,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1672,
+          941
+        ]
+      },
+      "palette_hero_sampled": false,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -2521,6 +2681,7 @@
         "hero": {
           "top_border_y": 87,
           "bottom_border_y": 301,
+          "top_border_source": "detected",
           "height_px": 214,
           "estimated": false,
           "note": "hero top and bottom borders measured"
@@ -2718,6 +2879,39 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          308,
+          0,
+          1672,
+          87
+        ],
+        "sidebar": [
+          0,
+          94,
+          294,
+          933
+        ],
+        "main": [
+          308,
+          305,
+          1672,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1672,
+          941
+        ],
+        "hero": [
+          308,
+          87,
+          1672,
+          301
+        ]
+      },
+      "palette_hero_sampled": true,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -2867,11 +3061,12 @@
           "note": "height = where the edge-free strip under the currency pills ends"
         },
         "hero": {
-          "top_border_y": null,
+          "top_border_y": 85,
           "bottom_border_y": null,
           "height_px": null,
+          "top_border_source": "top-bar",
           "estimated": true,
-          "note": "no long horizontal border under the top bar"
+          "note": "hero top anchored at the measured top bar height; no long horizontal border found"
         },
         "columns_upper": {
           "probe_fraction": 0.88,
@@ -3068,6 +3263,33 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          308,
+          0,
+          1672,
+          85
+        ],
+        "sidebar": [
+          0,
+          94,
+          294,
+          933
+        ],
+        "main": [
+          308,
+          89,
+          1672,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1672,
+          941
+        ]
+      },
+      "palette_hero_sampled": false,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -3235,11 +3457,12 @@
           "note": "height = where the edge-free strip under the currency pills ends"
         },
         "hero": {
-          "top_border_y": null,
+          "top_border_y": 82,
           "bottom_border_y": null,
           "height_px": null,
+          "top_border_source": "top-bar",
           "estimated": true,
-          "note": "no long horizontal border under the top bar"
+          "note": "hero top anchored at the measured top bar height; no long horizontal border found"
         },
         "columns_upper": {
           "probe_fraction": 0.52,
@@ -3420,6 +3643,33 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          308,
+          0,
+          1671,
+          82
+        ],
+        "sidebar": [
+          0,
+          94,
+          294,
+          933
+        ],
+        "main": [
+          308,
+          86,
+          1671,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1671,
+          941
+        ]
+      },
+      "palette_hero_sampled": false,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -3576,6 +3826,7 @@
         "hero": {
           "top_border_y": 85,
           "bottom_border_y": null,
+          "top_border_source": "detected",
           "height_px": null,
           "estimated": true,
           "note": "hero top border measured; bottom border not separable from the first card row"
@@ -3821,34 +4072,35 @@
             "hex": "#2d1e39",
             "share": 4.6
           }
-        ],
-        "hero": [
-          {
-            "hex": "#0e184b",
-            "share": 5.4
-          },
-          {
-            "hex": "#050e2b",
-            "share": 5.1
-          },
-          {
-            "hex": "#02103d",
-            "share": 4.5
-          },
-          {
-            "hex": "#e1e1e2",
-            "share": 4.3
-          },
-          {
-            "hex": "#c8060c",
-            "share": 4.2
-          },
-          {
-            "hex": "#340d0d",
-            "share": 4.1
-          }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          307,
+          0,
+          1671,
+          85
+        ],
+        "sidebar": [
+          0,
+          94,
+          293,
+          933
+        ],
+        "main": [
+          307,
+          89,
+          1671,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1671,
+          941
+        ]
+      },
+      "palette_hero_sampled": false,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -4007,6 +4259,7 @@
         "hero": {
           "top_border_y": 90,
           "bottom_border_y": 247,
+          "top_border_source": "detected",
           "height_px": 157,
           "estimated": false,
           "note": "hero top and bottom borders measured"
@@ -4280,6 +4533,39 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          307,
+          0,
+          1670,
+          90
+        ],
+        "sidebar": [
+          0,
+          94,
+          293,
+          933
+        ],
+        "main": [
+          307,
+          251,
+          1670,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1670,
+          941
+        ],
+        "hero": [
+          307,
+          90,
+          1670,
+          247
+        ]
+      },
+      "palette_hero_sampled": true,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -4424,7 +4710,7 @@
       "bytes": 2529289,
       "sha256": "f5df300c183ab472e2107baba834148e08a5248078f7f56d0c3d98cd89f0a147",
       "duplicate_of": null,
-      "summary": "A drawn advent village with 24 numbered houses on a map, a rewards timeline rail, an Advent Pass purchase card and a progress/final-reward strip. This page has no currency pills in the top bar and a wider sidebar than the others.",
+      "summary": "A drawn advent village with 24 numbered houses on a map, a rewards timeline rail, an Advent Pass purchase card and a progress/final-reward strip. This page has no currency pills in the top bar, and its sidebar takes a larger share of a narrower 1622 px frame.",
       "probes": {
         "upper": 0.64,
         "lower": 0.88
@@ -4452,11 +4738,12 @@
           "note": "height = where the edge-free strip under the currency pills ends"
         },
         "hero": {
-          "top_border_y": null,
+          "top_border_y": 81,
           "bottom_border_y": null,
           "height_px": null,
+          "top_border_source": "top-bar",
           "estimated": true,
-          "note": "no long horizontal border under the top bar"
+          "note": "hero top anchored at the measured top bar height; no long horizontal border found"
         },
         "columns_upper": {
           "probe_fraction": 0.64,
@@ -4629,6 +4916,33 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          304,
+          0,
+          1622,
+          81
+        ],
+        "sidebar": [
+          0,
+          96,
+          290,
+          961
+        ],
+        "main": [
+          304,
+          85,
+          1622,
+          897
+        ],
+        "footer": [
+          0,
+          897,
+          1622,
+          969
+        ]
+      },
+      "palette_hero_sampled": false,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -4797,11 +5111,12 @@
           "note": "height = where the edge-free strip under the currency pills ends"
         },
         "hero": {
-          "top_border_y": null,
+          "top_border_y": 83,
           "bottom_border_y": null,
           "height_px": null,
+          "top_border_source": "top-bar",
           "estimated": true,
-          "note": "no long horizontal border under the top bar"
+          "note": "hero top anchored at the measured top bar height; no long horizontal border found"
         },
         "columns_upper": {
           "probe_fraction": 0.6,
@@ -5002,6 +5317,33 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          307,
+          0,
+          1672,
+          83
+        ],
+        "sidebar": [
+          0,
+          94,
+          293,
+          933
+        ],
+        "main": [
+          307,
+          87,
+          1672,
+          871
+        ],
+        "footer": [
+          0,
+          871,
+          1672,
+          941
+        ]
+      },
+      "palette_hero_sampled": false,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -5155,11 +5497,12 @@
           "note": "height = where the edge-free strip under the currency pills ends"
         },
         "hero": {
-          "top_border_y": null,
+          "top_border_y": 81,
           "bottom_border_y": null,
           "height_px": null,
+          "top_border_source": "top-bar",
           "estimated": true,
-          "note": "no long horizontal border under the top bar"
+          "note": "hero top anchored at the measured top bar height; no long horizontal border found"
         },
         "columns_upper": {
           "probe_fraction": 0.36,
@@ -5372,6 +5715,33 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          303,
+          0,
+          1624,
+          81
+        ],
+        "sidebar": [
+          0,
+          96,
+          289,
+          961
+        ],
+        "main": [
+          303,
+          85,
+          1624,
+          897
+        ],
+        "footer": [
+          0,
+          897,
+          1624,
+          969
+        ]
+      },
+      "palette_hero_sampled": false,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,
@@ -5536,6 +5906,7 @@
         "hero": {
           "top_border_y": 79,
           "bottom_border_y": 221,
+          "top_border_source": "detected",
           "height_px": 142,
           "estimated": false,
           "note": "hero top and bottom borders measured"
@@ -5769,6 +6140,39 @@
           }
         ]
       },
+      "palette_bands": {
+        "top_bar": [
+          301,
+          0,
+          1624,
+          79
+        ],
+        "sidebar": [
+          0,
+          96,
+          287,
+          961
+        ],
+        "main": [
+          301,
+          225,
+          1624,
+          897
+        ],
+        "footer": [
+          0,
+          897,
+          1624,
+          969
+        ],
+        "hero": [
+          301,
+          79,
+          1624,
+          221
+        ]
+      },
+      "palette_hero_sampled": true,
       "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
       "shell": {
         "inherits": true,

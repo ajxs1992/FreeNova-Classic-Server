@@ -1575,7 +1575,7 @@
         "upper": 0.64,
         "lower": 0.88
       },
-      "summary": "A drawn advent village with 24 numbered houses on a map, a rewards timeline rail, an Advent Pass purchase card and a progress/final-reward strip. This page has no currency pills in the top bar and a wider sidebar than the others.",
+      "summary": "A drawn advent village with 24 numbered houses on a map, a rewards timeline rail, an Advent Pass purchase card and a progress/final-reward strip. This page has no currency pills in the top bar, and its sidebar takes a larger share of a narrower 1622 px frame.",
       "inherits_shell": true,
       "shell_exceptions": [
         "no currency pills in the top bar (brand only)",

@@ -287,8 +287,12 @@ def hero_band(im: Image.Image, top_bar_bottom: int | None) -> dict:
     # lower down is a row of cards or a banner, not the hero's edge.
     tops = [ln for ln in lines if 40 <= ln[0] <= 145]
     if not tops:
-        return {"top_border_y": None, "bottom_border_y": None, "height_px": None,
-                "estimated": True, "note": "no long horizontal border under the top bar"}
+        # The page still has art under the top bar; we just cannot see its top
+        # border. Anchor the hero where the top bar measurably ends.
+        return {"top_border_y": top_bar_bottom, "bottom_border_y": None, "height_px": None,
+                "top_border_source": "top-bar" if top_bar_bottom else None,
+                "estimated": True,
+                "note": "hero top anchored at the measured top bar height; no long horizontal border found"}
     top_y = tops[0][0]
     bottom_y = None
     for y, _x, _len in lines:
@@ -298,6 +302,7 @@ def hero_band(im: Image.Image, top_bar_bottom: int | None) -> dict:
     return {
         "top_border_y": top_y,
         "bottom_border_y": bottom_y,
+        "top_border_source": "detected",
         "height_px": (bottom_y - top_y) if bottom_y else None,
         "estimated": bottom_y is None,
         "note": ("hero top and bottom borders measured" if bottom_y
@@ -410,8 +415,8 @@ def measure(path: str, probes: dict | None = None) -> dict:
     top = top_bar(im)
     upper = content_columns(im, int(h * upper_frac), height)
     lower = content_columns(im, int(h * lower_frac), height)
-    hero = hero_band(im, None)
-    if hero["top_border_y"] is not None:
+    hero = hero_band(im, top.get("height_px"))
+    if hero.get("top_border_source") == "detected":
         # The hero's own top border is the most reliable "top bar height" the
         # page offers: it is the line the content frame starts at.
         top["height_px"] = hero["top_border_y"]
@@ -421,7 +426,9 @@ def measure(path: str, probes: dict | None = None) -> dict:
     footer_h = max(60, int(h * 0.075))
     hero_top = hero["top_border_y"]
     hero_bottom = hero["bottom_border_y"]
-    main_y0 = min(h - 1, (hero_bottom or hero_top or top.get("height_px") or 0) + 4)
+    # Without a hero bottom border the content band starts under the top bar;
+    # the palette then includes some art, which is stated in the matrix.
+    main_y0 = min(h - 1, ((hero_bottom or top.get("height_px") or 0) + 4))
     main_y1 = max(main_y0 + 4, h - footer_h)
 
     bands = {
@@ -435,12 +442,8 @@ def measure(path: str, probes: dict | None = None) -> dict:
         bands["hero"] = (content_x, int(doc_hero["top"]), w, int(doc_hero["bottom"]))
     elif hero_top is not None and hero_bottom is not None:
         bands["hero"] = (content_x, hero_top, w, hero_bottom)
-    elif hero_top is not None:
-        # Only the top edge was measurable: sample down to the first probed
-        # card band, which is the art the hero shows.
-        stop = min(upper.y0, lower.y0) - 6
-        if stop - hero_top >= 40:
-            bands["hero"] = (content_x, hero_top, w, stop)
+    # With no bottom border there is no defensible hero band, so none is
+    # sampled: inventing one would move the card row into the hero's palette.
 
     with open(path, "rb") as fh:
         digest = hashlib.sha256(fh.read()).hexdigest()
@@ -470,5 +473,7 @@ def measure(path: str, probes: dict | None = None) -> dict:
             "card_radius": card_radius(im, upper if upper.intervals else lower),
         },
         "palette": {name: palette(im, box) for name, box in bands.items()},
+        "palette_bands": {name: list(box) for name, box in bands.items()},
+        "palette_hero_sampled": "hero" in bands,
         "palette_note": "median-cut quantised to 32 buckets per band, no dithering",
     }

@@ -74,7 +74,11 @@ function parseCookies(request) {
   for (const part of raw.split(";")) {
     const i = part.indexOf("=")
     if (i < 1) continue
-    out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim())
+    // decodeURIComponent throws on a malformed escape ("%"), and one bad cookie
+    // used to turn every /admin request into a 500.
+    let v = part.slice(i + 1).trim()
+    try { v = decodeURIComponent(v) } catch {}
+    out[part.slice(0, i).trim()] = v
   }
   return out
 }
@@ -307,7 +311,7 @@ async function seedStaff(env) {
   await env.DB.prepare(
     `INSERT INTO staff (steamid, name, role, enabled, created_at)
      VALUES (?1,?2,'owner',1,?3)
-     ON CONFLICT(steamid) DO UPDATE SET enabled=1, role=excluded.role`
+     ON CONFLICT(steamid) DO NOTHING`
   ).bind(OWNER, "Owner", t).run()
   const extra = String(env.ADMIN_STEAMIDS || "").split(/[,\s]+/).filter(validSteamid)
   for (const sid of extra) {

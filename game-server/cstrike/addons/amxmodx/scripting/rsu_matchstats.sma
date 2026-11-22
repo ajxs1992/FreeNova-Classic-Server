@@ -535,14 +535,20 @@ FlushCumulativeMatchStats(id)
     if (iDbId <= 0 || g_hSqlTuple == Empty_Handle || !g_iMatchId)
         return;
 
+    // REVIEW.md §5.5: this UPDATE used to bind `server_id = 0`, while every other
+    // write in the tree (rsu_core.sma:1695,1702,1809,4640 and TaskInitMatchSession
+    // below) uses the `rsu_server_id` cvar, default 1. No row has server_id 0, so
+    // the lifetime KAST/trade/ace flush silently updated nothing at all.
+    new iServerId = g_pCvarServerId ? get_pcvar_num(g_pCvarServerId) : 1;
+
     new szCumulativeQuery[512];
     formatex(szCumulativeQuery, charsmax(szCumulativeQuery),
         "UPDATE `%splayer_stats` SET `kast_rounds` = `kast_rounds` + %d, `opening_kills` = `opening_kills` + %d, \
          `opening_deaths` = `opening_deaths` + %d, `trade_kills` = `trade_kills` + %d, \
          `clutches_won` = `clutches_won` + %d, `aces` = `aces` + %d \
-         WHERE `player_id` = %d AND `server_id` = 0;",
+         WHERE `player_id` = %d AND `server_id` = %d;",
         g_szSqlTablePrefix, g_iKastRounds[id], g_iOpeningKills[id], g_iOpeningDeaths[id],
-        g_iTradeKills[id], g_iClutchesWon[id], g_iAces[id], iDbId);
+        g_iTradeKills[id], g_iClutchesWon[id], g_iAces[id], iDbId, iServerId);
     SQL_ThreadQuery(g_hSqlTuple, "ThreadQuery_GenericMatch", szCumulativeQuery);
 }
 

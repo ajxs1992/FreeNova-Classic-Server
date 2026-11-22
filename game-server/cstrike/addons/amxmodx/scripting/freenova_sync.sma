@@ -43,6 +43,12 @@
 
 #define MAX_QUEUED_ACTIONS 16
 
+// Per-entry verdict from ValidateSyncActions (REVIEW.md §8.2): one malformed
+// entry must not discard the rest of the batch the panel already marked 'sent'.
+#define ACT_EXEC 0
+#define ACT_BAD  1   // malformed: ACK "malformed action" and carry on
+#define ACT_DUP  2   // duplicate in this batch, or its ACK is still queued: drop
+
 new g_pEnabled
 new g_pHost
 new g_pPort
@@ -882,10 +888,11 @@ bool:SyncJsonObject(const szResponse[])
             json_free(hEvents)
         }
         new JSON:hActions = json_object_get_value(hRoot, "actions")
-        if (ValidateSyncActions(hActions))
+        new iActIds[8], iSkip[8]
+        if (ValidateSyncActions(hActions, iActIds, iSkip))
         {
             RetireSentResults()
-            ParseAndExecuteActions(hActions)
+            ParseAndExecuteActions(hActions, iActIds, iSkip)
             bValid = true
         }
         json_free(hActions)
@@ -894,14 +901,15 @@ bool:SyncJsonObject(const szResponse[])
     return bValid
 }
 
-bool:ValidateSyncActions(JSON:hActions)
+bool:ValidateSyncActions(JSON:hActions, iActIds[], iSkip[])
 {
     new iCount = json_array_get_count(hActions)
     if (iCount > 8 || iCount + g_iActionResultCount - g_iSentResultCount > MAX_QUEUED_ACTIONS)
         return false
-    new iIds[8]
     for (new i = 0; i < iCount; i++)
     {
+        iActIds[i] = 0
+        iSkip[i] = ACT_EXEC
         new JSON:hAction = json_array_get_value(hActions, i)
         new bool:bValid = false
         if (json_is_object(hAction) && json_object_has_value(hAction, "id", JSONNumber)
@@ -913,20 +921,40 @@ bool:ValidateSyncActions(JSON:hActions)
             new szId[32], szSteamId[41], szType[33], szArg[66]
             json_serial_to_string(hId, szId, charsmax(szId))
             json_free(hId)
-            iIds[i] = SyncDecimal(szId, 2147483647)
+            iActIds[i] = SyncDecimal(szId, 2147483647)
             json_object_get_string(hAction, "steamid", szSteamId, charsmax(szSteamId))
             json_object_get_string(hAction, "type", szType, charsmax(szType))
             json_object_get_string(hAction, "arg", szArg, charsmax(szArg))
-            bValid = iIds[i] > 0 && strlen(szSteamId) <= 39 && strlen(szType) > 0
+            bValid = iActIds[i] > 0 && strlen(szSteamId) <= 39 && strlen(szType) > 0
                 && strlen(szType) <= 31 && strlen(szArg) <= 64
         }
         json_free(hAction)
-        if (!bValid) return false
+        if (!bValid)
+        {
+            // Poisoning the batch here (the old `return false`) threw away up
+            // to seven well-formed actions that the panel had already claimed
+            // as 'sent', stalling them until the 1 h expiry. Skip just this
+            // one and let ParseAndExecuteActions close its row with a failure
+            // ACK. REVIEW.md §2.2 / §8.2.
+            iSkip[i] = ACT_BAD
+            continue
+        }
         for (new j = 0; j < i; j++)
-            if (iIds[j] == iIds[i]) return false
+            if (iActIds[j] == iActIds[i])
+            {
+                iSkip[i] = ACT_DUP
+                break
+            }
+        if (iSkip[i] != ACT_EXEC)
+            continue
         // A returned action whose ACK is still pending must not spend twice.
         for (new j = 0; j < g_iActionResultCount; j++)
-            if (g_iActionResultId[j] == iIds[i]) return false
+            if (g_iActionResultId[j] == iActIds[i])
+            {
+                log_amx("[FreeNova] Action %d re-sent before its ACK was pushed; skipped", iActIds[i])
+                iSkip[i] = ACT_DUP
+                break
+            }
     }
     return true
 }
@@ -944,13 +972,21 @@ RetireSentResults()
     g_iSentResultCount = 0
 }
 
-ParseAndExecuteActions(JSON:hActions)
+ParseAndExecuteActions(JSON:hActions, const iActIds[], const iSkip[])
 {
     // Only called after validating the entire response/batch. Loopback remains
     // the response trust boundary; the request signature does not sign replies.
     new iCount = json_array_get_count(hActions)
     for (new i = 0; i < iCount; i++)
     {
+        if (iSkip[i] != ACT_EXEC)
+        {
+            // Malformed: ACK it failed so the panel closes the row. Duplicate:
+            // its result (or the identical earlier entry's) is already queued.
+            if (iSkip[i] == ACT_BAD && iActIds[i] > 0)
+                RecordActionResult(iActIds[i], false, "malformed action")
+            continue
+        }
         new JSON:hAction = json_array_get_value(hActions, i)
         new iActId = json_object_get_number(hAction, "id")
         new szSteamId[40], szType[32], szArg[65]
@@ -1596,6 +1632,36 @@ stock EvtPayPending(id, const szAuth[], iEidOnly)
     return n
 }
 
+// Web actions are dispatched at-least-once by design: the panel holds an
+// action at 'sent' until an ACK arrives, the relay times out after 10 s, and
+// the game retries - so the same action id can reach ExecuteAction again, and
+// a map change wipes the 16-slot g_iActionResult* ring that was the only
+// memory of it. The four grants below have no natural guard of their own (a
+// replayed buy_skin finds the skin owned, a replayed claim_* finds the claim
+// flag set), so each is recorded in the same nVault the event payouts use,
+// keyed on the action id: the durable equivalent of menabp_add_coins_once's
+// award id, and the only form that also covers a negative give_coins and the
+// types with no *_once native (rank XP, VIP). Action ids are the panel's
+// actions.id autoincrement, so the mark is global, not per player.
+// REVIEW.md §5.2 / §8.1.
+stock bool:WebActDone(iActId)
+{
+    if (g_VaultEvt <= 0)
+        return false
+    new szKey[24], szVal[8]
+    formatex(szKey, charsmax(szKey), "wact#%d", iActId)
+    return nvault_get(g_VaultEvt, szKey, szVal, charsmax(szVal)) ? true : false
+}
+
+stock WebActMarkDone(iActId)
+{
+    if (g_VaultEvt <= 0)
+        return
+    new szKey[24]
+    formatex(szKey, charsmax(szKey), "wact#%d", iActId)
+    nvault_set(g_VaultEvt, szKey, "1")
+}
+
 ExecuteAction(iActId, const szSteamId[], const szType[], const szArg[])
 {
     if (ArgLooksUnsafe(szArg))
@@ -1767,6 +1833,11 @@ ExecuteAction(iActId, const szSteamId[], const szType[], const szArg[])
 
     if (equal(szType, "give_coins"))
     {
+        if (WebActDone(iActId))
+        {
+            RecordActionResult(iActId, true, "already applied")
+            return
+        }
         new iAmt = str_to_num(szArg)
         if (iAmt > 50000) iAmt = 50000
         if (iAmt < -50000) iAmt = -50000
@@ -1783,6 +1854,7 @@ ExecuteAction(iActId, const szSteamId[], const szType[], const szArg[])
             return
         }
         menabp_add_coins(id, iAmt)
+        WebActMarkDone(iActId)
         log_amx("[FreeNova] GIVE_COINS %s amount=%d", szSteamId, iAmt)
         RecordActionResult(iActId, true, "coins applied")
         client_print_color(id, print_team_default, "^4[FreeNova]^1 Staff adjusted your coins by ^3%d^1.", iAmt)
@@ -1791,6 +1863,11 @@ ExecuteAction(iActId, const szSteamId[], const szType[], const szArg[])
 
     if (equal(szType, "give_xp"))
     {
+        if (WebActDone(iActId))
+        {
+            RecordActionResult(iActId, true, "already applied")
+            return
+        }
         new iAmt = str_to_num(szArg)
         if (iAmt > 100000) iAmt = 100000
         if (iAmt < -100000) iAmt = -100000
@@ -1804,6 +1881,7 @@ ExecuteAction(iActId, const szSteamId[], const szType[], const szArg[])
             return
         }
         crxranks_give_user_xp(id, iAmt)
+        WebActMarkDone(iActId)
         log_amx("[FreeNova] GIVE_XP %s amount=%d", szSteamId, iAmt)
         RecordActionResult(iActId, true, "xp applied")
         client_print_color(id, print_team_default, "^4[FreeNova]^1 Staff granted you ^3%d XP^1.", iAmt)
@@ -1812,6 +1890,11 @@ ExecuteAction(iActId, const szSteamId[], const szType[], const szArg[])
 
     if (equal(szType, "give_bp_xp"))
     {
+        if (WebActDone(iActId))
+        {
+            RecordActionResult(iActId, true, "already applied")
+            return
+        }
         new iAmt = str_to_num(szArg)
         if (iAmt > 100000) iAmt = 100000
         // BP XP is additive-only. Do not fall through to rank XP for a
@@ -1835,6 +1918,7 @@ ExecuteAction(iActId, const szSteamId[], const szType[], const szArg[])
             RecordActionResult(iActId, false, "battlepass rejected xp")
             return
         }
+        WebActMarkDone(iActId)
         log_amx("[FreeNova] GIVE_BP_XP %s requested=%d granted=%d", szSteamId, iAmt, iGiven)
         RecordActionResult(iActId, true, "bp xp applied")
         client_print_color(id, print_team_default, "^4[FreeNova]^1 Staff granted you ^3%d BP XP^1.", iGiven)
@@ -1843,6 +1927,11 @@ ExecuteAction(iActId, const szSteamId[], const szType[], const szArg[])
 
     if (equal(szType, "give_vip"))
     {
+        if (WebActDone(iActId))
+        {
+            RecordActionResult(iActId, true, "already applied")
+            return
+        }
         // arg: tier:days
         new szTier[8], szDays[12], szUnused[4], szUnused2[4]
         ParseColonParts(szArg, szTier, charsmax(szTier), szDays, charsmax(szDays), szUnused, charsmax(szUnused), szUnused2, charsmax(szUnused2))
@@ -1858,6 +1947,7 @@ ExecuteAction(iActId, const szSteamId[], const szType[], const szArg[])
             return
         }
         fnvip_grant(id, iTier, iDays * 86400, FNVIP_SRC_PANEL, "staff give_vip")
+        WebActMarkDone(iActId)
         log_amx("[FreeNova] GIVE_VIP %s tier=%d days=%d", szSteamId, iTier, iDays)
         RecordActionResult(iActId, true, "vip granted")
         client_print_color(id, print_team_default, "^4[FreeNova]^1 Staff granted you VIP for ^3%d days^1.", iDays)

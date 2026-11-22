@@ -1,0 +1,17 @@
+
+//	Overview Description File : awp_assault2k.bsp
+//	Author : ParaBolt
+//	12-1-2013
+
+global 
+{
+	ZOOM	1.66
+	ORIGIN	-896 1024 512
+	ROTATED	0
+}
+
+layer 
+{
+	IMAGE	"overviews/awp_assault2k.bmp"
+	HEIGHT	-193
+}

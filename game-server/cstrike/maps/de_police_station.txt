@@ -1,0 +1,9 @@
+de_police_station bomb/defuse
+
+ct s cover policestation
+
+t s plant bomb on police station
+
+other notes: 
+this map created 1.3
+and we play all time this map is like clan war

@@ -53,7 +53,7 @@
  *   - every fire stores the value it replaced and the value it wrote;
  *   - a revert only writes the stored prior if the cvar still holds OUR value,
  *     so a panel-driven event that took over is never clobbered;
- *   - the prior travels in the vault record (freenova_events, key "state"), so
+ *   - the prior travels in the vault record (freenova_randevent, key "state"), so
  *     a map change or a restart in the middle of a window restores the PRIOR
  *     instead of treating the boosted value as the new baseline, and never
  *     multiplies a multiplier;
@@ -92,7 +92,14 @@
 #define EVENT_MAX_MULT 5.0
 
 #define CFG_FILE       "freenova/events.ini"
-#define VAULT_NAME     "freenova_events"
+// Its OWN vault, not the shared "freenova_events" one: AMXX nvault hands the
+// same handle to every plugin that opens the same name, and nvault_close from
+// one plugin invalidates it for the other. freenova_sync keeps event-reward
+// flags in freenova_events, so when both closed it in plugin_end one of them -
+// here - got "Invalid vault id" and a run time error on EVERY map change
+// (observed in the harness). The record this plugin keeps is one transient
+// window key ("state"), so the split costs at most one window's resume.
+#define VAULT_NAME     "freenova_randevent"
 #define VAULT_STATE    "state"
 
 #define MODE_RANDOM   0
@@ -213,8 +220,9 @@ public plugin_end()
 
 CloseVault()
 {
-    // freenova_events is owned by this plugin alone (unlike freenova_bp, which
-    // battlepass_core closes), so closing it here is safe.
+    // freenova_randevent is this plugin's own vault (see VAULT_NAME), so
+    // closing it here cannot invalidate another plugin's handle - the bug the
+    // shared "freenova_events" name caused on every map change.
     if (g_Vault != INVALID_HANDLE)
     {
         nvault_close(g_Vault)
@@ -1147,7 +1155,7 @@ RevertEvent()
 }
 
 // --- persisted window state --------------------------------------------------
-// One record, key "state" in the freenova_events vault:
+// One record, key "state" in the freenova_randevent vault:
 //   window flavor value savedXp savedCoins savedDouble savedHappy applied untilKey
 // "applied" says whether a revert is still owed; "untilKey" (YYYYMMDDHHMM)
 // identifies the occurrence. The record is deliberately NOT cleared when a

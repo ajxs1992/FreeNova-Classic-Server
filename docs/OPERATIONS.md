@@ -163,10 +163,10 @@ keeps it from hitting the hosts at exactly `04:15:00`.
 
 ```
 README.md          what it is, what is excluded, how to restore
-SNAPSHOT.md        taken-at timestamp and a file count per tree (rewritten every run)
+SNAPSHOT.md        taken-at timestamp and a file count per tree (rewritten when a run moved files)
 .gitignore         refuses *.pass, askpass.sh, node_modules/, SQLite sidecars, core dumps
-game-server/       the live game tree as of the last run   (~4.2k files, ~640 MB)
-web-panel/         the panel as of the last run            (~1.4k files, ~40 MB)
+game-server/       the live game tree as of the last run   (~4.2k files, ~630 MB)
+web-panel/         the panel as of the last run            (~1.4k files, ~45 MB)
 ```
 
 **Retention is the git history.** One commit per night, nothing pruned, no
@@ -178,7 +178,10 @@ commit. Deleting a file on the host deletes it in the next commit, which is why
 the history matters.
 
 The repository grows by whatever changed that night — usually a few plugin
-sources, a config, a log. To see where it stands:
+sources, a config, a log. While players are on, the file that changes on almost
+every run is the HLDS log (`game-server/cstrike/logs/L*.log`, appended for as
+long as that map runs), so a night with activity always produces a commit; that
+is the log being archived, not drift. To see where it stands:
 
 ```sh
 cd /home/ajxs/backups/freenova-backup

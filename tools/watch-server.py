@@ -45,7 +45,9 @@ def log(msg, file=True):
     line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     print(line, flush=True)
     if file:
-        with open(LOG_FILE, "a") as fh:
+        # 0600, not the umask: watch.log records probe results and webhook errors.
+        fd = os.open(LOG_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a") as fh:
             fh.write(line + "\n")
 
 
@@ -116,7 +118,8 @@ def load_state():
 def save_state(state):
     os.makedirs(STATE_DIR, exist_ok=True)
     tmp = STATE_FILE + ".tmp"
-    with open(tmp, "w") as fh:
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
         json.dump(state, fh, indent=1)
     os.replace(tmp, STATE_FILE)
 

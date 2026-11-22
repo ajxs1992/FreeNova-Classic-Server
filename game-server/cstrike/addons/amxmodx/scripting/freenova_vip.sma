@@ -258,13 +258,18 @@ public plugin_init()
     g_pStartAP       = register_cvar("vip_start_ap", "100");
     g_pStartMoney    = register_cvar("vip_start_money", "1000");
     g_pJump          = register_cvar("vip_jump", "1");      // ELITE fallback jump: 0 off | 1 double (hard max 2 total jumps)
+    // Kill HP is NOT a VIP perk any more: client_death() below grants AP and
+    // money only, and HP-on-kill belongs to the BattlePass Vampire skill. The
+    // four vip_hp_* keys are kept registered so existing configs and
+    // vipConfig.cfg keep loading, but they default to 0 and nothing reads them.
+    // Do not buy a perk here that the game does not deliver.
     g_pHPKill        = register_cvar("vip_hp_kill", "0");   // Disabled: Earned via BattlePass Vampire
     g_pAPKill        = register_cvar("vip_ap_kill", "10");
-    g_pHPHS          = register_cvar("vip_hp_hs", "10");
+    g_pHPHS          = register_cvar("vip_hp_hs", "0");     // Disabled: see vip_hp_kill
     g_pAPHs          = register_cvar("vip_ap_hs", "10");
-    g_pHPKillKnife   = register_cvar("vip_hp_kill_knife", "15");
+    g_pHPKillKnife   = register_cvar("vip_hp_kill_knife", "0");   // Disabled: see vip_hp_kill
     g_pAPKillKnife   = register_cvar("vip_ap_kill_knife", "15");
-    g_pHPHSKnife     = register_cvar("vip_hp_hs_knife", "20");
+    g_pHPHSKnife     = register_cvar("vip_hp_hs_knife", "0");     // Disabled: see vip_hp_kill
     g_pAPHsKnife     = register_cvar("vip_ap_hs_knife", "20");
     g_pBulletDmg     = register_cvar("vip_bulletdmg", "1");
     g_pInOut         = register_cvar("vip_in_out", "1");
@@ -1007,9 +1012,11 @@ bool:IsFreeVipTime()
 
 public Task_CheckFreeVip()
 {
-    if (get_pcvar_num(g_pFreeVip) != 1)
-        return;
-
+    // No early return on vip_free 0. IsFreeVipTime() already answers false then,
+    // and the teardown branch below is the only code that gives the VIP flag
+    // back: returning early meant turning the event off with the cvar (or
+    // during a map where it was switched) left every player who had been
+    // granted the event flag holding VIP until the map changed.
     new bool:bNow = IsFreeVipTime();
 
     if (bNow && !g_bWasFreeVip)
@@ -1401,9 +1408,16 @@ ShowVipMotd(id)
     iLen += formatex(szMotd[iLen], charsmax(szMotd) - iLen,
         "<tr><td class='k'>VIP Armory (/vmenu)</td><td>-</td><td>Yes</td><td>Yes</td></tr>");
     iLen += formatex(szMotd[iLen], charsmax(szMotd) - iLen,
-        "<tr><td class='k'>VIP player model</td><td>-</td><td>Yes</td><td>Yes</td></tr>");
+        "<tr><td class='k'>VIP player model</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>");
     iLen += formatex(szMotd[iLen], charsmax(szMotd) - iLen,
         "<tr><td class='k'>Damage indicator HUD</td><td>-</td><td>Yes</td><td>Yes</td></tr>");
+    // Only advertise what is actually switched on and actually installed.
+    if (get_pcvar_num(g_pJump) > 0)
+        iLen += formatex(szMotd[iLen], charsmax(szMotd) - iLen,
+            "<tr><td class='k'>Double jump</td><td>-</td><td>-</td><td>Yes</td></tr>");
+    if (LibraryExists("freenova_missions", LibType_Library))
+        iLen += formatex(szMotd[iLen], charsmax(szMotd) - iLen,
+            "<tr><td class='k'>Extra daily contract + auto-claim</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>");
     iLen += copy(szMotd[iLen], charsmax(szMotd) - iLen, "</table>");
     iLen += copy(szMotd[iLen], charsmax(szMotd) - iLen,
         "<p>Higher tiers include everything below. Night Free VIP is a server-wide event.</p>");

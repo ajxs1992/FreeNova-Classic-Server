@@ -496,7 +496,9 @@ function needSteamid(title, navKey, what) {
 }
 
 function notFound(title, navKey, why) {
-  return html(title, `<div class='card'><div class='h2'>NO DATA YET</div><p>${why}</p></div>`, { nav: navKey })
+  // esc() even though every caller passes a literal: this is a rendered sink and
+  // the first caller that passes a SteamID would otherwise inject markup.
+  return html(title, `<div class='card'><div class='h2'>NO DATA YET</div><p>${esc(why)}</p></div>`, { nav: navKey })
 }
 
 function errorState(title, navKey, what) {
@@ -531,12 +533,14 @@ function progressBar(p) {
   return `<div class='bar'><div style='width:${clamp(p, 0, 100)}%'></div></div>`
 }
 
-function emptyState(msg) { return `<div class='empty'>${msg}</div>` }
+function emptyState(msg) { return `<div class='empty'>${esc(msg)}</div>` }
 
 // Builds a sortable column header link. sortKeys: the active query state.
 function sortHeader(label, field, q, extraParams) {
   const active = q.sort === field
-  const nextOrder = active && q.order === "asc" ? "desc" : "desc"
+  // Was `active && q.order === "asc" ? "desc" : "desc"`, so the second click on a
+  // column never reversed the order: the "↑" arrow was unreachable.
+  const nextOrder = active ? (q.order === "asc" ? "desc" : "asc") : "desc"
   const arrow = active ? (q.order === "asc" ? " ↑" : " ↓") : ""
   const params = new URLSearchParams(extraParams || {})
   params.set("sort", field)

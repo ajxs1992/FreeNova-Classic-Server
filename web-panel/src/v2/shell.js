@@ -12,13 +12,16 @@
 
 import { esc, document as doc, css } from "./theme.js"
 import { icon, FLAKE } from "./icons.js"
+import { artIcon, ART_CSS, ICON_SIZE } from "./art.js"
 import { currencyChip, groupLabel, COMPONENT_CSS } from "./components.js"
 
 /**
  * The rail. Groups, order and one-line subtitles are the owner's reference.
- * `href: null` marks a destination that does not exist yet (Levels, Spin Wheel):
- * it renders as visible-but-inert with the reason in `title`, never as a link
- * that 404s.
+ * Every row points at a page that exists: the Winterfest family lives under
+ * /v2/winter/* (this rebuild), the rest are the live panel's routes. `href: null`
+ * is still supported for a destination that does not exist yet — it renders as
+ * visible-but-inert with the reason in `title`, never as a link that 404s — but
+ * no row uses it any more: the last two (Levels, Spin Wheel) shipped.
  */
 export const NAV = [
   {
@@ -33,18 +36,18 @@ export const NAV = [
   {
     label: "Progression",
     items: [
-      { key: "battlepass", title: "Battle Pass", sub: "Christmas reward tracks", href: "/battlepass", ic: "flag" },
+      { key: "battlepass", title: "Battle Pass", sub: "Christmas reward tracks", href: "/v2/winter/pass", ic: "flag" },
       { key: "missions", title: "Missions", sub: "Christmas quests", href: "/missions", ic: "missions" },
       { key: "achievements", title: "Achievements", sub: "Seasonal medals", href: "/achievements", ic: "medal" },
-      { key: "levels", title: "Levels", sub: "Progress & rewards", href: null, ic: "levels", soon: "The Levels page ships with workstream 14 (XP curve, per-level rewards)." }
+      { key: "levels", title: "Levels", sub: "Progress & rewards", href: "/levels", ic: "levels" }
     ]
   },
   {
     label: "Events & Activities",
     items: [
       { key: "events", title: "Events", sub: "Christmas event calendar", href: "/events", ic: "events" },
-      { key: "advent", title: "Calendar Advent", sub: "Advent calendar (24 days)", href: "/winter/advent", ic: "advent" },
-      { key: "spin", title: "Spin Wheel", sub: "Win coins, gingerbread & rewards", href: null, ic: "wheel", soon: "The Spin Wheel ships with workstream 13 (daily free spin, prize table)." }
+      { key: "advent", title: "Calendar Advent", sub: "Advent calendar (24 days)", href: "/v2/winter/advent", ic: "advent" },
+      { key: "spin", title: "Spin Wheel", sub: "Win coins, gingerbread & rewards", href: "/v2/winter/spin", ic: "wheel" }
     ]
   },
   {
@@ -63,9 +66,9 @@ export function logo(season) {
   const year = (season && season.year) || new Date().getUTCFullYear()
   return `<a class="v2-logo" href="/v2" aria-label="FreeNova ${esc(name)} ${esc(year)} dashboard">
     <span class="v2-logo-row">
-      <span class="v2-logo-tree" aria-hidden="true">${icon("tree", 30)}</span>
-      <span class="v2-logo-word">Free<b>Nova</b><span class="v2-logo-hat" aria-hidden="true">${icon("cap", 22)}</span></span>
-      <span class="v2-logo-tree flip" aria-hidden="true">${icon("tree", 30)}</span>
+      <span class="v2-logo-tree" aria-hidden="true">${""}</span>
+      <span class="v2-logo-word">Free<b>Nova</b><span class="v2-logo-hat" aria-hidden="true">${""}</span></span>
+      <span class="v2-logo-tree flip" aria-hidden="true">${""}</span>
     </span>
     <span class="v2-logo-ribbon">${esc(name.toUpperCase())} ${esc(year)}</span>
   </a>`
@@ -75,7 +78,7 @@ export function logo(season) {
 function navItem(it, active) {
   const cur = it.key === active
   const mark = cur ? ' aria-current="page"' : ""
-  const inner = `<span class="v2-nav-ic" aria-hidden="true">${icon(it.ic, 30)}</span>
+  const inner = `<span class="v2-nav-ic" aria-hidden="true">${artIcon(it.ic, ICON_SIZE.nav)}</span>
       <span class="v2-nav-t"><b>${esc(it.title)}</b><small>${esc(it.sub)}</small></span>`
   if (!it.href) {
     return `<li><span class="v2-navitem soon" aria-disabled="true" title="${esc(it.soon || "Not built yet.")}">${inner}<span class="v2-soon">soon</span></span></li>`
@@ -97,14 +100,14 @@ export function rail(active, season) {
       <circle cx="150" cy="18" r="1.4" fill="#9be7ff" opacity=".5"/>
       <circle cx="228" cy="40" r="1.6" fill="#9be7ff" opacity=".6"/>
     </svg>
-    <span class="v2-rail-gift" aria-hidden="true">${icon("gift", 44)}</span>
+    <span class="v2-rail-gift" aria-hidden="true">${""}</span>
   </div>
 </aside>`
 }
 
 /**
  * The top bar. `player` is {name, level, steamid, known}; `bell` is
- * {unread, href}; the envelope is inert until the inbox workstream lands.
+ * {unread, href}; the envelope opens /mail (the inbox shipped).
  */
 export function topbar({ chips, player, bell }) {
   const p = player || {}
@@ -118,7 +121,7 @@ export function topbar({ chips, player, bell }) {
   <div class="v2-chips">${(chips || []).map(currencyChip).join("")}</div>
   <div class="v2-topright">
     <a class="v2-iconbtn" href="${esc((bell && bell.href) || "/events")}" aria-label="Live events and announcements${bell && bell.unread ? `, ${esc(String(bell.unread))} unread` : ""}" title="Live events and announcements">${icon("bell", 26)}${dot}</a>
-    <span class="v2-iconbtn off" aria-disabled="true" title="Inbox — ships with the messaging workstream (15)" aria-label="Inbox — not built yet">${icon("envelope", 26)}</span>
+    <a class="v2-iconbtn" href="/mail" title="Inbox" aria-label="Inbox">${icon("envelope", 26)}</a>
     <a class="v2-profile" href="${esc(p.href || "/profile")}" title="${esc(p.known ? "Open your profile" : "Open the panel from the game for your own numbers")}">
       <span class="v2-avatar" aria-hidden="true">${esc(initials)}</span>
       <span class="v2-profile-t"><b>${esc(name)}</b><small>${level}</small></span>
@@ -138,7 +141,7 @@ export function page({ title, active, season, player, chips, bell, content, scri
     head,
     meta,
     script,
-    css: css(COMPONENT_CSS, SHELL_CSS),
+    css: css(COMPONENT_CSS, SHELL_CSS, ART_CSS),
     body: `<a class="v2-skip" href="#v2-main">Skip to content</a>
 <div class="v2-app">
   ${rail(active, season)}
@@ -173,7 +176,7 @@ export const SHELL_CSS = `
 .v2-navlist{list-style:none;margin:0;padding:0}
 .v2-navitem{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:12px;border:1px solid transparent;
   text-decoration:none;color:var(--v2-text);position:relative}
-.v2-navitem .v2-nav-ic{line-height:0;flex:0 0 auto;transition:transform .12s ease}
+.v2-navitem .v2-nav-ic{line-height:0;flex:0 0 auto;display:grid;place-items:center;width:46px;height:46px;transition:transform .12s ease}
 .v2-navitem .v2-nav-t{min-width:0}
 .v2-navitem b{display:block;font-size:14.5px;font-weight:700;line-height:1.2}
 .v2-navitem small{display:block;color:#9fb0d0;font-size:10.5px;line-height:1.25;

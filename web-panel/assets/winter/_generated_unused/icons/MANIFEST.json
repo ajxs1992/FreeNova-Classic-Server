@@ -1,0 +1,250 @@
+[
+  {
+    "name": "achievements",
+    "file": "icons/achievements.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 53882,
+    "prompt": "a round gold achievement medal with a star embossed in the middle and a red and green striped ribbon above it, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "admin",
+    "file": "icons/admin.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 62504,
+    "prompt": "A golden gear cog with a small red Santa hat, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "advent",
+    "file": "icons/advent.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 86812,
+    "prompt": "a small snow-topped wooden advent house with tiny numbered white doors, warm lit windows and a gold star on the roof, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "battlepass",
+    "file": "icons/battlepass.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 49852,
+    "prompt": "a red and gold event ticket with a gold crown stamped on it and a punched tag corner, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "bauble",
+    "file": "icons/bauble.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 58824,
+    "prompt": "A glossy red Christmas bauble with a gold cap and snowflake pattern, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "bell",
+    "file": "icons/bell.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 69640,
+    "prompt": "A golden Christmas bell with a red ribbon, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "calendar",
+    "file": "icons/calendar.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 77465,
+    "prompt": "A red advent calendar with 24 white numbered doors and a green ribbon, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "candycane",
+    "file": "icons/candycane.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 46840,
+    "prompt": "a glossy red and white striped candy cane with a small gold bow at the top, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "coin",
+    "file": "icons/coin.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 52635,
+    "prompt": "A stack of three shiny gold coins with a star emblem, game currency icon, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "crown",
+    "file": "icons/crown.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 63672,
+    "prompt": "A golden royal crown with red jewels, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "dashboard",
+    "file": "icons/dashboard.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 84034,
+    "prompt": "a cosy snow-capped chalet with a bright red roof and warm glowing yellow windows, two small frosted pine trees at its base, front three-quarter view, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "events",
+    "file": "icons/events.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 92580,
+    "prompt": "a festive firework burst of gold, red and green sparks with a tiny ice-blue snowflake at the centre, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "gift",
+    "file": "icons/gift.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 70149,
+    "prompt": "A red wrapped present with a gold ribbon and a bow, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "gingerbread",
+    "file": "icons/gingerbread.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 61143,
+    "prompt": "A gingerbread man cookie with white icing buttons and a smile, warm brown and cream, game currency icon, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "levels",
+    "file": "icons/levels.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 49285,
+    "prompt": "a bold golden arrow pointing up with little white sparkles and stars around it, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "missions",
+    "file": "icons/missions.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 55706,
+    "prompt": "A clipboard with a green checkmark and three task lines, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "note",
+    "file": "icons/note.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 50837,
+    "prompt": "A rolled parchment note tied with a red ribbon, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "profile",
+    "file": "icons/profile.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 51317,
+    "prompt": "a pale ice-blue player ID card showing a simple round avatar bust and three shorter line bars below it, slight tilt, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "rankstats",
+    "file": "icons/rankstats.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 41559,
+    "prompt": "a bar chart of three glossy rounded bars in ice blue, gold and red with a small golden star floating above the tallest bar, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "santa_hat",
+    "file": "icons/santa_hat.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 43962,
+    "prompt": "a classic red Santa hat with a fluffy white fur brim and a white pom-pom, slight tilt, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "shop",
+    "file": "icons/shop.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 79101,
+    "prompt": "A red-roofed Christmas shop stall with a candy cane sign, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "snowflake",
+    "file": "icons/snowflake.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 50652,
+    "prompt": "An ice-blue snowflake ornament with six arms and a silver hook, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "snowstorm",
+    "file": "icons/snowstorm.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 68948,
+    "prompt": "a swirling ice-blue snow cloud with a spiral of snowflakes and white wind streaks, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "spin",
+    "file": "icons/spin.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 69457,
+    "prompt": "a red and gold prize-wheel dial seen at a slight angle, gold pointer at the top, gold star hub, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "spintoken",
+    "file": "icons/spintoken.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 83450,
+    "prompt": "A red and gold Christmas spinning-wheel token with a white snowflake emblem, game currency icon, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "star",
+    "file": "icons/star.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 52715,
+    "prompt": "A glowing golden five-pointed Christmas star ornament, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "top15",
+    "file": "icons/top15.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 80410,
+    "prompt": "a golden laurel wreath encircling a glossy gold star medal with a red ribbon, game UI icon, painterly, thick soft outline, centred, no shadow, no text, no watermark, on a completely flat pure magenta background (#FF00FF)"
+  },
+  {
+    "name": "tree",
+    "file": "icons/tree.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 52089,
+    "prompt": "A small decorated Christmas tree with a gold star and red baubles, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "trophy",
+    "file": "icons/trophy.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 73142,
+    "prompt": "A gold trophy cup with red and green ribbons, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "vip",
+    "file": "icons/vip.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 75711,
+    "prompt": "A purple and gold VIP crown badge with a star, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  },
+  {
+    "name": "wheel",
+    "file": "icons/wheel.png",
+    "w": 256,
+    "h": 256,
+    "bytes": 67372,
+    "prompt": "A festive prize wheel with red, green and gold sectors and a pointer, game UI icon, on a completely flat pure magenta background (#FF00FF), no shadow, no text, no watermark, game UI icon, painterly, thick soft outline, centred"
+  }
+]

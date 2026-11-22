@@ -31,6 +31,10 @@ const REWARD_NAMES = {
 // `snow | pass | ornament | gift | title`; the older/longer spellings are
 // accepted so a payload written by hand still validates.
 const REWARD_ALIASES = {
+  // "gingerbread" is the ini's own word (the currency was renamed from
+  // snowflakes); without it every [advent]/[pass] row pushed as `gingerbread`
+  // parsed as "none" and the panel could not print the reward.
+  gingerbread: 1, ginger: 1,
   snow: 1, snowflakes: 1, snowflake: 1, currency: 1,
   ornament: 2, orn: 2,
   gift: 3, present: 3,

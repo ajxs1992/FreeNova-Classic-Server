@@ -89,8 +89,13 @@ export function emptyState(text, hint) {
 
 /** A reward tile: cropped art on top, two lines of real label under it. */
 export function itemTile({ art, title, sub, tone = "" }) {
+  // The tile's picture is the owner's own tile slice, placed at its native size
+  // on a dark frame; the caption under it is live (the slice never contains one).
+  const inside = art
+    ? `<img class="v2-tile-art" src="${esc(art)}" alt="" width="74" height="61" loading="lazy" decoding="async">`
+    : `<span class="v2-tile-art blank" aria-hidden="true"></span>`
   return `<figure class="v2-tile${tone ? " " + tone : ""}">
-    ${art ? `<img class="v2-tile-art" src="${esc(art)}" alt="" loading="lazy" decoding="async">` : `<span class="v2-tile-art blank" aria-hidden="true">${icon("snowflake", 40)}</span>`}
+    ${inside}
     <figcaption><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</figcaption>
   </figure>`
 }
@@ -234,17 +239,22 @@ a.v2-stat:hover{border-color:var(--v2-violet-alt);box-shadow:inset 0 1px 0 rgba(
 .v2-cell span{display:block;font-size:11px;color:#a9b8d6}
 
 /* --------------------------------------------------------------- tiles ---- */
-.v2-tile{margin:0;border-radius:10px;overflow:hidden;border:2px solid #6b5a2a;background:#0d1236;
+.v2-tile{margin:0;border-radius:12px;overflow:hidden;border:1px solid #3a4870;
+  background:linear-gradient(180deg,rgba(32,42,90,.92) 0%, rgba(11,17,42,.96) 100%);
+  box-shadow:inset 0 1px 0 rgba(190,212,255,.14), 0 6px 14px rgba(0,0,0,.35);
+  display:grid;justify-items:center;gap:2px;padding:7px 7px 3px;
   display:flex;flex-direction:column;min-width:0;
   box-shadow:0 6px 14px rgba(0,0,0,.35)}
-.v2-tile-art{width:100%;height:auto;aspect-ratio:88/80;object-fit:cover;background:#0a0e2c}
+.v2-tile-art{width:auto;height:61px;max-width:100%;object-fit:contain;display:block}
 .v2-tile-art.blank{display:grid;place-items:center;color:#2a3d6e}
 .v2-tile figcaption{padding:6px 6px 8px;text-align:center}
 .v2-tile figcaption b{display:block;font-size:12px;font-weight:700;line-height:1.2}
 .v2-tile figcaption small{display:block;color:var(--v2-muted);font-size:10.5px;margin-top:1px}
-.v2-tile.orange{border-color:#e08a2b}.v2-tile.pink{border-color:#e0489a}
-.v2-tile.ice{border-color:#4aa0e0}.v2-tile.gold{border-color:#f5c451}
-.v2-tile.violet{border-color:#7c5cd6}
+.v2-tile.orange{border-color:#e08a2b;box-shadow:inset 0 0 18px rgba(224,138,43,.16), 0 6px 14px rgba(0,0,0,.35)}
+.v2-tile.pink{border-color:#e0489a;box-shadow:inset 0 0 18px rgba(224,72,154,.16), 0 6px 14px rgba(0,0,0,.35)}
+.v2-tile.ice{border-color:#4aa0e0;box-shadow:inset 0 0 18px rgba(74,160,224,.16), 0 6px 14px rgba(0,0,0,.35)}
+.v2-tile.gold{border-color:#f5c451;box-shadow:inset 0 0 18px rgba(245,196,81,.16), 0 6px 14px rgba(0,0,0,.35)}
+.v2-tile.violet{border-color:#7c5cd6;box-shadow:inset 0 0 18px rgba(124,92,214,.18), 0 6px 14px rgba(0,0,0,.35)}
 
 .v2-count-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   padding:4px 3px;border-radius:10px;background:linear-gradient(180deg,#1a2050,#0e1236);

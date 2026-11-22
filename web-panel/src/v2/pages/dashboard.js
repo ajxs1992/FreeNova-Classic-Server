@@ -12,6 +12,7 @@
 
 import { esc, fmt } from "../theme.js"
 import { icon } from "../icons.js"
+import { artIcon, art as artSvg, BIG, ICON_SIZE } from "../art.js"
 import {
   card, cardHead, statCard, bar, pill, countdown, sectionHeading,
   emptyState, itemTile, counterTile, button, progressRow, devNote
@@ -51,16 +52,15 @@ const COUNTDOWN_JS = `<script>
 
 function hero(d) {
   const s = d.season
+  // The owner's rule: this is their photo. The band already carries the lockup,
+  // the ribbon and the subtitle, so the markup does not draw them again — the
+  // only live thing on top is the countdown, in the box the reference gives it
+  // (x 461..893, y 225..267 of the 1345x284 band, measured from the slice).
   return `<section class="v2-hero" aria-labelledby="v2-hero-title">
-  <img class="v2-santa" src="/winter/santa.png" width="189" height="278"
-       alt="Santa Claus waving, standing beside a lit lamp post">
-  <div class="v2-hero-inner">
-    <h1 class="v2-lockup" id="v2-hero-title">Free<span>Nova</span></h1>
-    <p class="v2-ribbon">${esc(seasonLabel(s))}</p>
-    <p class="v2-hero-sub">${heroSub(s, d)}</p>
-    <div class="v2-hero-count" data-left="${d.countdown.left}">
-      ${countdown({ label: d.countdown.label, parts: d.countdown.parts, id: "v2-count" })}
-    </div>
+  <h1 class="v2-vh" id="v2-hero-title">Free<span>Nova</span> · ${esc(seasonLabel(s))} · ${esc(heroSub(s, d))}</h1>
+  <img class="v2-hero-img" src="${BIG.hero}" width="1345" height="284" alt="" decoding="async">
+  <div class="v2-hero-count" data-left="${d.countdown.left}">
+    ${countdown({ label: d.countdown.label, parts: d.countdown.parts, id: "v2-count" })}
   </div>
 </section>`
 }
@@ -69,11 +69,11 @@ function stats(d) {
   const t = d.tree, p = d.pass, a = d.advent, m = d.currency.missions, e = d.events
   const adventValue = a.today > 0 ? `Day ${fmt(a.today)} / ${fmt(a.total)}` : `${fmt(a.claimed)} / ${fmt(a.total)} claimed`
   return `<section class="v2-stats" aria-label="At a glance">
-  ${statCard({ icon: icon("tree", 38), title: "My Tree", value: `${t.pct}%`, tone: "green", href: "/winter/tree" })}
-  ${statCard({ icon: icon("crown", 38), title: "Battle Pass", value: `Lv. ${fmt(p.tier)}`, href: "/battlepass" })}
-  ${statCard({ icon: icon("advent", 38), title: "Advent", value: adventValue, href: "/winter/advent" })}
-  ${statCard({ icon: icon("missions", 38), title: "Missions", value: `${fmt(m.open)} / ${fmt(m.total)}`, href: "/missions" })}
-  ${statCard({ icon: icon("confetti", 38), title: "Events", value: `Active: ${fmt(e.active)}`, href: "/events" })}
+  ${statCard({ icon: "", title: "My Tree", value: `${t.pct}%`, tone: "green", href: "/v2/winter/tree" })}
+  ${statCard({ icon: "", title: "Battle Pass", value: `Lv. ${fmt(p.tier)}`, href: "/v2/winter/pass" })}
+  ${statCard({ icon: "", title: "Advent", value: adventValue, href: "/v2/winter/advent" })}
+  ${statCard({ icon: "", title: "Missions", value: `${fmt(m.open)} / ${fmt(m.total)}`, href: "/missions" })}
+  ${statCard({ icon: "", title: "Events", value: `Active: ${fmt(e.active)}`, href: "/events" })}
 </section>`
 }
 
@@ -81,18 +81,18 @@ function treeCard(d) {
   const t = d.tree
   const counters = t.ornaments.map(o => counterTile({ icon: icon(o.icon, 22), value: o.value, label: o.label })).join("")
   const body = `<div class="v2-tree">
-    <img class="v2-tree-art" src="/winter/tree.png" width="182" height="203"
+    <img class="v2-tree-art" src="${BIG.tree}" width="194" height="214"
          alt="A decorated Christmas tree with a gold star and presents underneath">
     <div class="v2-tree-side">
       <div class="v2-treeprog"><b>Tree Progress</b><em>${t.pct}%</em></div>
       ${bar(t.filled, t.total)}
       <p class="v2-treeslots">${fmt(t.filled)} of ${fmt(t.total)} slots filled${t.level > 0 ? ` &middot; level ${fmt(t.level)}` : ""}</p>
       <div class="v2-counts">${counters}</div>
-      ${button({ href: "/winter/tree", label: "Decorate Tree", icon: icon("arrow", 18) })}
+      ${button({ href: "/v2/winter/tree", label: "Decorate Tree", icon: icon("arrow", 18) })}
     </div>
   </div>`
   return card({
-    head: { icon: icon("tree", 30), title: "Your Christmas Tree", sub: "Collect ornaments and decorate your tree!", id: "v2-tree-h" },
+    head: { title: "Your Christmas Tree", sub: "Collect ornaments and decorate your tree!", id: "v2-tree-h" },
     body, label: "v2-tree-h"
   })
 }
@@ -105,7 +105,7 @@ function progressCard(d) {
   })).join("")
   const body = `${rows}${known ? "" : emptyState("No objective counters yet")}`
   return card({
-    head: { icon: icon("rosette", 30), title: "Event Progress", sub: "Complete Winterfest objectives for exclusive rewards!", id: "v2-prog-h" },
+    head: { icon: "", title: "Event Progress", sub: "Complete Winterfest objectives for exclusive rewards!", id: "v2-prog-h" },
     body, label: "v2-prog-h"
   })
 }
@@ -117,14 +117,14 @@ function rewardsCard(d) {
     })).join("")}</div>`
     : emptyState("No rewards claimed yet", "The last four grants from the game's claim ledger appear here.")
   return card({
-    head: { icon: icon("gift", 30), title: "Recent Rewards", sub: "Your latest Christmas rewards!", id: "v2-rw-h" },
+    head: { title: "Recent Rewards", sub: "Your latest Christmas rewards!", id: "v2-rw-h" },
     body: tiles, label: "v2-rw-h", class: d.rewards.length ? "" : "v2-card-center"
   })
 }
 
 function eventCards(d) {
   const head = `<div class="v2-events-head">
-    ${sectionHeading({ icon: icon("advent", 26), text: "Active Winterfest Events", id: "v2-ev-h" })}
+    ${sectionHeading({ icon: "", text: "Active Winterfest Events", id: "v2-ev-h" })}
   </div>`
   const list = d.events.list.length
     ? `<div class="v2-events" role="list" aria-labelledby="v2-ev-h">${d.events.list.map(e => `<a class="v2-evt ${e.tone}" role="listitem" href="${esc(e.href)}">
@@ -141,10 +141,10 @@ function eventCards(d) {
 
 export const DASH_CSS = `
 /* ---------------------------------------------------------------- hero ---- */
-.v2-hero{position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--v2-border);
-  aspect-ratio:1345/284;min-height:190px;max-height:284px;
-  background:#080d2a url(/winter/hero.png) center center / cover no-repeat;
-  box-shadow:0 16px 30px rgba(0,0,0,.4), inset 0 1px 0 rgba(160,190,255,.18)}
+.v2-hero{position:relative;width:100%;max-width:1345px;margin-inline:auto;aspect-ratio:1345/284;
+  border-radius:18px;overflow:hidden;box-shadow:0 16px 30px rgba(0,0,0,.4)}
+.v2-hero-img{width:100%;height:100%;display:block;object-fit:cover;object-position:center}
+.v2-vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .v2-hero::after{content:"";position:absolute;inset:0;pointer-events:none;
   background:
     radial-gradient(46% 62% at 50% 42%, rgba(140,110,255,.30) 0%, rgba(140,110,255,0) 72%),
@@ -164,7 +164,14 @@ export const DASH_CSS = `
   box-shadow:0 8px 20px rgba(160,16,16,.45);text-shadow:0 1px 2px rgba(80,0,0,.7)}
 .v2-hero-sub{margin-top:clamp(3px,.7vh,7px);font-size:clamp(12px,1.22vw,19px);font-weight:700;
   color:#f2f6ff;text-shadow:0 2px 8px rgba(0,0,0,.8)}
-.v2-hero-count{margin-top:auto;width:min(430px,92%)}
+.v2-hero-count{position:absolute;left:34.27%;top:79.23%;width:32.12%;height:14.79%;z-index:2;
+  display:grid;place-items:stretch}
+.v2-hero-count .v2-count{padding:0 6px;background:linear-gradient(180deg,rgba(22,26,72,.97),rgba(9,12,40,.99));
+  border:1px solid rgba(150,120,240,.55);border-radius:9px}
+.v2-hero-count .v2-count b{font-size:15px}
+.v2-hero-count .v2-count small{font-size:7.5px;letter-spacing:.3px}
+.v2-hero-count .v2-count > div{padding:1px 4px}
+.v2-hero-count .v2-count span{font-size:15px}
 .v2-hero-count .v2-count{background:linear-gradient(180deg,rgba(24,28,80,.88),rgba(8,10,38,.92))}
 
 /* --------------------------------------------------------------- stats ---- */
@@ -178,7 +185,7 @@ export const DASH_CSS = `
 .v2-card-center{display:flex;flex-direction:column}
 .v2-card-center .v2-empty{margin-top:auto}
 .v2-tree{display:grid;grid-template-columns:minmax(0,182px) minmax(0,1fr);gap:8px;align-items:end}
-.v2-tree-art{width:100%;height:auto;max-height:192px;object-fit:contain;object-position:bottom left;align-self:end;margin:0 0 -12px -12px}
+.v2-tree-art{width:100%;height:auto;max-height:250px;object-fit:contain;object-position:bottom left;align-self:end;margin:0 0 -12px -12px}
 .v2-tree-side{min-width:0;display:grid;gap:6px;align-content:start;padding-bottom:2px}
 .v2-treeprog{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .v2-treeprog b{font-size:14.5px;font-weight:700}
@@ -248,7 +255,7 @@ export const DASH_CSS = `
 }
 @media (max-width:1080px){
   .v2-tree{grid-template-columns:1fr}
-  .v2-tree-art{max-width:170px;margin:0 auto -10px}
+  .v2-tree-art{max-width:150px;margin:0 auto -10px}
   .v2-cols3{grid-template-columns:1fr}
   .v2-events{grid-template-columns:1fr}
 }
@@ -258,19 +265,19 @@ export const DASH_CSS = `
 export function render(d, opts = {}) {
   const chips = [
     {
-      icon: icon("coins", 38), value: fmt(d.currency.coins), label: "Coins",
+      icon: artIcon("chip-coins", 40), value: fmt(d.currency.coins), label: "Coins",
       addHref: "/shop", addTitle: "Coin shop — purchases happen in game"
     },
     {
-      icon: icon("gingerbread", 38), value: fmt(d.currency.gingerbread), label: "GingerBread",
+      icon: artIcon("chip-gingerbread", 40), value: fmt(d.currency.gingerbread), label: "GingerBread",
       addHref: "/winter/gifts", addTitle: "GingerBread comes from presents — open them in game"
     },
     {
-      icon: icon("dice", 38), value: fmt(d.currency.spins), label: "Spins",
+      icon: artIcon("chip-spins", 40), value: fmt(d.currency.spins), label: "Spins",
       addHref: "", addTitle: "Spins are awarded by the Spin Wheel (workstream 13, not live yet)"
     },
     {
-      icon: icon("missions", 38), value: fmt(d.currency.missions.open), label: "Missions",
+      icon: artIcon("chip-missions", 40), value: fmt(d.currency.missions.open), label: "Missions",
       addHref: "/missions", addTitle: "Open seasonal contracts"
     }
   ]
@@ -280,7 +287,7 @@ ${stats(d)}
 ${d.player.signedIn ? "" : `<p class="v2-hint">${esc("Showing the season and the live event board. Open this panel from the game — or add ?steamid=STEAM_0:0:12345 — to see your own coins, tree and rewards.")}</p>`}
 <div class="v2-cols3">${treeCard(d)}${progressCard(d)}${rewardsCard(d)}</div>
 ${eventCards(d)}
-${devNote(d.wiring, "Data wiring — this page says what is real")}`
+${d.dev ? devNote(d.wiring, "Data wiring — this page says what is real") : ""}`
 
   return page({
     title: `${d.season.name || "Winterfest"} — FreeNova`,

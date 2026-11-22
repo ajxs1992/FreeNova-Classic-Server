@@ -135,7 +135,9 @@ h1,h2,h3,h4,p{margin:0}
 :focus-visible{outline:2px solid var(--v2-gold);outline-offset:2px;border-radius:6px}
 .v2-app{display:grid;grid-template-columns:var(--v2-rail-w) minmax(0,1fr);min-height:100vh}
 .v2-col{display:flex;flex-direction:column;min-width:0}
-.v2-main{display:grid;gap:var(--v2-gap);padding:var(--v2-gutter) calc(var(--v2-gutter) + 6px) 10px var(--v2-gutter);align-content:start}
+/* 1379 = 1345 (the hero art's native width) + 14 + 20 px of gutter, so the
+   hero band is never scaled up on a wide screen; below 1672 this is a no-op. */
+.v2-main{display:grid;gap:var(--v2-gap);padding:var(--v2-gutter) calc(var(--v2-gutter) + 6px) 10px var(--v2-gutter);align-content:start;max-width:1379px;margin-inline:auto;width:100%}
 .v2-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .v2-skip{position:absolute;left:-9999px;top:8px;z-index:20;background:var(--v2-gold);color:#2a1c00;
   padding:6px 12px;border-radius:8px;font-weight:700;text-decoration:none}

@@ -24,6 +24,27 @@ const wrap = (body, size, opts) => {
 }
 
 const ICONS = {
+  // ------------------------------------------------------------- calendar state
+  // Four glyphs the Winterfest pages need: a day you can still open, one you
+  // cannot, a confirmed claim, and the mystery box that stays hidden until it is.
+  lock: () => `
+    <rect x="5" y="10.4" width="14" height="9.6" rx="2" fill="#8ea0c8" stroke="#3a4870" stroke-width="1.1"/>
+    <path d="M8.4 10.4V8.2a3.6 3.6 0 0 1 7.2 0v2.2" fill="none" stroke="${P.gold}" stroke-width="1.8"/>
+    <circle cx="12" cy="15" r="1.5" fill="#2a3557"/>`,
+  unlock: () => `
+    <rect x="5" y="10.4" width="14" height="9.6" rx="2" fill="${P.gold}" stroke="#8a5a2b" stroke-width="1.1"/>
+    <path d="M8.4 10.4V8.2a3.6 3.6 0 0 1 7-1.3" fill="none" stroke="${P.gold}" stroke-width="1.8"/>
+    <circle cx="12" cy="15" r="1.5" fill="#5a3b12"/>`,
+  check: () => `
+    <circle cx="12" cy="12" r="9" fill="${P.greenDeep}"/>
+    <path d="m7.6 12.4 3 3 5.8-6.2" fill="none" stroke="#d8ffe6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`,
+  question: () => `
+    <path d="M5 4h14l-1.6 16H6.6z" fill="#2b3566" stroke="#5f6f9e" stroke-width="1.1"/>
+    <text x="12" y="17.4" text-anchor="middle" font-size="11" font-weight="700" fill="#c9d6f5">?</text>`,
+  expired: () => `
+    <circle cx="12" cy="12" r="9" fill="#3a2431"/>
+    <path d="m8.4 8.4 7.2 7.2M15.6 8.4l-7.2 7.2" fill="none" stroke="#e0808f" stroke-width="2" stroke-linecap="round"/>`,
+
   // ---------------------------------------------------------------- navigation
   dashboard: () => `
     <path d="M4 11.2 12 4l8 7.2V20a1 1 0 0 1-1 1h-4.6v-5.4H9.6V21H5a1 1 0 0 1-1-1z" fill="#f6d9a0" stroke="#8a5a2b" stroke-width="1.1"/>

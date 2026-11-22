@@ -23,6 +23,7 @@ import { pageMotdV2 } from "./motd.js"
 import { pageBoards } from "./boards_page.js"
 import { handleWinter } from "./winter/index.js"
 import { applyWinterSkin } from "./winter/skin.js"
+import { pageWinterSpin } from "./winter/spin.js"
 import { handleV2 } from "./v2/index.js"
 // The two dashboard surfaces the owner drew in the sidebar (docs/design/
 // WINTERFEST-DASHBOARD.md): Levels under PROGRESSION and the envelope in the top
@@ -209,10 +210,16 @@ async function routeRequest(request, env, ctx) {
       // Rank emblems, processed medals, badges, /i icons from ./assets
       // /winter/*.png is the dashboard's cropped art (assets/winter/). Narrow to
       // image extensions so it can never shadow the /winter/* pages below.
-      if (env.ASSETS && (path === "/logo.png" || path.startsWith("/ranks/") || path.startsWith("/badges/") || path.startsWith("/medals/") || path.startsWith("/i/") || path.startsWith("/missions/") || path.startsWith("/bp/") || /^\/winter\/[a-z0-9_]+\.(png|jpe?g|webp|svg)$/i.test(path))) {
+      if (env.ASSETS && (path === "/logo.png" || path.startsWith("/ranks/") || path.startsWith("/badges/") || path.startsWith("/medals/") || path.startsWith("/i/") || path.startsWith("/missions/") || path.startsWith("/bp/") || /^\/winter\/(?:icons\/)?[a-z0-9_-]+\.(png|jpe?g|webp|svg)$/i.test(path))) {
         const res = await env.ASSETS.fetch(request)
         if (res && res.status !== 404) return res
       }
+
+      // /winter/spin (workstream 13, src/winter/spin.js): a read-only viewer, so
+      // it is dispatched here — before the /winter/* catch-all in winter/index.js,
+      // which does not own this page. One line, no other change to this file.
+      if (path === "/winter/spin")
+        return await pageWinterSpin(request, env, url)
 
       // Winterfest pages (src/winter/): GET only, and only now that the compact
       // skin flag is final. Both the browser page and the in-game MOTD skin come

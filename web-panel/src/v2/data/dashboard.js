@@ -46,6 +46,15 @@ export const ADAPTER_CONTRACT = {
   announcements: "winter_meta.announcements → { items: [{ id, title, at, unread }] }"
 }
 
+/** The shape loadState returns for a player with no winter snapshot yet. */
+export function EMPTY_STATE() {
+  return {
+    found: false, steamid: "", name: "", snowflakes: 0, giftsFound: 0, treeStyle: 1, treeLevel: 0,
+    slots: new Map(), owned: [], ownedIds: new Set(), advent: new Map(), gifts: [], giftCounts: new Map(),
+    giftTotal: 0, pass: { xp: 0, tier: 0, found: false }, community: null, seasonRow: null
+  }
+}
+
 /** The four objective rows the reference shows, used when nothing is pushed. */
 export const DEFAULT_OBJECTIVES = [
   { key: "gifts", label: "Collect Gifts", icon: "gift" },
@@ -67,12 +76,14 @@ export const ORNAMENT_SLOTS = [
  * from the reference). The label on the tile is the real grant; the picture is
  * decoration, and says so in the design doc.
  */
+// The four pictures the owner's reference actually has for a reward tile. Any
+// other kind takes the closest one; nothing is drawn to fill a gap.
 export const REWARD_ART = {
-  [REWARD.ORNAMENT]: { art: "/winter/tile_snowflake.png", tone: "ice" },
-  [REWARD.SNOWFLAKES]: { art: "/winter/tile_ginger.png", tone: "pink" },
-  [REWARD.GIFT]: { art: "/winter/tile_hat.png", tone: "gold" },
-  [REWARD.PASS_XP]: { art: "/winter/tile_ak47.png", tone: "orange" },
-  [REWARD.TITLE]: { art: "/winter/tile_hat.png", tone: "violet" }
+  [REWARD.ORNAMENT]: { art: "/winter/ref/tile-snowflake.png", tone: "ice" },
+  [REWARD.SNOWFLAKES]: { art: "/winter/ref/tile-gingerbread.png", tone: "pink" },
+  [REWARD.GIFT]: { art: "/winter/ref/tile-santahat.png", tone: "gold" },
+  [REWARD.PASS_XP]: { art: "/winter/ref/tile-ak47.png", tone: "orange" },
+  [REWARD.TITLE]: { art: "/winter/ref/tile-santahat.png", tone: "violet" }
 }
 
 const int = (v, d = 0) => {
@@ -198,7 +209,7 @@ export function rewardTiles(cat, state) {
   const gifts = (state && Array.isArray(state.gifts)) ? state.gifts.slice(0, 4) : []
   return gifts.map(g => {
     const kind = rewardType(g.type)
-    const art = REWARD_ART[kind] || { art: "/winter/tile_ak47.png", tone: "orange" }
+    const art = REWARD_ART[kind] || { art: "/winter/ref/tile-santahat.png", tone: "orange" }
     let title, sub
     if (kind === REWARD.ORNAMENT) {
       const o = ornament(cat, g.id)
@@ -259,22 +270,56 @@ function perPlayer(blob, sid) {
   return row && typeof row === "object" ? row : {}
 }
 
+/** `WF_DEV=1` and nothing else: the switch that prints the data-wiring note. */
+export function devFlag(env) {
+  const flag = String((env && (env.WF_DEV || env.V2_DEV)) || "")
+  return flag === "1" || flag.toLowerCase() === "true"
+}
+
+/**
+ * The local instance: `WF_DEV=1`, or a request that arrived on loopback.
+ * A production deploy (real hostname, no flag) is never local, so an anonymous
+ * visit there stays anonymous — a shared box never shows one player's numbers to
+ * the next visitor. `?steamid=` and WF_DEFAULT_STEAMID do not need this.
+ */
+export function localRequest(env, url) {
+  if (devFlag(env)) return true
+  const host = String((url && url.hostname) || "").toLowerCase()
+  return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]"
+}
+
+/**
+ * Who the page is for.
+ *   query   ?steamid=…                     always wins
+ *   env     WF_DEFAULT_STEAMID=STEAM_0:0:1  the local script's pinned player
+ *   recent  (dev mode only) the player whose last_seen is newest
+ *   none    anonymous: the season and the event board, no player numbers
+ * `recent` never invents a player: it is a row that exists, or nothing.
+ */
+export async function resolveSteamid(env, url) {
+  const q = normalizeSteamid((url && url.searchParams && url.searchParams.get("steamid")) || "")
+  if (q) return { sid: q, source: "query" }
+  const pinned = normalizeSteamid((env && env.WF_DEFAULT_STEAMID) || "")
+  if (pinned) return { sid: pinned, source: "env" }
+  if (!localRequest(env, url)) return { sid: "", source: "none" }
+  const row = await one(env,
+    "SELECT steamid FROM players WHERE steamid LIKE 'STEAM_%' AND last_seen > 0 ORDER BY last_seen DESC LIMIT 1")
+  const sid = row && normalizeSteamid(row.steamid)
+  return sid ? { sid, source: "recent" } : { sid: "", source: "none" }
+}
+
 /**
  * Everything the dashboard renders, in one read pass.
  * `nowSec` is injectable so the harness can freeze the countdown.
  */
 export async function loadDashboard(env, url, nowSec) {
   const now = int(nowSec || Math.floor(Date.now() / 1000))
-  const raw = (url && url.searchParams && url.searchParams.get("steamid")) || ""
-  const sid = normalizeSteamid(raw) || ""
+  const identity = await resolveSteamid(env, url)
+  const sid = identity.sid
 
   const season = await loadSeason(env, now)
   const cat = await loadCatalog(env)
-  const state = sid
-    ? await loadState(env, sid, season.year)
-    : { found: false, steamid: "", name: "", snowflakes: 0, giftsFound: 0, treeStyle: 1, treeLevel: 0,
-      slots: new Map(), owned: [], ownedIds: new Set(), advent: new Map(), gifts: [], giftCounts: new Map(),
-      giftTotal: 0, pass: { xp: 0, tier: 0, found: false }, community: null, seasonRow: null }
+  const state = sid ? await loadState(env, sid, season.year) : EMPTY_STATE()
 
   const prow = sid ? await one(env, "SELECT name, level, coins FROM players WHERE steamid=?1", sid) : null
 
@@ -338,6 +383,8 @@ export async function loadDashboard(env, url, nowSec) {
 
   return {
     now,
+    dev: devFlag(env),
+    identity,
     season,
     player: {
       steamid: sid,

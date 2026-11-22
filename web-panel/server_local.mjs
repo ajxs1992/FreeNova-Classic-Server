@@ -77,6 +77,12 @@ const env = {
   // whose MOTD is the only client; a public deployment must leave it unset and
   // rely on game-minted ?t= links.
   FN_LOCAL_TRUST: process.env.FN_LOCAL_TRUST || "",
+  // v2 design rebuild: dev mode / a pinned default player for the local
+  // instance. Loopback requests already count as dev; WF_DEV=1 forces it for a
+  // LAN box, and WF_DEFAULT_STEAMID names the player an anonymous visit shows.
+  WF_DEV: process.env.WF_DEV || "",
+  WF_DEFAULT_STEAMID: process.env.WF_DEFAULT_STEAMID || "",
+  WF_NOW: process.env.WF_NOW || "",
   DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL || "",
   DISCORD_ADMIN_PING: process.env.DISCORD_ADMIN_PING || "<@&1476343004640837772>",
   ASSETS: {

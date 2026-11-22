@@ -111,9 +111,12 @@ fi
 # ---- report ----------------------------------------------------------------
 # ALLOW_FAIL: space-separated source names that are known not to build from this
 # snapshot (missing third-party includes). They are reported but do not fail the
-# run, so CI catches *new* breakage instead of staying red forever.
-#   ALLOW_FAIL="bypass_guard.sma ab_bypass_bridge.sma freenova_http_probe.sma"
-ALLOW_FAIL=${ALLOW_FAIL:-}
+# run, so CI catches *new* breakage instead of staying red forever. The default
+# is the same list CI uses, so `tools/compile-plugins.sh` behaves identically on
+# a laptop and on a runner. Set ALLOW_FAIL="" to see every raw failure, e.g.
+#   ALLOW_FAIL="" ./tools/compile-plugins.sh
+KNOWN_UNBUILDABLE="bypass_guard.sma ab_bypass_bridge.sma freenova_http_probe.sma"
+ALLOW_FAIL=${ALLOW_FAIL-$KNOWN_UNBUILDABLE}
 allowed=0
 is_allowed() { case " $ALLOW_FAIL " in *" $1 "*) return 0 ;; esac; return 1; }
 

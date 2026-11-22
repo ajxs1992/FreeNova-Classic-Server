@@ -63,4 +63,7 @@ jobs:
             libc6:i386 libstdc++6:i386 zlib1g:i386
 
       - name: Compile every plugin
-        run: ALLOW_FAIL="bypass_guard.sma ab_bypass_bridge.sma freenova_http_probe.sma" ./tools/compile-plugins.sh
+        # The allowlist for the three sources that need third-party includes
+        # that are not in this snapshot lives in the script itself, so CI and a
+        # local run agree by default.
+        run: ./tools/compile-plugins.sh

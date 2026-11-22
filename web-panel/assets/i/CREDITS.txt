@@ -1,0 +1,9 @@
+Weapon icons: game-icons.net — https://game-icons.net
+License: CC BY 3.0 — https://creativecommons.org/licenses/by/3.0/
+Authors: Lorc, Delapouite, Skoll, sbed
+
+Files: gun_*.png — 64x64 white-on-transparent square icons, generated from
+the original game-icons.net PNGs and trimmed to content.
+
+Rank shields, level badges and achievement medals are original FreeNova
+assets generated in-house (PNG, no third-party art).

@@ -1,0 +1,90 @@
+// ============================================================
+// server.cfg - MERGED PROPOSAL  (pull wave 2026-10-11, Agent 05)
+// STATUS: PROPOSAL ONLY - NOT PUSHED. Requires operator sign-off.
+//
+// Sources:
+//   A) REMOTE 193.70.81.30:/cstrike/server.cfg
+//      525 B, mtime 2026-10-10 23:04:07, sha256 c2a808b6...2431a4a
+//   B) LOCAL  Server CS 1.6\cstrike\server.cfg
+//      2251 B, mtime 2026-10-08 20:51:50, sha256 088e8787...d571cf
+//
+// Merge rule: keep REMOTE fastdl URL + ban-file execs + hardening,
+//             take LOCAL FreeNova rates/rules/tuning, rebrand hostname.
+// ============================================================
+
+// --- Engine / performance (local FreeNova tuning) ---
+sys_ticrate 1000              // max server FPS target (1000 FPS sweet spot)
+fps_max 1000                  // engine safety cap
+sv_lan 0                      // public (internet) server
+
+// --- Rates (FreeNova standard) ---
+sv_maxrate 100000             // max client bandwidth
+sv_minrate 25000              // min client bandwidth
+sv_maxupdaterate 102          // max packets/sec to clients
+sv_minupdaterate 60           // min packets/sec to clients
+sv_unlag 1                    // lag compensation on
+sv_maxunlag 0.5               // lag compensation window (s)
+
+// --- Identity ---
+hostname "FreeNova CS 1.6 | fn-gaming.net"
+sv_password ""                // public server, no join password
+
+// ------------------------------------------------------------
+// RCON POLICY - do NOT put rcon_password in server.cfg.
+// server.cfg travels through sync and git; rcon credentials must not.
+// Live-only mechanism: create  cstrike/cfg/rcon_local.cfg  (never synced)
+//     rcon_password "<strong-random>"
+// and uncomment the exec at the bottom of this file ON THE LIVE BOX ONLY.
+// NOTE: the local tree's old server.cfg carried a plaintext
+// rcon_password - that value is considered EXPOSED and must be rotated
+// before any rcon use.
+// ------------------------------------------------------------
+
+// --- Game rules (FreeNova public rules - CONFIRM with operator before push) ---
+mp_timelimit 20               // DECISION: keep REMOTE live value - 20 min map rotation
+mp_maxrounds 0                // DECISION: no round cap; rotation is timelimit-driven (remote behavior)
+mp_roundtime 1.75             // competitive standard
+mp_freezetime 0               // instant round start
+mp_buytime 99999              // effectively unlimited buy time
+mp_startmoney 800           // FreeNova high-startmoney rules (LOCAL value - confirm)
+mp_c4timer 35
+mp_friendlyfire 0
+mp_autoteambalance 0
+mp_limitteams 0
+mp_flashlight 1
+mp_footsteps 1
+sv_maxspeed 320
+sv_gravity 800
+
+// --- Hardening (from REMOTE live file) ---
+sv_aim 0                      // disable autoaim
+pausable 0                    // clients cannot pause the server
+sv_cheats 0
+
+// --- Downloads / FastDL ---
+sv_allowdownload 1
+sv_allowupload 0              // FIX: local file had 1 with a "prevent uploads" comment
+sv_downloadurl "https://fastdl.fn-gaming.net/cstrike/"   // KEEP remote live URL
+decalfrequency 60             // spray logo cooldown (s)
+
+// --- Logging & voice ---
+log on                        // server activity logging ON
+mp_logdetail 0
+sv_voiceenable 1
+sv_alltalk 0                  // team-only voice
+
+// --- MOTD / panel notes (files & services, not cvars) ---
+// motd.txt: push the FreeNova-branded local motd.txt (1735 B, FREENOVA
+//   welcome + Discord) to replace the remote stock Valve MOTD (666 B).
+// Panel: freenova_panel / freenova_sync push to the same-host panel
+//   127.0.0.1:8762 (fnweb_* cvars live in addons/amxmodx/configs/amxx.cfg;
+//   remote copy is canonical and gets pulled this wave).
+// FastDL: https://fastdl.fn-gaming.net/cstrike/ (kept - live-tested).
+
+// --- Ban files (from REMOTE live file) ---
+exec listip.cfg
+exec banned.cfg
+
+// exec rcon_local.cfg   // uncomment ON THE LIVE BOX ONLY (file is never synced)
+// FreeNova pack wiring (2026-10-11)
+exec addons/amxmodx/configs/freenova.cfg

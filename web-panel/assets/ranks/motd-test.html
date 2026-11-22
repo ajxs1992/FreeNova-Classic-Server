@@ -1,0 +1,37 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>FreeNova MOTD CSS Test</title>
+<style type="text/css">
+body{background:#101827;color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;margin:0;padding:10px;font-size:14px;}
+.wrap{width:600px;margin:0 auto;}
+h1{color:#3DFF9E;font-size:24px;}
+.pass{color:#3DFF9E;font-weight:bold;}
+.box{background:#111827;border:2px solid #8B5CF6;padding:8px;margin:8px 0;}
+table.t{border-collapse:collapse;width:100%;background:#111827;}
+table.t td,table.t th{border:1px solid #2A3648;padding:6px;font-size:12px;}
+table.t th{background:#0B1120;color:#9CA3AF;}
+a{color:#22D3EE;}
+.big{font-size:28px;font-weight:bold;color:#F59E0B;}
+.center{text-align:center;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>FreeNova CSS Test</h1>
+<p>If the page background is <span class="pass">dark navy</span> and this title is <span class="pass">green</span>, basic CSS works.</p>
+<div class="box">1. This box should have a dark fill with a <b>purple border</b>. If yes, background + border work.</div>
+<table class="t"><tr><th>A</th><th>B</th></tr><tr><td>2. Table cell — dark fill, thin border.</td><td class="pass">3. Green text = class selectors work.</td></tr></table>
+<p class="center">4. Centered paragraph. <a href="https://fn-gaming.net/store.php">5. Cyan link to store.</a></p>
+<p class="big">6. BIG GOLD TEXT — font-size + color.</p>
+<p><img src="http://leaderboard.fn-gaming.net/ranks/assets/vip-badge.svg" alt="7. BADGE IMAGE MISSING — images do not render" width="64" height="64"> 7. Emerald VIP badge should sit here. If you only see the alt text, images/SVG do not render.</p>
+<p id="jstest" style="color:#9CA3AF;">8. JavaScript: NOT RUNNING (if this line stays grey, JS is off; if it turns green saying JS WORKS, scripting runs).</p>
+<script type="text/javascript">
+var el = document.getElementById('jstest');
+if (el) { el.style.color = '#3DFF9E'; el.innerHTML = '8. JavaScript: <b>JS WORKS</b> — scripting runs in this MOTD engine.'; }
+</script>
+<p class="small" style="font-size:11px;color:#9CA3AF;">Reply with which numbers render correctly, e.g. 1-6 OK, 7 missing, 8 grey.</p>
+</div>
+</body>
+</html>

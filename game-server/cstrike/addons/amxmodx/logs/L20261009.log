@@ -1,0 +1,94 @@
+L 10/09/2026 - 19:54:37: [GEOIP] Database info: GeoLite2 Country database 2.0
+L 10/09/2026 - 19:54:37: -------- Mapchange to de_dust2 --------
+L 10/09/2026 - 20:12:37: [mapchooser.amxx] Vote: Voting for the nextmap started
+L 10/09/2026 - 20:12:52: [mapchooser.amxx] Vote: Voting for the nextmap finished. The nextmap will be de_airstrip
+L 10/09/2026 - 20:14:47: -------- Mapchange to de_airstrip --------
+L 10/09/2026 - 20:32:46: [mapchooser.amxx] Vote: Voting for the nextmap started
+L 10/09/2026 - 20:33:01: [mapchooser.amxx] Vote: Voting for the nextmap finished. The nextmap will be cs_havana
+L 10/09/2026 - 20:34:55: -------- Mapchange to cs_havana --------
+L 10/09/2026 - 20:52:55: [mapchooser.amxx] Vote: Voting for the nextmap started
+L 10/09/2026 - 20:53:10: [mapchooser.amxx] Vote: Voting for the nextmap finished. The nextmap will be de_chateau
+L 10/09/2026 - 20:55:04: -------- Mapchange to de_chateau --------
+L 10/09/2026 - 21:02:45: [GEOIP] Database info: GeoLite2 Country database 2.0
+L 10/09/2026 - 21:02:45: -------- Mapchange to de_dust2 --------
+L 10/09/2026 - 21:02:52: [fn_netprobe.amxx] [NETPROBE] 127.0.0.1 RECV 216 bytes: HTTP/1.1 200 OK
+content-type: application/json
+Date: Fri, 09 Oct 2026 21:02:51
+L 10/09/2026 - 21:02:55: [fn_netprobe.amxx] [NETPROBE] 193.70.81.30 RECV 216 bytes: HTTP/1.1 200 OK
+content-type: application/json
+Date: Fri, 09 Oct 2026 21:02:54
+L 10/09/2026 - 21:02:57: [fn_netprobe.amxx] [NETPROBE] 172.18.0.1 RECV 216 bytes: HTTP/1.1 200 OK
+content-type: application/json
+Date: Fri, 09 Oct 2026 21:02:56
+L 10/09/2026 - 21:03:00: [fn_netprobe.amxx] [NETPROBE] 172.20.0.1 RECV 216 bytes: HTTP/1.1 200 OK
+content-type: application/json
+Date: Fri, 09 Oct 2026 21:02:59
+L 10/09/2026 - 21:03:02: [fn_netprobe.amxx] [NETPROBE] 172.21.0.1 RECV 216 bytes: HTTP/1.1 200 OK
+content-type: application/json
+Date: Fri, 09 Oct 2026 21:03:01
+L 10/09/2026 - 21:03:05: [fn_netprobe.amxx] [NETPROBE] 172.22.0.1 RECV 216 bytes: HTTP/1.1 200 OK
+content-type: application/json
+Date: Fri, 09 Oct 2026 21:03:04
+L 10/09/2026 - 21:03:06: [fn_netprobe.amxx] [NETPROBE] done — paste all [NETPROBE] lines to the panel owner
+L 10/09/2026 - 21:08:17: [GEOIP] Database info: GeoLite2 Country database 2.0
+L 10/09/2026 - 21:08:17: -------- Mapchange to de_dust2 --------
+L 10/09/2026 - 21:08:17: [AMXX] Plugin "freenova_panel.amxx" failed to load: Plugin uses an unknown function (name "CBan_BanPlayer") - check your modules.ini.
+L 10/09/2026 - 21:08:17: [battlepass_core.amxx] [FreeNova BP] legend_t/legend_ct models not found - falling back to vip_tero/vip_ct for testing
+L 10/09/2026 - 21:08:19: [GEOIP] Database info: GeoLite2 Country database 2.0
+L 10/09/2026 - 21:08:19: -------- Mapchange to de_dust2 --------
+L 10/09/2026 - 21:08:19: [AMXX] Plugin "freenova_panel.amxx" failed to load: Plugin uses an unknown function (name "CBan_BanPlayer") - check your modules.ini.
+L 10/09/2026 - 21:08:19: [battlepass_core.amxx] [FreeNova BP] legend_t/legend_ct models not found - falling back to vip_tero/vip_ct for testing
+L 10/09/2026 - 21:19:47: [GEOIP] Database info: GeoLite2 Country database 2.0
+L 10/09/2026 - 21:19:47: -------- Mapchange to de_dust2 --------
+L 10/09/2026 - 21:19:47: [weapon_models.amxx] [FreeNova Skins] Config not found: addons/amxmodx/configs/skins_menu.cfg
+L 10/09/2026 - 21:19:47: [weapon_models.amxx] [FreeNova Skins] mastery_skins.ini not found - lockers stay hover-only until the owner adds rows.
+L 10/09/2026 - 21:20:44: [GEOIP] Database info: GeoLite2 Country database 2.0
+L 10/09/2026 - 21:20:44: -------- Mapchange to de_dust2 --------
+L 10/09/2026 - 21:20:44: [weapon_models.amxx] [FreeNova Skins] Config not found: addons/amxmodx/configs/skins_menu.cfg
+L 10/09/2026 - 21:20:44: [weapon_models.amxx] [FreeNova Skins] mastery_skins.ini not found - lockers stay hover-only until the owner adds rows.
+L 10/09/2026 - 21:43:52: [GEOIP] Database info: GeoLite2 Country database 2.0
+L 10/09/2026 - 21:43:52: -------- Mapchange to de_dust2 --------
+L 10/09/2026 - 21:43:52: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for AK47 Skins
+L 10/09/2026 - 21:43:52: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for M4A1 Skins
+L 10/09/2026 - 21:43:52: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for Deagle Skins
+L 10/09/2026 - 21:43:52: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for AWP Skins
+L 10/09/2026 - 21:43:52: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for Knife Skins
+L 10/09/2026 - 21:43:52: [weapon_models.amxx] [FreeNova Skins] mastery_skins.ini loaded 0 extra locker skins
+L 10/09/2026 - 21:43:52: [rsu_core.amxx] [RSU] Config loaded: 19 Ranks, 13 Skills registered from rank_system_ultimate.ini
+L 10/09/2026 - 21:43:52: [rsu_core.amxx] [RSU MODULE] Registered: Match Tracker v1.0.0 by FREENova Development Team
+L 10/09/2026 - 21:43:52: [rsu_core.amxx] [RSU MODULE] Registered: Stats Viewer v1.0.0 by FREENova Development Team
+L 10/09/2026 - 21:43:52: [battlepass_core.amxx] !g[FreeNova] !n nvault 'freenova_bp' opened successfully (handle=1)
+L 10/09/2026 - 21:43:52: [freenova_registration.amxx] [FreeNova] freenova_reg_server_secret is empty or the compiled default. Set a unique secret in freenova_registration.cfg — registration POST is refused until then. No secret was invented.
+L 10/09/2026 - 21:43:52: [freenova_calladmin.amxx] [FreeNova CallAdmin] Created config: addons/amxmodx/configs/calladmin.cfg
+L 10/09/2026 - 21:43:53: [rsu_core.amxx] [RSU SQL] SQLite embedded database initialized (RanksUltimate.sq3).
+L 10/09/2026 - 21:43:54: [rsu_matchstats.amxx] [RSU MATCH] Active match session registered (ID #64, Map: de_dust2)
+L 10/09/2026 - 21:43:57: [freenova_registration.amxx] [FreeNova] Forum availability: OFFLINE (registration features disabled)
+L 10/09/2026 - 21:44:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:44:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:45:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:45:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:46:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:46:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:47:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:47:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:48:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:48:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:49:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:49:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:50:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:50:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:51:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:51:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:52:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:52:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:53:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:53:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:54:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:54:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:55:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:55:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:56:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:56:53: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:57:23: [freenova_sync.amxx] [FreeNova Web Sync] Relay confirmed snapshot and action results.
+L 10/09/2026 - 21:57:46: [battlepass_core.amxx] !g[FreeNova] !n plugin_end: saved 0/0 connected players before vault close
+L 10/09/2026 - 21:57:46: [battlepass_core.amxx] !g[FreeNova] !n Vault closed successfully

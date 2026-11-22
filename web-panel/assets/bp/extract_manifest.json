@@ -1,0 +1,99 @@
+{
+  "sheets": [
+    {
+      "prefix": "sheet1",
+      "names": [
+        "bp_01.png",
+        "bp_02.png",
+        "bp_03.png",
+        "bp_04.png",
+        "bp_05.png",
+        "bp_06.png",
+        "bp_07.png",
+        "bp_08.png",
+        "bp_09.png",
+        "bp_10.png",
+        "bp_11.png",
+        "bp_12.png",
+        "bp_13.png",
+        "bp_14.png",
+        "bp_15.png",
+        "bp_16.png",
+        "bp_17.png",
+        "bp_18.png",
+        "bp_19.png",
+        "bp_20.png"
+      ],
+      "cellW": 307,
+      "cellH": 256,
+      "count": 20,
+      "src": "blob_9_27a79dd3759a280c75fd"
+    },
+    {
+      "prefix": "sheet2",
+      "names": [
+        "bp_21.png",
+        "bp_22.png",
+        "bp_23.png",
+        "bp_24.png",
+        "bp_25.png",
+        "bp_26.png",
+        "bp_27.png",
+        "bp_28.png",
+        "bp_29.png",
+        "bp_30.png",
+        "bp_31.png",
+        "bp_32.png",
+        "bp_33.png",
+        "bp_34.png",
+        "bp_35.png",
+        "bp_36.png",
+        "bp_37.png",
+        "bp_38.png",
+        "bp_39.png",
+        "bp_40.png"
+      ],
+      "cellW": 307,
+      "cellH": 256,
+      "count": 20,
+      "src": "blob_8_e09340fb34d1dc520964"
+    },
+    {
+      "prefix": "sheet3",
+      "names": [
+        "bp_41.png",
+        "bp_42.png",
+        "bp_43.png",
+        "bp_44.png",
+        "bp_45.png",
+        "bp_46.png",
+        "bp_47.png",
+        "bp_48.png",
+        "bp_49.png",
+        "bp_50.png",
+        "bp_51.png",
+        "bp_52.png",
+        "bp_53.png",
+        "bp_54.png",
+        "bp_55.png",
+        "bp_56.png",
+        "bp_57.png",
+        "bp_58.png",
+        "bp_59.png",
+        "bp_60.png"
+      ],
+      "cellW": 289,
+      "cellH": 271,
+      "count": 20,
+      "src": "blob_7_c6ff0b6186155a247419"
+    }
+  ],
+  "start": 0,
+  "flattened": {
+    "ranks": 19,
+    "badges": 32,
+    "showcase": 45,
+    "missions": 130,
+    "bp": 60
+  }
+}

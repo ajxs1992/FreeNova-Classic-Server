@@ -1,0 +1,277 @@
+{
+  "source": "rank medals no background.png",
+  "count": 32,
+  "showcase": [
+    "kills_100",
+    "kills_1000",
+    "kills_5000",
+    "kills_10000",
+    "hs_100",
+    "hs_500",
+    "wins_100",
+    "mvp_50",
+    "hours_100",
+    "hours_500",
+    "rank_max",
+    "ak_spec",
+    "ak_master"
+  ],
+  "cells": [
+    {
+      "i": 1,
+      "id": "kills_100",
+      "left": 16,
+      "top": 9,
+      "width": 193,
+      "height": 195
+    },
+    {
+      "i": 2,
+      "id": "kills_1000",
+      "left": 235,
+      "top": 9,
+      "width": 193,
+      "height": 195
+    },
+    {
+      "i": 3,
+      "id": "kills_5000",
+      "left": 456,
+      "top": 9,
+      "width": 192,
+      "height": 196
+    },
+    {
+      "i": 4,
+      "id": "kills_10000",
+      "left": 679,
+      "top": 9,
+      "width": 192,
+      "height": 196
+    },
+    {
+      "i": 5,
+      "id": "hs_100",
+      "left": 901,
+      "top": 9,
+      "width": 193,
+      "height": 196
+    },
+    {
+      "i": 6,
+      "id": "hs_500",
+      "left": 1124,
+      "top": 9,
+      "width": 194,
+      "height": 196
+    },
+    {
+      "i": 7,
+      "id": "wins_100",
+      "left": 1342,
+      "top": 9,
+      "width": 194,
+      "height": 195
+    },
+    {
+      "i": 8,
+      "id": "mvp_50",
+      "left": 1556,
+      "top": 9,
+      "width": 208,
+      "height": 197
+    },
+    {
+      "i": 9,
+      "id": "hours_100",
+      "left": 7,
+      "top": 222,
+      "width": 212,
+      "height": 203
+    },
+    {
+      "i": 10,
+      "id": "hours_500",
+      "left": 228,
+      "top": 222,
+      "width": 212,
+      "height": 202
+    },
+    {
+      "i": 11,
+      "id": "rank_max",
+      "left": 450,
+      "top": 222,
+      "width": 212,
+      "height": 202
+    },
+    {
+      "i": 12,
+      "id": "ak_spec",
+      "left": 672,
+      "top": 222,
+      "width": 211,
+      "height": 202
+    },
+    {
+      "i": 13,
+      "id": "ak_master",
+      "left": 892,
+      "top": 222,
+      "width": 212,
+      "height": 202
+    },
+    {
+      "i": 14,
+      "id": null,
+      "left": 1114,
+      "top": 222,
+      "width": 213,
+      "height": 202
+    },
+    {
+      "i": 15,
+      "id": null,
+      "left": 1327,
+      "top": 223,
+      "width": 221,
+      "height": 198
+    },
+    {
+      "i": 16,
+      "id": null,
+      "left": 1551,
+      "top": 223,
+      "width": 222,
+      "height": 198
+    },
+    {
+      "i": 17,
+      "id": null,
+      "left": 3,
+      "top": 439,
+      "width": 219,
+      "height": 196
+    },
+    {
+      "i": 18,
+      "id": null,
+      "left": 224,
+      "top": 439,
+      "width": 219,
+      "height": 196
+    },
+    {
+      "i": 19,
+      "id": null,
+      "left": 446,
+      "top": 439,
+      "width": 220,
+      "height": 196
+    },
+    {
+      "i": 20,
+      "id": null,
+      "left": 668,
+      "top": 439,
+      "width": 220,
+      "height": 196
+    },
+    {
+      "i": 21,
+      "id": null,
+      "left": 897,
+      "top": 436,
+      "width": 203,
+      "height": 200
+    },
+    {
+      "i": 22,
+      "id": null,
+      "left": 1119,
+      "top": 436,
+      "width": 202,
+      "height": 200
+    },
+    {
+      "i": 23,
+      "id": null,
+      "left": 1340,
+      "top": 436,
+      "width": 203,
+      "height": 200
+    },
+    {
+      "i": 24,
+      "id": null,
+      "left": 1562,
+      "top": 436,
+      "width": 203,
+      "height": 200
+    },
+    {
+      "i": 25,
+      "id": null,
+      "left": 11,
+      "top": 652,
+      "width": 203,
+      "height": 199
+    },
+    {
+      "i": 26,
+      "id": null,
+      "left": 232,
+      "top": 652,
+      "width": 202,
+      "height": 199
+    },
+    {
+      "i": 27,
+      "id": null,
+      "left": 460,
+      "top": 653,
+      "width": 186,
+      "height": 220
+    },
+    {
+      "i": 28,
+      "id": null,
+      "left": 683,
+      "top": 653,
+      "width": 184,
+      "height": 219
+    },
+    {
+      "i": 29,
+      "id": null,
+      "left": 904,
+      "top": 653,
+      "width": 186,
+      "height": 218
+    },
+    {
+      "i": 30,
+      "id": null,
+      "left": 1127,
+      "top": 653,
+      "width": 184,
+      "height": 218
+    },
+    {
+      "i": 31,
+      "id": null,
+      "left": 1348,
+      "top": 653,
+      "width": 186,
+      "height": 218
+    },
+    {
+      "i": 32,
+      "id": null,
+      "left": 1569,
+      "top": 652,
+      "width": 185,
+      "height": 219
+    }
+  ]
+}

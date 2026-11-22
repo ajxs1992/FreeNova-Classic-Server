@@ -1,0 +1,39 @@
+<html>
+<head>
+<style>
+body{background:#050706;color:#E8ECE8;font-family:Verdana,Arial,sans-serif;font-size:13px;margin:10px;}
+.fnh{text-align:center;border-bottom:2px solid #57E015;padding-bottom:10px;margin-bottom:12px;}
+.fnbrand{color:#78FF16;font-size:30px;font-weight:bold;letter-spacing:5px;}
+.fnsub{color:#8D978D;font-size:11px;letter-spacing:3px;}
+h3{color:#78FF16;font-size:13px;border-bottom:1px solid #273427;padding-bottom:3px;}
+.grid td{padding:2px 8px;}
+.k{color:#8D978D;}
+.v{color:#FFFFFF;}
+.fngreen{color:#78FF16;font-weight:bold;}
+.fnf{text-align:center;color:#8D978D;font-size:10px;margin-top:14px;border-top:1px solid #273427;padding-top:6px;}
+</style>
+</head>
+<body>
+<div class="fnh">
+<span class="fnbrand">FREENOVA</span><br>
+<span class="fnsub">THE ULTIMATE GAMING NETWORK</span>
+</div>
+
+<h3>WELCOME</h3>
+<table class="grid">
+<tr><td class="k">Rank &amp; XP</td><td class="v">/xp &nbsp;&nbsp;/level &nbsp;&nbsp;/rankstats</td></tr>
+<tr><td class="k">Leaderboards</td><td class="v">/top15 &nbsp;&nbsp;/top</td></tr>
+<tr><td class="k">Player Hub</td><td class="v">/freenova &nbsp;&nbsp;/menu</td></tr>
+<tr><td class="k">Battle Pass</td><td class="v">/bp &nbsp;&nbsp;/missions &nbsp;&nbsp;/shop</td></tr>
+<tr><td class="k">VIP</td><td class="v">/vip &nbsp;&nbsp;/vmenu</td></tr>
+<tr><td class="k">Settings</td><td class="v">/settings &nbsp;&nbsp;/hud</td></tr>
+<tr><td class="k">Rules</td><td class="v">/rules</td></tr>
+</table>
+
+<h3>GET MORE</h3>
+<span class="fngreen">/register</span> your account for a free 3-day VIP+ trial.<br>
+Join the community: <span class="fngreen">https://discord.gg/dqrWHhQykp</span> (contact: zizouondc)
+
+<div class="fnf">FreeNova &bull; The Ultimate Gaming Network</div>
+</body>
+</html>

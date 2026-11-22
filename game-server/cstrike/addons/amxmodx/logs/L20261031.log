@@ -1,0 +1,101 @@
+L 10/31/2026 - 00:53:54: [GEOIP] Database info: GeoLite2 Country database 2.0
+L 10/31/2026 - 00:53:54: -------- Mapchange to de_dust2 --------
+L 10/31/2026 - 00:53:54: [weapon_models.amxx] [FreeNova Skins] Loaded 24 skins for AK47 Skins
+L 10/31/2026 - 00:53:54: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for M4A1 Skins
+L 10/31/2026 - 00:53:54: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for Deagle Skins
+L 10/31/2026 - 00:53:54: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for AWP Skins
+L 10/31/2026 - 00:53:54: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for Knife Skins
+L 10/31/2026 - 00:53:54: [weapon_models.amxx] [FreeNova Skins] mastery_skins.ini loaded 0 extra locker skins
+L 10/31/2026 - 00:53:54: [freenova_roundmusic.amxx] [RoundMusic] [t_win]: 1 track(s) listed
+L 10/31/2026 - 00:53:54: [freenova_roundmusic.amxx] [RoundMusic] [ct_win]: 1 track(s) listed
+L 10/31/2026 - 00:53:54: [freenova_roundmusic.amxx] [RoundMusic] [mvp]: 1 track(s) listed
+L 10/31/2026 - 00:53:55: [rsu_core.amxx] [RSU] Config loaded: 19 Ranks, 13 Skills registered from rank_system_ultimate.ini
+L 10/31/2026 - 00:53:55: [rsu_core.amxx] [RSU MODULE] Registered: Match Tracker v1.0.0 by FREENova Development Team
+L 10/31/2026 - 00:53:55: [rsu_core.amxx] [RSU MODULE] Registered: Stats Viewer v1.0.0 by FREENova Development Team
+L 10/31/2026 - 00:53:55: [battlepass_core.amxx] !g[FreeNova] !n nvault 'freenova_bp' opened successfully (handle=1)
+L 10/31/2026 - 00:53:55: [advanced_bans.amxx] [AdvancedBans] Using PostgreSQL engine (not SQLX)
+L 10/31/2026 - 00:53:55: [postgres_engine.amxx] [PG] PostgreSQL credentials are incomplete (ab_sql_host/user/pass/db). Set them in a protected server config; database is disabled.
+L 10/31/2026 - 00:53:55: [advanced_bans.amxx] [AdvancedBans] Table create failed (-2/0): PostgreSQL credentials not configured - retrying, plugin stays loaded
+L 10/31/2026 - 00:53:55: [advanced_bans.amxx] [AdvancedBans] Local fallback: loaded 0 ban(s) from addons/amxmodx/data/advanced_bans.txt (PG unreachable)
+L 10/31/2026 - 00:53:55: [advanced_bans.amxx] [AdvancedBans] SQLite mirror ready (data/ab_bans.sq3)
+L 10/31/2026 - 00:53:55: [freenova_sync.amxx] [FreeNova EvLedger] ledger ready (data/freenova_events.db)
+L 10/31/2026 - 00:53:55: [freenova_ads.amxx] [FreeNova Ads] loaded 9 ads from addons/amxmodx/configs/freenova/ads.ini
+L 10/31/2026 - 00:53:55: [freenova_mapvote.amxx] [FreeNova MapVote] loaded 11 settings from addons/amxmodx/configs/freenova/mapvote.ini
+L 10/31/2026 - 00:53:55: [freenova_mapvote.amxx] [FreeNova MapVote] map pool: 16 maps from mapcycle.txt (current de_dust2)
+L 10/31/2026 - 00:53:56: [postgres_engine.amxx] [PG] connecting 172.17.0.1:5434 db=bans user=srv_cmux30_gnngsylv
+L 10/31/2026 - 00:53:56: [rsu_core.amxx] [RSU SQL] SQLite embedded database initialized (RanksUltimate.sq3).
+L 10/31/2026 - 00:53:57: [rsu_matchstats.amxx] [RSU MATCH] Active match session registered (ID #1127, Map: de_dust2)
+L 10/31/2026 - 00:53:57: [postgres_engine.amxx] [PG] startup sent, waiting auth
+L 10/31/2026 - 00:53:58: [postgres_engine.amxx] [PG] SCRAM-SHA-256 initial sent
+L 10/31/2026 - 00:53:59: [postgres_engine.amxx] [PG] SCRAM challenge accepted, deriving key (4096 iters)
+L 10/31/2026 - 00:53:59: [freenova_registration.amxx] [FreeNova] Forum availability: ONLINE (auto-connected)
+L 10/31/2026 - 00:54:00: [postgres_engine.amxx] [PG] SCRAM client-final sent
+L 10/31/2026 - 00:54:01: [postgres_engine.amxx] [PG] SCRAM server signature verified
+L 10/31/2026 - 00:54:01: [postgres_engine.amxx] [PG] ready
+L 10/31/2026 - 00:54:06: [advanced_bans.amxx] [AdvancedBans] Retrying PostgreSQL table create
+L 10/31/2026 - 00:54:08: [advanced_bans.amxx] [AdvancedBans] Boot: PG not ready after 12s, trying local fallback file
+L 10/31/2026 - 00:54:08: [advanced_bans.amxx] [AdvancedBans] Local fallback: loaded 0 ban(s) from addons/amxmodx/data/advanced_bans.txt (PG unreachable)
+L 10/31/2026 - 00:54:09: [advanced_bans.amxx] [AdvancedBans] PG sync OK: 0 bans (local mirror updated)
+L 10/31/2026 - 00:54:10: [advanced_bans.amxx] [AdvancedBans] Loaded 15 recent disconnects for offban
+L 10/31/2026 - 00:54:33: [admin.amxx] Login: "NPC_Leaders<10><STEAM_0:1:799106783><>" became an admin (account "STEAM_0:1:799106783") (access "abcdefghijklmnopqrstuv") (address "92.208.191.116")
+L 10/31/2026 - 00:55:32: [admin.amxx] Login: "NPC_Leaders<11><STEAM_0:1:799106783><>" became an admin (account "STEAM_0:1:799106783") (access "abcdefghijklmnopqrstuv") (address "92.208.191.116")
+L 10/31/2026 - 00:55:55: [battlepass_core.amxx] !g[FreeNova] !n Loaded shop data for player 10 (nvault): 2 3 3 3 3 3 2 2 2 2 1 1 0
+L 10/31/2026 - 00:55:55: [battlepass_core.amxx] !g[FreeNova] !n Loaded 26421 coins for player 10 (nvault)
+L 10/31/2026 - 00:58:16: [admin.amxx] Login: "NPC_Leaders<12><STEAM_0:1:799106783><>" became an admin (account "STEAM_0:1:799106783") (access "abcdefghijklmnopqrstuv") (address "92.208.191.116")
+L 10/31/2026 - 00:58:21: [battlepass_core.amxx] !g[FreeNova] !n Loaded shop data for player 10 (nvault): 2 3 3 3 3 3 2 2 2 2 1 1 0
+L 10/31/2026 - 00:58:21: [battlepass_core.amxx] !g[FreeNova] !n Loaded 26421 coins for player 10 (nvault)
+L 10/31/2026 - 00:59:03: [postgres_engine.amxx] [PG] think #300 state=3 sock=55
+L 10/31/2026 - 01:04:04: [postgres_engine.amxx] [PG] think #600 state=3 sock=55
+L 10/31/2026 - 01:09:06: [postgres_engine.amxx] [PG] think #900 state=3 sock=55
+L 10/31/2026 - 01:14:07: [postgres_engine.amxx] [PG] think #1200 state=3 sock=55
+L 10/31/2026 - 01:15:14: [battlepass_core.amxx] !g[FreeNova] !n plugin_end: saved 0/0 connected players before vault close
+L 10/31/2026 - 01:15:14: [battlepass_core.amxx] !g[FreeNova] !n Vault closed successfully
+L 10/31/2026 - 01:15:14: -------- Mapchange to de_airstrip --------
+L 10/31/2026 - 01:15:14: [weapon_models.amxx] [FreeNova Skins] Loaded 24 skins for AK47 Skins
+L 10/31/2026 - 01:15:14: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for M4A1 Skins
+L 10/31/2026 - 01:15:14: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for Deagle Skins
+L 10/31/2026 - 01:15:14: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for AWP Skins
+L 10/31/2026 - 01:15:14: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for Knife Skins
+L 10/31/2026 - 01:15:14: [weapon_models.amxx] [FreeNova Skins] mastery_skins.ini loaded 0 extra locker skins
+L 10/31/2026 - 01:15:14: [freenova_roundmusic.amxx] [RoundMusic] [t_win]: 1 track(s) listed
+L 10/31/2026 - 01:15:14: [freenova_roundmusic.amxx] [RoundMusic] [ct_win]: 1 track(s) listed
+L 10/31/2026 - 01:15:14: [freenova_roundmusic.amxx] [RoundMusic] [mvp]: 1 track(s) listed
+L 10/31/2026 - 01:15:15: [rsu_core.amxx] [RSU] Config loaded: 19 Ranks, 13 Skills registered from rank_system_ultimate.ini
+L 10/31/2026 - 01:15:15: [rsu_core.amxx] [RSU MODULE] Registered: Match Tracker v1.0.0 by FREENova Development Team
+L 10/31/2026 - 01:15:15: [rsu_core.amxx] [RSU MODULE] Registered: Stats Viewer v1.0.0 by FREENova Development Team
+L 10/31/2026 - 01:15:15: [battlepass_core.amxx] !g[FreeNova] !n nvault 'freenova_bp' opened successfully (handle=1)
+L 10/31/2026 - 01:15:15: [advanced_bans.amxx] [AdvancedBans] Using PostgreSQL engine (not SQLX)
+L 10/31/2026 - 01:15:15: [postgres_engine.amxx] [PG] connecting 172.17.0.1:5434 db=bans user=srv_cmux30_gnngsylv
+L 10/31/2026 - 01:15:15: [advanced_bans.amxx] [AdvancedBans] SQLite mirror ready (data/ab_bans.sq3)
+L 10/31/2026 - 01:15:15: [freenova_sync.amxx] [FreeNova EvLedger] ledger ready (data/freenova_events.db)
+L 10/31/2026 - 01:15:15: [freenova_ads.amxx] [FreeNova Ads] loaded 9 ads from addons/amxmodx/configs/freenova/ads.ini
+L 10/31/2026 - 01:15:15: [freenova_mapvote.amxx] [FreeNova MapVote] loaded 11 settings from addons/amxmodx/configs/freenova/mapvote.ini
+L 10/31/2026 - 01:15:15: [freenova_mapvote.amxx] [FreeNova MapVote] map pool: 16 maps from mapcycle.txt (current de_airstrip)
+L 10/31/2026 - 01:15:16: [rsu_core.amxx] [RSU SQL] SQLite embedded database initialized (RanksUltimate.sq3).
+L 10/31/2026 - 01:15:16: [postgres_engine.amxx] [PG] connecting 172.17.0.1:5434 db=bans user=srv_cmux30_gnngsylv
+L 10/31/2026 - 01:15:16: [postgres_engine.amxx] [PG] startup sent, waiting auth
+L 10/31/2026 - 01:15:17: [rsu_matchstats.amxx] [RSU MATCH] Active match session registered (ID #1128, Map: de_airstrip)
+L 10/31/2026 - 01:15:17: [postgres_engine.amxx] [PG] SCRAM-SHA-256 initial sent
+L 10/31/2026 - 01:15:18: [postgres_engine.amxx] [PG] SCRAM challenge accepted, deriving key (4096 iters)
+L 10/31/2026 - 01:15:19: [freenova_registration.amxx] [FreeNova] Forum availability: ONLINE (auto-connected)
+L 10/31/2026 - 01:15:19: [postgres_engine.amxx] [PG] SCRAM client-final sent
+L 10/31/2026 - 01:15:20: [postgres_engine.amxx] [PG] SCRAM server signature verified
+L 10/31/2026 - 01:15:20: [postgres_engine.amxx] [PG] ready
+L 10/31/2026 - 01:15:24: [advanced_bans.amxx] [AdvancedBans] PG sync OK: 0 bans (local mirror updated)
+L 10/31/2026 - 01:15:25: [advanced_bans.amxx] [AdvancedBans] Loaded 11 recent disconnects for offban
+L 10/31/2026 - 01:20:21: [postgres_engine.amxx] [PG] think #300 state=3 sock=22
+L 10/31/2026 - 01:25:23: [postgres_engine.amxx] [PG] think #600 state=3 sock=22
+L 10/31/2026 - 01:30:25: [postgres_engine.amxx] [PG] think #900 state=3 sock=22
+L 10/31/2026 - 01:35:27: [postgres_engine.amxx] [PG] think #1200 state=3 sock=22
+L 10/31/2026 - 01:36:33: [battlepass_core.amxx] !g[FreeNova] !n plugin_end: saved 0/0 connected players before vault close
+L 10/31/2026 - 01:36:33: [battlepass_core.amxx] !g[FreeNova] !n Vault closed successfully
+L 10/31/2026 - 01:36:33: -------- Mapchange to cs_havana --------
+L 10/31/2026 - 01:36:33: [weapon_models.amxx] [FreeNova Skins] Loaded 24 skins for AK47 Skins
+L 10/31/2026 - 01:36:33: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for M4A1 Skins
+L 10/31/2026 - 01:36:33: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for Deagle Skins
+L 10/31/2026 - 01:36:33: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for AWP Skins
+L 10/31/2026 - 01:36:33: [weapon_models.amxx] [FreeNova Skins] Loaded 21 skins for Knife Skins
+L 10/31/2026 - 01:36:33: [weapon_models.amxx] [FreeNova Skins] mastery_skins.ini loaded 0 extra locker skins
+L 10/31/2026 - 01:36:34: [freenova_roundmusic.amxx] [RoundMusic] [t_win]: 1 track(s) listed
+L 10/31/2026 - 01:36:34: [freenova_roundmusic.amxx] [RoundMusic] [ct_win]: 1 track(s) listed
+L 10/31/2026 - 01:36:34: [freenova_roundmusic.amxx] [RoundMusic] [mvp]: 1 track(s) listed

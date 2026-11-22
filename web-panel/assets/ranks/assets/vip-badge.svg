@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" role="img" aria-label="VIP badge">
+<title>VIP — Emerald badge</title>
+<defs><linearGradient id="vipv" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#10B981"/><stop offset="1" stop-color="#065F46"/></linearGradient></defs>
+<rect x="4" y="4" width="152" height="152" rx="28" fill="#111827" stroke="#10B981" stroke-width="3"/>
+<path d="M80 22 L122 48 V84 C122 110 102 128 80 138 C58 128 38 110 38 84 V48 Z" fill="url(#vipv)" stroke="#A7F3D0" stroke-width="2"/>
+<path d="M62 70 L80 102 L98 70" fill="none" stroke="#06281C" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M62 70 L80 102 L98 70" fill="none" stroke="#ECFDF5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="80" y="128" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="20" font-weight="bold" fill="#ECFDF5" letter-spacing="3">VIP</text>
+</svg>

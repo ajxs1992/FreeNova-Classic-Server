@@ -1,0 +1,21 @@
+[en]
+CRXRANKS_MYSQL_FAILED = [CRXRanks] MySQL connection failed, falling back to nVault
+CRXRANKS_MENU_TITLE = \yRank System \r%d XP \w| \yLevel %d \w| \y%s
+CRXRANKS_ITEM_FORMAT = \w%d XP \d| \w%s \d| \rLevel %d \d(%s)
+CRXRANKS_RANKINFO_NORMAL = XP: %d / %d, Level: %d, Next rank: %s
+CRXRANKS_RANKINFO_FINAL = You reached the final level %d with %d XP! Rank: %s
+CRXRANKS_LEVEL_REACHED = Congratulations! You reached level %d! Rank: %s
+CRXRANKS_LEVEL_LOST = You lost level %d! Rank: %s
+CRXRANKS_RESET_XP = Your XP has been reset by an admin
+CRXRANKS_TAKE_XP = An admin removed %d XP from you
+CRXRANKS_HUDINFO_ENABLED = Your rank HUD is now enabled
+CRXRANKS_HUDINFO_DISABLED = Your rank HUD is now disabled
+CRXRANKS_HUDINFO_UNAVAILABLE = Rank HUD is unavailable right now
+CRXRANKS_XP_NOTIFIER_GET = +%d XP
+CRXRANKS_XP_NOTIFIER_LOSE = %d XP
+CRXRANKS_NOTIFY_KILL_GET = You got %d XP for killing %s
+CRXRANKS_NOTIFY_KILL_LOSE = You lost %d XP for killing %s
+CRXRANKS_NOTIFY_DEATH_GET = You got %d XP even though %s killed you
+CRXRANKS_NOTIFY_DEATH_LOSE = You lost %d XP (killed by %s)
+CRXRANKS_NOTIFY_SUICIDE_GET = You got %d XP for suicide
+CRXRANKS_NOTIFY_SUICIDE_LOSE = You lost %d XP for suicide

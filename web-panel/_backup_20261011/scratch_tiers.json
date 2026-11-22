@@ -1,0 +1,602 @@
+[
+  {
+    "tier": 1,
+    "name": "Recruit Stash",
+    "free": "+100 Coins (Recruit Stash)",
+    "premium": "+100c Recruit Stash",
+    "coins": 100,
+    "icon": "★",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 2,
+    "name": "Field Ammo Pack",
+    "free": "+50 Coins (Field Ammo Pack)",
+    "premium": "+50c Munitions",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 3,
+    "name": "Tactical Ration",
+    "free": "+150 Coins (Tactical Ration)",
+    "premium": "+100c Supply Crate",
+    "coins": 150,
+    "icon": "★",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 4,
+    "name": "Recon Scout Kit",
+    "free": "+50 Coins (Recon Scout Kit)",
+    "premium": "+50c Recon Munitions",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 5,
+    "name": "Double Jump Perk",
+    "free": "+250 Coins (Double Jump Perk)",
+    "premium": "Double Jump Stage I",
+    "coins": 250,
+    "icon": "✦",
+    "rarity": "UNCOMMON",
+    "milestone": true
+  },
+  {
+    "tier": 6,
+    "name": "Kevlar Vest Supply",
+    "free": "+100 Coins (Kevlar Vest Supply)",
+    "premium": "+100c Light Armor",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 7,
+    "name": "Medkit Drops",
+    "free": "+50 Coins (Medkit Drops)",
+    "premium": "+50c Field Dressing",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 8,
+    "name": "Defuse Kit Stash",
+    "free": "+100 Coins (Defuse Kit Stash)",
+    "premium": "+100c Rapid Defuser",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 9,
+    "name": "Flashbang Pouch",
+    "free": "+50 Coins (Flashbang Pouch)",
+    "premium": "+50c Tactical Blinding",
+    "coins": 50,
+    "icon": "★",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 10,
+    "name": "Novice Vanguard",
+    "free": "+500 Coins (Novice Vanguard)",
+    "premium": "+500c & Bronze Badge",
+    "coins": 500,
+    "icon": "★",
+    "rarity": "RARE",
+    "milestone": true
+  },
+  {
+    "tier": 11,
+    "name": "Smoke Cloud Vapor",
+    "free": "+100 Coins (Smoke Cloud Vapor)",
+    "premium": "+100c Smoke Reserve",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 12,
+    "name": "HE Fragment Crate",
+    "free": "+50 Coins (HE Fragment Crate)",
+    "premium": "+50c HE Munitions",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 13,
+    "name": "Deagle Ammo Reserve",
+    "free": "+100 Coins (Deagle Ammo Reserve)",
+    "premium": "+100c Heavy Caliber",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 14,
+    "name": "Armor Repair Kit",
+    "free": "+50 Coins (Armor Repair Kit)",
+    "premium": "+50c Kevlar Patch",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 15,
+    "name": "1.5x XP Booster",
+    "free": "+750 Coins (1.5x XP Booster)",
+    "premium": "30m 1.5x XP Boost",
+    "coins": 750,
+    "icon": "★",
+    "rarity": "RARE",
+    "milestone": true
+  },
+  {
+    "tier": 16,
+    "name": "Silver Reserve",
+    "free": "+100 Coins (Silver Reserve)",
+    "premium": "+100c Combat Currency",
+    "coins": 100,
+    "icon": "★",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 17,
+    "name": "Assault Rations",
+    "free": "+50 Coins (Assault Rations)",
+    "premium": "+50c Field Pack",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 18,
+    "name": "Tactical Holster",
+    "free": "+250 Coins (Tactical Holster)",
+    "premium": "+250c Sidearm Draw",
+    "coins": 250,
+    "icon": "✦",
+    "rarity": "UNCOMMON",
+    "milestone": false
+  },
+  {
+    "tier": 19,
+    "name": "Radio Decoy Unit",
+    "free": "+100 Coins (Radio Decoy Unit)",
+    "premium": "+100c Decoy Sound",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 20,
+    "name": "Quick Bolt Module",
+    "free": "+500 Coins (Quick Bolt Module)",
+    "premium": "Fast Sniper Stage I",
+    "coins": 500,
+    "icon": "✦",
+    "rarity": "RARE",
+    "milestone": true
+  },
+  {
+    "tier": 21,
+    "name": "Coin Vault Key",
+    "free": "+500 Coins (Coin Vault Key)",
+    "premium": "+500c Vault Access",
+    "coins": 500,
+    "icon": "★",
+    "rarity": "UNCOMMON",
+    "milestone": false
+  },
+  {
+    "tier": 22,
+    "name": "Targeting Laser",
+    "free": "+100 Coins (Targeting Laser)",
+    "premium": "+100c Dot Reticle",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 23,
+    "name": "Combat Adrenaline",
+    "free": "+50 Coins (Combat Adrenaline)",
+    "premium": "+50c Speed Stim",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 24,
+    "name": "Wallbang Piercer",
+    "free": "+100 Coins (Wallbang Piercer)",
+    "premium": "+100c Heavy Penetration",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 25,
+    "name": "Godlike Title License",
+    "free": "+1,000 Coins (Godlike Title License)",
+    "premium": "+1,000c & [★ GODLIKE]",
+    "coins": 1000,
+    "icon": "★",
+    "rarity": "EPIC",
+    "milestone": true
+  },
+  {
+    "tier": 26,
+    "name": "Glock Burst Tuning",
+    "free": "+100 Coins (Glock Burst Tuning)",
+    "premium": "+100c Sidearm Mod",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 27,
+    "name": "USP Silencer Kit",
+    "free": "+50 Coins (USP Silencer Kit)",
+    "premium": "+50c Baffled Suppressor",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 28,
+    "name": "Clutch Armor Boost",
+    "free": "+500 Coins (Clutch Armor Boost)",
+    "premium": "+500c 1vX Vitality",
+    "coins": 500,
+    "icon": "✦",
+    "rarity": "UNCOMMON",
+    "milestone": false
+  },
+  {
+    "tier": 29,
+    "name": "Night Vision Tech",
+    "free": "+100 Coins (Night Vision Tech)",
+    "premium": "+100c Thermal Sensor",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 30,
+    "name": "Tag License Voucher",
+    "free": "+750 Coins (Tag License Voucher)",
+    "premium": "+1,000c Tag Voucher",
+    "coins": 750,
+    "icon": "✦",
+    "rarity": "EPIC",
+    "milestone": true
+  },
+  {
+    "tier": 31,
+    "name": "M4A1 Buffer Spring",
+    "free": "+100 Coins (M4A1 Buffer Spring)",
+    "premium": "+100c Recoil Dampener",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 32,
+    "name": "AK47 Heavy Bolt",
+    "free": "+50 Coins (AK47 Heavy Bolt)",
+    "premium": "+50c Steel Bolt",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 33,
+    "name": "Healthnade Vapor",
+    "free": "+100 Coins (Healthnade Vapor)",
+    "premium": "+100c Medic Vapor",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 34,
+    "name": "Armor Plate IV",
+    "free": "+50 Coins (Armor Plate IV)",
+    "premium": "+50c Titanium Plate",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 35,
+    "name": "Spawn HP Titan Perk",
+    "free": "+500 Coins (Spawn HP Titan Perk)",
+    "premium": "Vitality II (+20 HP)",
+    "coins": 500,
+    "icon": "★",
+    "rarity": "RARE",
+    "milestone": true
+  },
+  {
+    "tier": 36,
+    "name": "Coin Treasury Drop",
+    "free": "+100 Coins (Coin Treasury Drop)",
+    "premium": "+100c Vault Dividend",
+    "coins": 100,
+    "icon": "★",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 37,
+    "name": "Speed Rush Pouch",
+    "free": "+50 Coins (Speed Rush Pouch)",
+    "premium": "+50c Sprint Juice",
+    "coins": 50,
+    "icon": "★",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 38,
+    "name": "AWP Heavy Bipod",
+    "free": "+100 Coins (AWP Heavy Bipod)",
+    "premium": "+100c Stability System",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 39,
+    "name": "Kevlar Helmet MK3",
+    "free": "+50 Coins (Kevlar Helmet MK3)",
+    "premium": "+50c Reinforced Visor",
+    "coins": 50,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 40,
+    "name": "Lightning Spawn Aura",
+    "free": "+750 Coins (Lightning Spawn Aura)",
+    "premium": "Lightning Spawn Effect",
+    "coins": 750,
+    "icon": "★",
+    "rarity": "EPIC",
+    "milestone": true
+  },
+  {
+    "tier": 41,
+    "name": "High Caliber Ammo",
+    "free": "+200 Coins (High Caliber Ammo)",
+    "premium": "+200c Match Grade",
+    "coins": 200,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 42,
+    "name": "CPR Defibrillator Cell",
+    "free": "+100 Coins (CPR Defibrillator Cell)",
+    "premium": "+100c CPR Cell",
+    "coins": 100,
+    "icon": "★",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 43,
+    "name": "Parachute Canopy",
+    "free": "+200 Coins (Parachute Canopy)",
+    "premium": "Stealth Glide Chute",
+    "coins": 200,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 44,
+    "name": "Tactical Grenadier",
+    "free": "+100 Coins (Tactical Grenadier)",
+    "premium": "+100c Blast Shield",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 45,
+    "name": "2.0x Double XP Boost",
+    "free": "+1,000 Coins (2.0x Double XP Boost)",
+    "premium": "Double XP (30m) + 1,000c",
+    "coins": 1000,
+    "icon": "★",
+    "rarity": "EPIC",
+    "milestone": true
+  },
+  {
+    "tier": 46,
+    "name": "Vampire Siphon Tech",
+    "free": "+200 Coins (Vampire Siphon Tech)",
+    "premium": "+200c Leech Protocol",
+    "coins": 200,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 47,
+    "name": "Headshot Multiplier",
+    "free": "+100 Coins (Headshot Multiplier)",
+    "premium": "+100c Precision Bonus",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 48,
+    "name": "Toxic Green Color Clearance",
+    "free": "+200 Coins (Toxic Green Color Clearance)",
+    "premium": "Toxic Cyber Green (^4)",
+    "coins": 200,
+    "icon": "✦",
+    "rarity": "RARE",
+    "milestone": true
+  },
+  {
+    "tier": 49,
+    "name": "Final Surge Stim",
+    "free": "+100 Coins (Final Surge Stim)",
+    "premium": "+100c Adrenaline Shot",
+    "coins": 100,
+    "icon": "✦",
+    "rarity": "COMMON",
+    "milestone": false
+  },
+  {
+    "tier": 50,
+    "name": "Tactical Flip Knife Skin",
+    "free": "+2,000 Coins (Tactical Flip Knife Skin)",
+    "premium": "Tactical Flip Knife Skin + 2,500c",
+    "coins": 2000,
+    "icon": "✦",
+    "rarity": "LEGENDARY",
+    "milestone": true
+  },
+  {
+    "tier": 51,
+    "name": "Grand Treasury Dividend",
+    "free": "+5,000 Coins (Grand Treasury Dividend)",
+    "premium": "+5,000 Coins Grand Stash",
+    "coins": 5000,
+    "icon": "★",
+    "rarity": "LEGENDARY",
+    "milestone": false
+  },
+  {
+    "tier": 52,
+    "name": "VIP Syndicate/Guardian Model",
+    "free": "+10,000 Coins (VIP Syndicate/Guardian Model)",
+    "premium": "Legend Player Model + 10,000c!",
+    "coins": 10000,
+    "icon": "★",
+    "rarity": "TRANSCENDENT",
+    "milestone": true
+  },
+  {
+    "tier": 53,
+    "name": "Prestige Alpha Coin",
+    "free": "+500 Coins (Prestige Alpha Coin)",
+    "premium": "+500c Prestige Coin",
+    "coins": 500,
+    "icon": "★",
+    "rarity": "RARE",
+    "milestone": false
+  },
+  {
+    "tier": 54,
+    "name": "Ghost Recon Chute",
+    "free": "+500 Coins (Ghost Recon Chute)",
+    "premium": "Black Ops Chute",
+    "coins": 500,
+    "icon": "✦",
+    "rarity": "RARE",
+    "milestone": false
+  },
+  {
+    "tier": 55,
+    "name": "Major MVP Title Badge",
+    "free": "+2,500 Coins (Major MVP Title Badge)",
+    "premium": "[ MAJOR MVP ] Title Drop",
+    "coins": 2500,
+    "icon": "★",
+    "rarity": "LEGENDARY",
+    "milestone": true
+  },
+  {
+    "tier": 56,
+    "name": "Titan Armor Core",
+    "free": "+500 Coins (Titan Armor Core)",
+    "premium": "+500c Armor Matrix",
+    "coins": 500,
+    "icon": "✦",
+    "rarity": "RARE",
+    "milestone": false
+  },
+  {
+    "tier": 57,
+    "name": "Quad Jump Acrobatic",
+    "free": "+500 Coins (Quad Jump Acrobatic)",
+    "premium": "+500c Quad Jump Access",
+    "coins": 500,
+    "icon": "✦",
+    "rarity": "RARE",
+    "milestone": false
+  },
+  {
+    "tier": 58,
+    "name": "Divine Ray Aura",
+    "free": "+1,000 Coins (Divine Ray Aura)",
+    "premium": "Divine Spawn Effect",
+    "coins": 1000,
+    "icon": "✦",
+    "rarity": "EPIC",
+    "milestone": false
+  },
+  {
+    "tier": 59,
+    "name": "Final Stand Defiance",
+    "free": "+1,000 Coins (Final Stand Defiance)",
+    "premium": "1 HP Defiance Surge",
+    "coins": 1000,
+    "icon": "✦",
+    "rarity": "EPIC",
+    "milestone": false
+  },
+  {
+    "tier": 60,
+    "name": "The Global Elite Trophy",
+    "free": "+5,000 Coins (The Global Elite Trophy)",
+    "premium": "The Global Elite Title + 10,000c!",
+    "coins": 5000,
+    "icon": "★",
+    "rarity": "TRANSCENDENT",
+    "milestone": true
+  }
+]

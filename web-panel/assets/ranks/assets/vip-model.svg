@@ -1,0 +1,14 @@
+<!-- PLACEHOLDER — replace with real VIP player model render -->
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="200" viewBox="0 0 160 200" role="img" aria-label="VIP player model preview placeholder">
+<title>VIP player model — placeholder, replace with real model render</title>
+<rect x="2" y="2" width="156" height="196" rx="16" fill="#111827" stroke="#10B981" stroke-width="2"/>
+<circle cx="80" cy="52" r="24" fill="#065F46" stroke="#A7F3D0" stroke-width="2"/>
+<rect x="62" y="48" width="36" height="10" rx="5" fill="#10B981"/>
+<path d="M52 90 L108 90 L102 160 L58 160 Z" fill="#064E3B" stroke="#A7F3D0" stroke-width="2"/>
+<rect x="46" y="92" width="12" height="44" rx="6" fill="#065F46" stroke="#A7F3D0" stroke-width="1.5"/>
+<rect x="102" y="92" width="12" height="44" rx="6" fill="#065F46" stroke="#A7F3D0" stroke-width="1.5"/>
+<rect x="64" y="160" width="12" height="22" rx="4" fill="#022C22" stroke="#10B981" stroke-width="1.5"/>
+<rect x="84" y="160" width="12" height="22" rx="4" fill="#022C22" stroke="#10B981" stroke-width="1.5"/>
+<text x="80" y="24" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="11" font-weight="bold" fill="#A7F3D0" letter-spacing="2">VIP MODEL</text>
+<text x="80" y="192" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="8" fill="#6EE7B7">PLACEHOLDER — replace with model render</text>
+</svg>

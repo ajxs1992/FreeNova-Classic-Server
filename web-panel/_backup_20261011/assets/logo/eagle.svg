@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 540" width="820" height="540">
+  <defs>
+    <linearGradient id="silver" x1="18%" y1="8%" x2="86%" y2="92%">
+      <stop offset="0%" stop-color="#F7F7F7"/>
+      <stop offset="38%" stop-color="#E8E8E8"/>
+      <stop offset="100%" stop-color="#B8B8B8"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="30%" y1="10%" x2="70%" y2="90%">
+      <stop offset="0%" stop-color="#7CFFD4"/>
+      <stop offset="55%" stop-color="#36DEAB"/>
+      <stop offset="100%" stop-color="#0B6B4A"/>
+    </linearGradient>
+  </defs>
+  <!-- charcoal silhouette -->
+  <path fill="#181818" d="M70 188
+    L248 92 L318 68 L402 72 L500 118
+    L602 188 L708 268 L648 318
+    L560 292 L508 338 L430 402
+    L338 438 L248 412 L188 348
+    L148 286 L96 236 Z"/>
+  <!-- silver body inset -->
+  <path fill="url(#silver)" d="M96 192
+    L250 104 L316 84 L396 88 L486 130
+    L582 196 L678 268 L638 302
+    L552 278 L502 324 L430 384
+    L348 416 L266 392 L214 336
+    L176 280 L128 234 Z"/>
+  <!-- teal inner glow along neck/wing -->
+  <path fill="url(#teal)" opacity="0.92" d="M214 126
+    C268 98 338 102 402 136
+    C360 118 308 118 258 140
+    C220 186 204 238 214 286
+    C198 236 198 176 214 126 Z"/>
+  <path fill="#36DEAB" opacity="0.55" d="M236 138
+    C282 116 340 120 390 148
+    C348 132 304 132 262 150
+    C232 186 220 230 228 268
+    C216 226 218 176 236 138 Z"/>
+  <!-- wing bars -->
+  <path fill="#D6D6D6" stroke="#202020" stroke-width="10" stroke-linejoin="round"
+        d="M118 168 L292 108 L308 138 L134 198 Z"/>
+  <path fill="#C8C8C8" stroke="#202020" stroke-width="10" stroke-linejoin="round"
+        d="M112 214 L278 158 L294 188 L128 244 Z"/>
+  <path fill="#B7B7B7" stroke="#202020" stroke-width="10" stroke-linejoin="round"
+        d="M122 260 L256 210 L272 240 L138 290 Z"/>
+  <!-- beak -->
+  <path fill="#D8D8D8" stroke="#181818" stroke-width="9" stroke-linejoin="round"
+        d="M582 214 L708 268 L612 292 L582 250 Z"/>
+  <path fill="#9AA39E" d="M602 236 L678 266 L620 278 Z"/>
+  <!-- eye -->
+  <ellipse cx="508" cy="168" rx="26" ry="18" fill="#1A1A1A"/>
+  <ellipse cx="518" cy="162" rx="8" ry="6" fill="#7CFFD4"/>
+  <!-- white highlight -->
+  <path fill="#FFFFFF" opacity="0.28" d="M168 118 L318 72 L332 100 L182 146 Z"/>
+</svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="150" viewBox="0 0 220 150" role="img" aria-label="VIP parachute preview">
+<title>VIP parachute — shared VIP and Admin benefit</title>
+<rect x="2" y="2" width="216" height="146" rx="16" fill="#111827" stroke="#10B981" stroke-width="2"/>
+<path d="M30 70 C30 30 190 30 190 70 L170 70 C170 44 50 44 50 70 Z" fill="#065F46" stroke="#A7F3D0" stroke-width="2"/>
+<path d="M75 70 C75 48 145 48 145 70" fill="#10B981" opacity="0.85"/>
+<line x1="50" y1="70" x2="90" y2="118" stroke="#A7F3D0" stroke-width="1.5"/>
+<line x1="170" y1="70" x2="130" y2="118" stroke="#A7F3D0" stroke-width="1.5"/>
+<line x1="75" y1="70" x2="100" y2="118" stroke="#A7F3D0" stroke-width="1.5"/>
+<line x1="145" y1="70" x2="120" y2="118" stroke="#A7F3D0" stroke-width="1.5"/>
+<rect x="92" y="104" width="36" height="26" rx="8" fill="#022C22" stroke="#A7F3D0" stroke-width="2"/>
+<text x="110" y="24" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="12" font-weight="bold" fill="#A7F3D0" letter-spacing="2">VIP PARACHUTE</text>
+<text x="110" y="142" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="8" fill="#6EE7B7">VIP included · Admin inherited</text>
+</svg>

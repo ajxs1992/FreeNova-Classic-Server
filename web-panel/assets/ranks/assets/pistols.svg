@@ -1,0 +1,15 @@
+<!-- PLACEHOLDER silhouettes — replace with in-game pistol model renders -->
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140" role="img" aria-label="Exclusive Admin pistols 400 headshot damage">
+<title>Exclusive pistols — 400 HS DMG per bullet</title>
+<rect x="2" y="2" width="236" height="136" rx="16" fill="#111827" stroke="#22D3EE" stroke-width="2"/>
+<g fill="#164E63" stroke="#CFFAFE" stroke-width="2">
+<rect x="28" y="58" width="80" height="16" rx="4"/>
+<rect x="88" y="72" width="14" height="26" rx="3"/>
+<rect x="132" y="58" width="80" height="16" rx="4"/>
+<rect x="138" y="72" width="14" height="26" rx="3"/>
+</g>
+<rect x="70" y="104" width="100" height="22" rx="11" fill="#0E7490" stroke="#FDE68A" stroke-width="2"/>
+<text x="120" y="119" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="12" font-weight="bold" fill="#FFFBEB">400 HS DMG</text>
+<text x="120" y="30" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" fill="#CFFAFE" letter-spacing="2">ADMIN PISTOLS</text>
+<text x="120" y="42" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="8" fill="#67E8F9">PLACEHOLDER — replace with model renders</text>
+</svg>

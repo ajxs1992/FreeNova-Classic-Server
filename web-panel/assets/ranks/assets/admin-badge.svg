@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" role="img" aria-label="Admin badge">
+<title>ADMIN — Electric cyan badge</title>
+<defs><linearGradient id="admg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22D3EE"/><stop offset="1" stop-color="#0E7490"/></linearGradient></defs>
+<rect x="4" y="4" width="152" height="152" rx="28" fill="#111827" stroke="#22D3EE" stroke-width="3"/>
+<path d="M80 22 L122 48 V84 C122 110 102 128 80 138 C58 128 38 110 38 84 V48 Z" fill="url(#admg)" stroke="#CFFAFE" stroke-width="2"/>
+<path d="M58 100 L80 58 L102 100 Z" fill="none" stroke="#083344" stroke-width="9" stroke-linejoin="round"/>
+<path d="M58 100 L80 58 L102 100 Z" fill="none" stroke="#ECFEFF" stroke-width="3.5" stroke-linejoin="round"/>
+<line x1="68" y1="88" x2="92" y2="88" stroke="#083344" stroke-width="8"/><line x1="68" y1="88" x2="92" y2="88" stroke="#ECFEFF" stroke-width="3"/>
+<text x="80" y="128" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="bold" fill="#ECFEFF" letter-spacing="2">ADMIN</text>
+</svg>

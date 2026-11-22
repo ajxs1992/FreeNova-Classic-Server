@@ -1,0 +1,23 @@
+{
+  "medals": {
+    "src": "csgo medals.JPG",
+    "srcW": 1506,
+    "srcH": 849,
+    "cols": 8,
+    "rows": 4,
+    "cellW": 165.3,
+    "cellH": 190.3,
+    "files": 32
+  },
+  "badges": {
+    "src": "level badges.JPG",
+    "srcW": 1603,
+    "srcH": 790,
+    "cols": 6,
+    "rows": 3,
+    "cellW": 251.8,
+    "cellH": 244.7,
+    "files": 18
+  },
+  "logo": "web-panel/assets/logo.png"
+}

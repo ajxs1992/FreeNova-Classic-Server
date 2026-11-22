@@ -1,0 +1,327 @@
+-- FreeNova Web Panel schema v2 (D1 / SQLite)
+-- Single source of web truth. The game server pushes signed snapshots
+-- (POST /api/v1/server/stats); pages are read-only; mutations flow back
+-- to the game as queued actions in the push response.
+
+-- ============================================================ players
+CREATE TABLE IF NOT EXISTS players (
+    steamid            TEXT PRIMARY KEY,
+    name               TEXT NOT NULL DEFAULT '',
+    -- progression (RSU/CRX authoritative)
+    xp                 INTEGER NOT NULL DEFAULT 0,
+    level              INTEGER NOT NULL DEFAULT 1,
+    rank_id            INTEGER NOT NULL DEFAULT 1,
+    prestige           INTEGER NOT NULL DEFAULT 0,
+    -- combat
+    kills              INTEGER NOT NULL DEFAULT 0,
+    deaths             INTEGER NOT NULL DEFAULT 0,
+    assists            INTEGER NOT NULL DEFAULT 0,
+    headshots          INTEGER NOT NULL DEFAULT 0,
+    damage             INTEGER NOT NULL DEFAULT 0,
+    shots              INTEGER NOT NULL DEFAULT 0,
+    hits               INTEGER NOT NULL DEFAULT 0,
+    mvps               INTEGER NOT NULL DEFAULT 0,
+    wins               INTEGER NOT NULL DEFAULT 0,
+    losses             INTEGER NOT NULL DEFAULT 0,
+    playtime_minutes   INTEGER NOT NULL DEFAULT 0,
+    -- derived once game-side; identical on every surface
+    rating_x100        INTEGER NOT NULL DEFAULT 0,
+    -- economy / status
+    vip_tier           INTEGER NOT NULL DEFAULT 0,
+    vip_remaining      INTEGER NOT NULL DEFAULT 0, -- seconds left; 0 = none, -1 = permanent
+    coins              INTEGER NOT NULL DEFAULT 0,
+    -- battlepass daily missions (real per-day vault state)
+    bp_daily_kills     INTEGER NOT NULL DEFAULT 0,
+    bp_daily_hs        INTEGER NOT NULL DEFAULT 0,
+    bp_daily_plants    INTEGER NOT NULL DEFAULT 0,
+    bp_daily_defuses   INTEGER NOT NULL DEFAULT 0,
+    bp_daily_wins      INTEGER NOT NULL DEFAULT 0,
+    bp_daily_streak    INTEGER NOT NULL DEFAULT 0,
+    bp_daily_damage    INTEGER NOT NULL DEFAULT 0,
+    bp_daily_survives  INTEGER NOT NULL DEFAULT 0,
+    bp_daily_complete  INTEGER NOT NULL DEFAULT 0,
+    -- battlepass weekly missions
+    bp_weekly_kills    INTEGER NOT NULL DEFAULT 0,
+    bp_weekly_hs       INTEGER NOT NULL DEFAULT 0,
+    bp_weekly_plants   INTEGER NOT NULL DEFAULT 0,
+    bp_weekly_wins     INTEGER NOT NULL DEFAULT 0,
+    bp_weekly_complete INTEGER NOT NULL DEFAULT 0,
+    -- competitive (tournament) season + career
+    comp_season        TEXT NOT NULL DEFAULT '',
+    comp_points        INTEGER NOT NULL DEFAULT 0,
+    comp_lifetime      INTEGER NOT NULL DEFAULT 0,
+    comp_kills         INTEGER NOT NULL DEFAULT 0,
+    comp_hs            INTEGER NOT NULL DEFAULT 0,
+    comp_wins          INTEGER NOT NULL DEFAULT 0,
+    comp_mvp           INTEGER NOT NULL DEFAULT 0,
+    comp_msn_k         INTEGER NOT NULL DEFAULT 0,
+    comp_msn_h         INTEGER NOT NULL DEFAULT 0,
+    comp_msn_w         INTEGER NOT NULL DEFAULT 0,
+    comp_msn_m         INTEGER NOT NULL DEFAULT 0,
+    comp_msn_done      INTEGER NOT NULL DEFAULT 0,
+    -- equipped cosmetics (real equipped state from freenova_cosmetics)
+    eq_spawn           INTEGER NOT NULL DEFAULT 0,
+    eq_title           INTEGER NOT NULL DEFAULT 0,
+    eq_death           INTEGER NOT NULL DEFAULT 0,
+    eq_color           INTEGER NOT NULL DEFAULT 0,
+    custom_tag         TEXT NOT NULL DEFAULT '',
+    -- equipped player model ('' = default team model)
+    eq_model           TEXT NOT NULL DEFAULT '',
+    -- battlepass boost cursors (from bp_boosts snapshot)
+    bp_hp              INTEGER NOT NULL DEFAULT 0,
+    bp_armor           INTEGER NOT NULL DEFAULT 0,
+    bp_jumps           INTEGER NOT NULL DEFAULT 0,
+    bp_sniper          INTEGER NOT NULL DEFAULT 0,
+    bp_laststand       INTEGER NOT NULL DEFAULT 0,
+    bp_chute           INTEGER NOT NULL DEFAULT 0,
+    bp_premium         INTEGER NOT NULL DEFAULT 0,
+    bp_milestone       INTEGER NOT NULL DEFAULT 0,
+    -- battlepass season + per-season premium entitlement (additive 2026-10-10;
+    -- game snapshot upsert never writes these; store/staff grant path only)
+    bp_season          TEXT NOT NULL DEFAULT '1',
+    bp_premium_season  TEXT NOT NULL DEFAULT '',
+    bp_ent_lane        INTEGER NOT NULL DEFAULT 0,
+    bp_ent_order       TEXT NOT NULL DEFAULT '',
+    bp_ent_at          INTEGER NOT NULL DEFAULT 0,
+    -- optional lifetime achievement snapshot (nullable; game may omit)
+    ach_unlocked       INTEGER,
+    ach_kills          INTEGER,
+    ach_hs             INTEGER,
+    ach_plants         INTEGER,
+    ach_defuses        INTEGER,
+    ach_wins           INTEGER,
+    ach_revives        INTEGER,
+    ach_streak         INTEGER,
+    rerolls_left       INTEGER,
+    msn_st_d           INTEGER,
+    msn_st_b           INTEGER,
+    msn_st_w           INTEGER,
+    msn_st_v           INTEGER,
+    msn_vip_p          INTEGER,
+    msn_tg             TEXT,
+    server_id          TEXT NOT NULL DEFAULT '',
+    cc               TEXT NOT NULL DEFAULT '',
+    last_seen          INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_players_xp     ON players (xp DESC);
+CREATE INDEX IF NOT EXISTS idx_players_kills  ON players (kills DESC);
+CREATE INDEX IF NOT EXISTS idx_players_comp   ON players (comp_points DESC);
+CREATE INDEX IF NOT EXISTS idx_players_rating ON players (rating_x100 DESC);
+CREATE INDEX IF NOT EXISTS idx_players_seen   ON players (last_seen DESC);
+
+-- ============================================================ per-weapon stats
+CREATE TABLE IF NOT EXISTS player_weapons (
+    steamid  TEXT NOT NULL,
+    slot     INTEGER NOT NULL,            -- freenova_wpn.inc slot (0-22)
+    kills    INTEGER NOT NULL DEFAULT 0,
+    hs       INTEGER NOT NULL DEFAULT 0,
+    damage   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, slot)
+);
+CREATE INDEX IF NOT EXISTS idx_pw_kills ON player_weapons (slot, kills DESC);
+
+-- ============================================================ owned weapon skins
+CREATE TABLE IF NOT EXISTS player_skins (
+    steamid   TEXT NOT NULL,
+    grp       TEXT NOT NULL,              -- ak47 | m4a1 | deagle | awp | knife
+    skin      INTEGER NOT NULL,           -- index inside group (0 = default)
+    equipped  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, grp, skin)
+);
+
+-- ============================================================ owned player models
+CREATE TABLE IF NOT EXISTS player_models (
+    steamid   TEXT NOT NULL,
+    model     TEXT NOT NULL,              -- model key (catalog id or forced name)
+    equipped  INTEGER NOT NULL DEFAULT 0,
+    forced    INTEGER NOT NULL DEFAULT 0, -- 1 = owner assignment via player_models.ini
+    PRIMARY KEY (steamid, model)
+);
+
+-- Skill stages pushed by the game (skills{<id>: <stage>}); read by the
+-- store so UPGRADE/MAX labels reflect owned stages instead of PURCHASE.
+CREATE TABLE IF NOT EXISTS player_skills (
+    steamid   TEXT NOT NULL,
+    skill     TEXT NOT NULL,              -- skill key, e.g. multi_jump
+    stage     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, skill)
+);
+
+-- ============================================================ catalogs pushed from the game
+CREATE TABLE IF NOT EXISTS catalog (
+    key        TEXT PRIMARY KEY,          -- skins | models | cosmetics | reward_track
+    version    INTEGER NOT NULL DEFAULT 0,
+    json       TEXT NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT 0
+);
+
+-- ============================================================ web -> game action queue
+-- Every mutation requested from a panel lands here; the game consumes it in
+-- the next push response, validates it against authoritative state, applies
+-- it, and reports the result in the following push.
+CREATE TABLE IF NOT EXISTS actions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    steamid     TEXT NOT NULL,
+    type        TEXT NOT NULL,            -- buy_skin|equip_skin|buy_model|equip_model|set_tag|unequip_tag|unequip_model|claim_bp|buy_skill|claim_tournament|claim_mission|reroll_mission|claim_mission_all|claim_event|srv_event_apply|srv_event_clear|srv_event_reward|srv_map
+    arg         TEXT NOT NULL DEFAULT '', -- type-specific, e.g. "ak47:3" or tag text
+    status      TEXT NOT NULL DEFAULT 'pending',  -- pending|sent|done|failed|expired
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    result      TEXT NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL DEFAULT 0,
+    closed_at   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_actions_pending ON actions (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_actions_player  ON actions (steamid, created_at DESC);
+
+-- ============================================================ tournament season history
+CREATE TABLE IF NOT EXISTS comp_history (
+    steamid   TEXT NOT NULL,
+    season    TEXT NOT NULL,              -- "YYYY-MM"
+    points    INTEGER NOT NULL DEFAULT 0,
+    kills     INTEGER NOT NULL DEFAULT 0,
+    hs        INTEGER NOT NULL DEFAULT 0,
+    wins      INTEGER NOT NULL DEFAULT 0,
+    mvp       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, season)
+);
+
+-- ============================================================ server meta
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,               -- last_push | server_online | server_name ...
+    value TEXT NOT NULL DEFAULT ''
+);
+
+-- Profile display prefs (featured medals). Ownership is re-checked from live stats.
+CREATE TABLE IF NOT EXISTS player_profile (
+    steamid    TEXT PRIMARY KEY,
+    featured   TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL DEFAULT 0
+);
+
+-- Per-map career totals (replica of AMXX rsu_player_maps). Filled by sync when present.
+CREATE TABLE IF NOT EXISTS player_maps (
+    steamid      TEXT NOT NULL,
+    map_name     TEXT NOT NULL,
+    matches      INTEGER NOT NULL DEFAULT 0,
+    wins         INTEGER NOT NULL DEFAULT 0,
+    losses       INTEGER NOT NULL DEFAULT 0,
+    kills        INTEGER NOT NULL DEFAULT 0,
+    deaths       INTEGER NOT NULL DEFAULT 0,
+    assists      INTEGER NOT NULL DEFAULT 0,
+    headshots    INTEGER NOT NULL DEFAULT 0,
+    damage       INTEGER NOT NULL DEFAULT 0,
+    last_played  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, map_name)
+);
+CREATE INDEX IF NOT EXISTS idx_pm_kills ON player_maps (map_name, kills DESC);
+
+-- First-time AP unlock dates (replica of AMXX rsu_ap_unlocks).
+CREATE TABLE IF NOT EXISTS ap_unlocks (
+    steamid    TEXT NOT NULL,
+    code       TEXT NOT NULL,
+    ap         INTEGER NOT NULL DEFAULT 0,
+    earned_at  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (steamid, code)
+);
+
+-- ============================================================ admin control center + event scheduler
+-- Staff auth lives in admin.js (session cookie). pin_hash is never logged.
+-- Scheduler (sync.js) activates/completes rows and queues srv_* actions.
+CREATE TABLE IF NOT EXISTS staff (
+    steamid     TEXT PRIMARY KEY,
+    name        TEXT NOT NULL DEFAULT '',
+    pin_hash    TEXT NOT NULL DEFAULT '',
+    role        TEXT NOT NULL DEFAULT 'admin',
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL DEFAULT 0,
+    last_login  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_staff_steamid ON staff (steamid);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    token       TEXT PRIMARY KEY,
+    steamid     TEXT NOT NULL,
+    created_at  INTEGER NOT NULL DEFAULT 0,
+    expires_at  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS admin_audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    steamid     TEXT NOT NULL DEFAULT '',
+    action      TEXT NOT NULL DEFAULT '',
+    detail      TEXT NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    title           TEXT NOT NULL DEFAULT '',
+    type            TEXT NOT NULL DEFAULT 'event',
+    status          TEXT NOT NULL DEFAULT 'scheduled',  -- scheduled|active|completed|error
+    start_at        INTEGER NOT NULL DEFAULT 0,
+    end_at          INTEGER NOT NULL DEFAULT 0,
+    xp_mult         REAL NOT NULL DEFAULT 1,
+    coins_mult      REAL NOT NULL DEFAULT 1,
+    conflict_group  TEXT NOT NULL DEFAULT '',
+    error_msg       TEXT NOT NULL DEFAULT '',
+    created_by      TEXT NOT NULL DEFAULT '',
+    created_at      INTEGER NOT NULL DEFAULT 0,
+    -- events data contract (read by pages.js with `row.x || fallback`)
+    metric          TEXT DEFAULT 'none',
+    target          INTEGER DEFAULT 0,
+    scope           TEXT DEFAULT 'global',
+    reward          TEXT DEFAULT '',
+    -- settlement contract: structured first-place prize + eligibility floor
+    reward_coins    INTEGER DEFAULT 0,
+    reward_viptier  INTEGER DEFAULT 0,
+    reward_vipdays  INTEGER DEFAULT 0,
+    min_score       INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_events_status_start ON events (status, start_at);
+
+-- Per-event window baselines: lifetime counter value at first sight inside
+-- the window. Progress = current - baseline. Never credit pre-event activity.
+CREATE TABLE IF NOT EXISTS event_baselines (
+    event_id        INTEGER NOT NULL,
+    steamid         TEXT NOT NULL,
+    metric          TEXT NOT NULL,
+    baseline        INTEGER NOT NULL DEFAULT 0,
+    taken_at        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (event_id, steamid, metric)
+);
+-- Finalized winners. Idempotent finalize: INSERT OR IGNORE on (event_id, placement).
+CREATE TABLE IF NOT EXISTS event_winners (
+    event_id        INTEGER NOT NULL,
+    placement       INTEGER NOT NULL,
+    steamid         TEXT NOT NULL,
+    score           INTEGER NOT NULL DEFAULT 0,
+    reward_coins    INTEGER NOT NULL DEFAULT 0,
+    reward_viptier  INTEGER NOT NULL DEFAULT 0,
+    reward_vipdays  INTEGER NOT NULL DEFAULT 0,
+    issued_at       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (event_id, placement)
+);
+CREATE INDEX IF NOT EXISTS idx_winners_event ON event_winners (event_id);
+-- Append-only audit for settlement, resets, reviews.
+CREATE TABLE IF NOT EXISTS event_audit (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts              INTEGER NOT NULL DEFAULT 0,
+    actor           TEXT NOT NULL DEFAULT '',
+    action          TEXT NOT NULL DEFAULT '',
+    entity          TEXT NOT NULL DEFAULT '',
+    meta            TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS event_history (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id        INTEGER NOT NULL UNIQUE,
+    title           TEXT NOT NULL DEFAULT '',
+    type            TEXT NOT NULL DEFAULT '',
+    xp_mult         REAL NOT NULL DEFAULT 1,
+    coins_mult      REAL NOT NULL DEFAULT 1,
+    start_at        INTEGER NOT NULL DEFAULT 0,
+    end_at          INTEGER NOT NULL DEFAULT 0,
+    completed_at    INTEGER NOT NULL DEFAULT 0
+);

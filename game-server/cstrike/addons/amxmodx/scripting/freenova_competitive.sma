@@ -7,6 +7,7 @@
 #include <menabp>
 #include <freenova_cosmetics>
 #include <rsu>
+#include <fn_common>
 
 #pragma dynamic 16384
 
@@ -135,6 +136,8 @@ new bool:g_bSeasonClaimed[33]
 
 public plugin_init()
 {
+    fn_boot_banner("competitive", 37)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     g_pEnabled    = register_cvar("fnc_enabled", "1")

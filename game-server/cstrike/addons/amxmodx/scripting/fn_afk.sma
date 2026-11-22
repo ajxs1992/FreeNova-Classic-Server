@@ -10,6 +10,7 @@
 #include <reapi>
 #include <fn_core>
 #include <fn_hud>
+#include <fn_common>
 #include <fn_hud>
 
 #define AFK_TASK 90610
@@ -36,6 +37,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("afk", 7);
+
 	register_plugin("FreeNova AFK", "3.0.0", "FreeNova");
 	g_cvarOn = register_cvar("fn_afk_on", "1");
 	g_cvarTime = register_cvar("fn_afk_time", "120");

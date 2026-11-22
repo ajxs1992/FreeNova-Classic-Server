@@ -12,6 +12,7 @@
 #include <cstrike>
 #include <fn_core>
 #include <fn_audit>
+#include <fn_common>
 
 #define ST_IDLE 0
 #define ST_WARMUP 1
@@ -42,6 +43,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("match", 13);
+
 	register_plugin("FreeNova Match", "3.0.0", "FreeNova");
 	register_concmd("fn_match_warmup", "cmdWarmup", ADMIN_RCON, "- open warmup + ready collection");
 	register_concmd("fn_match_start", "cmdStart", ADMIN_RCON, "- force live (referee)");

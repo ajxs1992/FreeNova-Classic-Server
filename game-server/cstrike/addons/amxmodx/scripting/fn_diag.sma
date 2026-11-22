@@ -3,6 +3,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 public plugin_natives()
 {
@@ -21,6 +22,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("diag", 3);
+
 	register_plugin("FreeNova Diagnostics", "2.0.0", "FreeNova");
 	register_concmd("fn_status", "cmdStatus", ADMIN_ADMIN, "- framework health");
 	if (!LibraryExists("fn_core", LibType_Library))

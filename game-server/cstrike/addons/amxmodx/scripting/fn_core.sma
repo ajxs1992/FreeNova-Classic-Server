@@ -3,6 +3,7 @@
  * Closed-by-default: unknown state protects, never grants. */
 #include <amxmodx>
 #include <amxmisc>
+#include <fn_common>
 
 #define CORE_VERSION 200
 #define FN_ROLE_NONE 0
@@ -41,6 +42,8 @@ public plugin_natives()
 
 public plugin_init()
 {
+	fn_boot_banner("core", 21);
+
 	register_plugin("FreeNova Core", "2.0.0", "FreeNova");
 	register_cvar("fn_core_version", "2.0.0");
 	register_cvar("fn_server_id", "fn-01"); /* override per server (M2 journal identity) */

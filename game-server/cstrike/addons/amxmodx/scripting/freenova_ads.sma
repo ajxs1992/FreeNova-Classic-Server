@@ -37,6 +37,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <freenova_ui>
+#include <fn_common>
 
 #define PLUGIN_NAME     "FreeNova Ads"
 #define PLUGIN_VERSION  "1.0"
@@ -112,6 +113,8 @@ new g_pJitter
 
 public plugin_init()
 {
+    fn_boot_banner("ads", 17)
+
     register_plugin(PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_AUTHOR)
 
     g_pEnabled    = register_cvar("fnads_enabled", "1")

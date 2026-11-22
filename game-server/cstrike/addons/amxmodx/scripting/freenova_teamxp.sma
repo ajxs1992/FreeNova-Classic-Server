@@ -7,6 +7,7 @@
 #include <crxranks>
 #include <freenova_vip>
 #include <rsu>
+#include <fn_common>
 
 // RANK_BOTS master switch reader: true only when rsu_core runs RANK_BOTS=1.
 // Victim-side assist credit opens when on; payees stay human (bots are
@@ -63,6 +64,8 @@ new g_iDamage[33][33] // attacker -> victim accumulated damage this life
 
 public plugin_init()
 {
+    fn_boot_banner("teamxp", 12)
+
     register_plugin(PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_AUTHOR)
 
     g_pEnabled      = register_cvar("fn_teamxp_enabled", "1")

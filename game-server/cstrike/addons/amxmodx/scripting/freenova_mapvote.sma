@@ -40,6 +40,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <freenova_ui>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova MapVote"
 #define VERSION "1.0.0"
@@ -131,6 +132,8 @@ new g_iExtendMinutes
 
 public plugin_init()
 {
+    fn_boot_banner("mapvote", 44)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     g_pEnabled     = register_cvar("fnmapvote_enabled",     "1")

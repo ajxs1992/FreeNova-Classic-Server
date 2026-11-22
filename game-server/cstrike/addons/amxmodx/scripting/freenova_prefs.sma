@@ -2,6 +2,7 @@
 #include <amxmisc>
 #include <nvault>
 #include <freenova_chat>
+#include <fn_common>
 
 // FreeNova Preferences - persistent per-player settings layer.
 // One vault ("freenova_prefs"), one key per player holding a compact
@@ -44,6 +45,8 @@ new g_hFwdPrefChanged = INVALID_HANDLE
 
 public plugin_init()
 {
+    fn_boot_banner("prefs", 6)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     g_hFwdPrefChanged = CreateMultiForward("fnpref_changed", ET_IGNORE, FP_CELL, FP_CELL, FP_CELL)

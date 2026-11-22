@@ -4,6 +4,7 @@
 #include <crxranks>
 #include <menabp>
 #include <rsu>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova Clutch Tracker"
 #define VERSION "1.0"
@@ -28,6 +29,8 @@ new g_iClutchPending[MAX_PLAYERS + 1]
 
 public plugin_init()
 {
+    fn_boot_banner("clutch", 10)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     register_event("HLTV", "Event_RoundStart", "a", "1=0", "2=0")

@@ -1,5 +1,6 @@
 #include <amxmodx>
 #include <easy_http>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova EasyHTTP Probe"
 #define VERSION "1.0.0"
@@ -21,6 +22,8 @@ new bool:g_bInFlight
 
 public plugin_init()
 {
+    fn_boot_banner("http_probe", 3)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     g_pEnabled  = register_cvar("fnweb_ezhttp_probe", "0")

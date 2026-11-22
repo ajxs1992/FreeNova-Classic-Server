@@ -54,6 +54,7 @@
 #include <fakemeta>
 #include <message_const>
 #include <freenova_vip>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova Flash Control"
 #define VERSION "1.0.0"
@@ -92,6 +93,8 @@ public FlashNativeFilter(const name[], index, trap)
 
 public plugin_init()
 {
+    fn_boot_banner("flash", 5)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     register_forward(FM_SetModel, "Fwd_SetModel")

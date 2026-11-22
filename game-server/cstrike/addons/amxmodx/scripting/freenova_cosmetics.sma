@@ -9,6 +9,7 @@
 #include <freenova_vip>
 #include <freenova_web>
 #include <freenova_ui>
+#include <fn_common>
 
 native fn_hub_open(id)
 
@@ -359,6 +360,8 @@ public _native_get_death_name(plugin, params)
 
 public plugin_init()
 {
+    fn_boot_banner("cosmetics", 42)
+
     register_plugin(PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_AUTHOR)
 
     RegisterHam(Ham_Spawn, "player", "Hook_PlayerSpawn", 1)

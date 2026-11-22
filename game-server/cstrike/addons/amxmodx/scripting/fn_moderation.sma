@@ -9,6 +9,7 @@
 #include <fn_audit>
 #include <fn_bans>
 #include <fn_link>
+#include <fn_common>
 
 new g_vaultWarns;
 
@@ -31,6 +32,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("moderation", 4);
+
 	register_plugin("FreeNova Moderation", "3.0.0", "FreeNova");
 	if (!LibraryExists("fn_core", LibType_Library))
 	{

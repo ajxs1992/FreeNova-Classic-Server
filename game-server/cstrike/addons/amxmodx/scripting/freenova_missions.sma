@@ -13,6 +13,7 @@
 #include <freenova_web>
 #include <freenova_missions>
 #include <freenova_achievements>
+#include <fn_common>
 
 native fn_hub_open(id)
 
@@ -154,6 +155,8 @@ public FnmsnNativeFilter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("missions", 28)
+
 	register_plugin(PLUGIN, VERSION, AUTHOR)
 
 	// lint:allow library-missing - legacy provider name from before the RSU

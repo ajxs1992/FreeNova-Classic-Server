@@ -100,6 +100,7 @@
 #include <fakemeta>
 #include <freenova_chat>
 #include <freenova_admin>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova Gag Manager"
 #define VERSION "1.0.0"
@@ -147,6 +148,8 @@ new Float:g_fPrintOk[MAX_PLAYERS + 1]        // SayText grace for our own prints
 
 public plugin_init()
 {
+    fn_boot_banner("gag", 14)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     // EXACT panel contract - see header. FLAG_ADMIN = cdeijuv (panel parity).

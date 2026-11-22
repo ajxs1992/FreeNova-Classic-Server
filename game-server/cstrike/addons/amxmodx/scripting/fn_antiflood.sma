@@ -13,6 +13,7 @@
 
 #include <amxmodx>
 #include <fn_core>
+#include <fn_common>
 
 
 
@@ -44,6 +45,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("antiflood", 3)
+
 	register_plugin("Anti Flood", AMXX_VERSION_STR, "AMXX Dev Team")
 	register_dictionary("antiflood.txt")
 	register_clcmd("say", "chkFlood")

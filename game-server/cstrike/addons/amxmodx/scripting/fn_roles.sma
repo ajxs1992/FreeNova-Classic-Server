@@ -3,6 +3,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 public plugin_natives()
 {
@@ -19,6 +20,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("roles", 4);
+
 	register_plugin("FreeNova Roles", "2.0.0", "FreeNova");
 	register_concmd("fn_role_grant", "cmdGrant", ADMIN_RCON, "<name|#id> <1=admin|2=mod|3=vip> <minutes,0=perm>");
 	register_concmd("fn_role_revoke", "cmdRevoke", ADMIN_RCON, "<name|#id>");

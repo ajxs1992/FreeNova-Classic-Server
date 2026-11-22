@@ -21,6 +21,7 @@
 // RSU_DEFAULT_SKILL: same default the core uses in EnsureDatabaseSchema /
 // player INSERT, so an offline reset lands on the same skill baseline.
 #include <rsu_const>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova Season Manager"
 #define VERSION "1.0"
@@ -58,6 +59,8 @@ GetPlayersTable(szOut[], iMax)
 
 public plugin_init()
 {
+	fn_boot_banner("season", 4)
+
 	register_plugin(PLUGIN, VERSION, AUTHOR)
 
 	pcvar_enabled     = register_cvar("fn_season_enabled", "1")

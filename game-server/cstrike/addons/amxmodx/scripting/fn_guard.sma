@@ -3,6 +3,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 /* NOTE (M1): vendor bypass_guard.inc carries `#pragma reqlib
  * bypass_guard_core`, which fails plugin LOAD without the guard core
  * (before any LibraryExists gate can run) and poisons hasLib-style
@@ -27,6 +28,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("guard", 2);
+
 	register_plugin("FreeNova Guard Glue", "2.0.0", "FreeNova");
 	register_concmd("fn_guard", "cmdStatus", ADMIN_BAN, "- guard presence + checked state");
 	if (!LibraryExists("fn_core", LibType_Library))

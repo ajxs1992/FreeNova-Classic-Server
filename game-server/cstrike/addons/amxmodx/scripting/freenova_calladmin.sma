@@ -1,6 +1,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <freenova_ui>
+#include <fn_common>
 
 // The /calladmin and /admin reply frames are ~5.3K cells of declared buffers
 // (REVIEW.md §5.2). The AMXX default stack is 4096 cells, so the first call
@@ -65,6 +66,8 @@ new g_iSlotUser[MAX_PLAYERS + 1]
 
 public plugin_init()
 {
+    fn_boot_banner("calladmin", 13)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     register_clcmd("say /admin", "Cmd_Admin")

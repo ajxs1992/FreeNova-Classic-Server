@@ -6,6 +6,7 @@
 #include <amxmisc>
 #include <fn_core>
 #include <fn_audit>
+#include <fn_common>
 
 new g_backend;
 new g_cvarSession;
@@ -52,6 +53,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("bans", 13);
+
 	register_plugin("FreeNova Bans", "2.0.0", "FreeNova");
 	register_concmd("fn_ban", "cmdBan", ADMIN_BAN, "<target steam|ip|#id> <minutes,0=perm> <reason>");
 	register_concmd("fn_unban", "cmdUnban", ADMIN_BAN, "<steam|ip> <reason>");

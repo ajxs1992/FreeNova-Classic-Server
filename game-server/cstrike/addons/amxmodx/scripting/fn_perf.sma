@@ -9,6 +9,7 @@
 #include <fn_core>
 #include <fn_bans>
 #include <fn_chat>
+#include <fn_common>
 
 #define PERF_TASK 90310
 
@@ -37,6 +38,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("perf", 5);
+
 	register_plugin("FreeNova Perf", "3.0.0", "FreeNova");
 	register_concmd("fn_perf", "cmdPerf", ADMIN_ADMIN, "- performance snapshot");
 	register_concmd("fn_perf_bench", "cmdBench", ADMIN_RCON, "<seconds> - burst sampler (RCON only)");

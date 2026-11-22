@@ -1,5 +1,6 @@
 #include <amxmodx>
 #include <ranksultimate>
+#include <fn_common>
 
 // FreeNova Round-End Music + MVP Fanfare (single plugin, no extra event hooks)
 //
@@ -72,6 +73,8 @@ new g_iLastTrack[Section] // shuffle without immediate repeat per section
 
 public plugin_init()
 {
+    fn_boot_banner("roundmusic", 3)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     // fnrm_*/fnmvp_* only - fnc_* is reserved elsewhere

@@ -13,6 +13,7 @@
 
 #include <amxmodx>
 #include <amxmisc>
+#include <fn_common>
 
 new CvarReservation;
 new CvarHideSlots;
@@ -22,6 +23,8 @@ new CvarHandleMaxVisiblePlayers;
 
 public plugin_init()
 {
+	fn_boot_banner("slots", 0);
+
 	register_plugin("Slots Reservation", AMXX_VERSION_STR, "AMXX Dev Team");
 
 	register_dictionary("adminslots.txt");

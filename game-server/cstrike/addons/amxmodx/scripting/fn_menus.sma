@@ -8,6 +8,7 @@
 #include <fn_core>
 #include <fn_bans>
 #include <fn_admin>
+#include <fn_common>
 
 new g_menuTarget[33];
 new g_menuUser[33];
@@ -30,6 +31,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("menus", 4);
+
 	register_plugin("FreeNova Menus", "2.0.0", "FreeNova");
 	register_clcmd("amx_playermenu", "cmdMenu", ADMIN_KICK, "- player management");
 	register_clcmd("say /players", "cmdMenu", ADMIN_KICK);

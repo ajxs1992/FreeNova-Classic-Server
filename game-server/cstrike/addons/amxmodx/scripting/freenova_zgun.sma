@@ -48,6 +48,7 @@
 #include <hamsandwich>
 #include <newmenus>
 #include <freenova_zgun>
+#include <fn_common>
 
 // FreeNova VIP integration is optional. AMX Mod X 1.10 validates every native a
 // plugin uses at load time, so simply calling fnvip_* behind a runtime check
@@ -89,6 +90,8 @@ new g_szCfgPath[128];
 
 public plugin_init()
 {
+    fn_boot_banner("zgun", 22);
+
     register_plugin("FreeNova ZG-7 Zgun", "1.0.0", "FreeNova");
 
     g_pEnabled       = register_cvar(ZGUN_CVAR_ENABLED, "1");

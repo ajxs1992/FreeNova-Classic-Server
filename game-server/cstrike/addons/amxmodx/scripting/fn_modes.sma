@@ -10,6 +10,7 @@
 #include <fn_core>
 #include <fn_audit>
 #include <fn_state>
+#include <fn_common>
 
 #define MAXPROF 12
 #define MAXCV 48
@@ -36,6 +37,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("modes", 6);
+
 	register_plugin("FreeNova Modes", "3.0.0", "FreeNova");
 	register_concmd("fn_mode", "cmdApply", ADMIN_CFG, "<profile> - apply cvar bundle (snapshots for rollback)");
 	register_concmd("fn_modes", "cmdList", ADMIN_ADMIN, "- list mode profiles");

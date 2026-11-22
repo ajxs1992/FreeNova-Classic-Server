@@ -7,6 +7,7 @@
 #include <amxmisc>
 #include <cstrike>
 #include <fn_core>
+#include <fn_common>
 
 new CsTeams:g_prevTeam[MAX_PLAYERS + 1];
 
@@ -25,6 +26,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("spectate", 3);
+
 	register_plugin("FreeNova Spectate", "3.0.0", "FreeNova");
 	register_concmd("amx_spec", "cmdSpec", ADMIN_KICK, "<name|#userid> - move to spectator (team remembered)");
 	register_concmd("amx_back", "cmdBack", ADMIN_KICK, "<name|#userid> - return to remembered team");

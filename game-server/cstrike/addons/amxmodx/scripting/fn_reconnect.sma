@@ -9,6 +9,7 @@
 #include <cstrike>
 #include <nvault>
 #include <fn_core>
+#include <fn_common>
 
 #define RCTASK 90510
 
@@ -31,6 +32,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("reconnect", 2);
+
 	register_plugin("FreeNova Reconnect", "3.0.0", "FreeNova");
 	g_cvarTeam = register_cvar("fn_reconnect_team", "0");
 	if (!LibraryExists("fn_core", LibType_Library))

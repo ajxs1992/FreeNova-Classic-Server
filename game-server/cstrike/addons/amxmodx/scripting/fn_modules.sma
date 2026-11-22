@@ -5,6 +5,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 #define MAXMOD 60
 
@@ -28,6 +29,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("modules", 2);
+
 	register_plugin("FreeNova Modules", "3.0.0", "FreeNova");
 	register_concmd("fn_modules", "cmdModules", ADMIN_ADMIN, "- loaded/initialized/degraded/missing per module");
 	addMod("FreeNova Core", "core");

@@ -15,6 +15,7 @@
 #include <amxmisc>
 #include <fn_maps>
 #include <amx_banpersist>
+#include <fn_common>
 
 public plugin_natives()
 {
@@ -150,6 +151,8 @@ public client_disconnected(id)
 
 public plugin_init()
 {
+	fn_boot_banner("admincmd", 22)
+
 	register_plugin("Admin Commands", AMXX_VERSION_STR, "AMXX Dev Team")
 
 	register_dictionary("admincmd.txt")

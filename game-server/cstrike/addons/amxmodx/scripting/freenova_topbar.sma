@@ -99,6 +99,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <cstrike>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova Top Bar"
 #define VERSION "2.0.0"
@@ -166,6 +167,8 @@ new Float:g_fLastSend
 
 public plugin_init()
 {
+    fn_boot_banner("topbar", 7)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     g_pRestartRounds = register_cvar("fn_topbar_restart_rounds", "50")

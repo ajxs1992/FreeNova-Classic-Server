@@ -11,6 +11,7 @@
 #include <amxmodx>
 #include <freenova_chat>
 #include <freenova_help>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova Help Registry"
 #define VERSION "1.0.0"
@@ -174,6 +175,8 @@ new g_DynCount
 
 public plugin_init()
 {
+    fn_boot_banner("help", 6)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
     register_library("freenova_help")
     register_native("fn_help_register", "Nat_HelpRegister")

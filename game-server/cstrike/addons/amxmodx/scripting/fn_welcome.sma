@@ -9,6 +9,7 @@
 #include <nvault>
 #include <fn_core>
 #include <fn_settings>
+#include <fn_common>
 
 new g_vaultSeen;
 new g_cvarOn, g_cvarRules, g_cvarDelay;
@@ -29,6 +30,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("welcome", 3);
+
 	register_plugin("FreeNova Welcome", "3.0.0", "FreeNova");
 	register_dictionary("fn_welcome.txt");
 	register_dictionary("common.txt");

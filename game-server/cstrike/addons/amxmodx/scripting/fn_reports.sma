@@ -12,6 +12,7 @@
 #include <fn_core>
 #include <fn_audit>
 #include <fn_moderation>
+#include <fn_common>
 
 new g_vaultReports;
 new g_cvarCooldown;
@@ -43,6 +44,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("reports", 12);
+
 	register_plugin("FreeNova Reports", "3.0.0", "FreeNova");
 	register_clcmd("amx_reportmenu", "cmdReport", ADMIN_ALL, "- report a player");
 	register_clcmd("say /report", "cmdReport", ADMIN_ALL);

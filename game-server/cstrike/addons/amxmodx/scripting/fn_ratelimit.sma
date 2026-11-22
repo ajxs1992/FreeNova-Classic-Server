@@ -5,6 +5,7 @@
  * Staff exceptions and burst policy are caller-side. */
 #include <amxmodx>
 #include <fn_core>
+#include <fn_common>
 
 new Trie:g_b;
 new bool:g_live;
@@ -28,6 +29,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("ratelimit", 3);
+
 	register_plugin("FreeNova Limits", "3.0.0", "FreeNova");
 	g_cvarMax = register_cvar("fn_limit_maxkeys", "512");
 	if (!LibraryExists("fn_core", LibType_Library))

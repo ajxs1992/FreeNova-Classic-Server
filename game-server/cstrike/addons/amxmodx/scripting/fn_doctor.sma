@@ -6,6 +6,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 new g_pass;
 new g_warn;
@@ -26,6 +27,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("doctor", 1);
+
 	register_plugin("FreeNova Doctor", "3.0.0", "FreeNova");
 	register_concmd("fn_doctor", "cmdDoctor", ADMIN_ADMIN, "- configuration health check");
 	if (LibraryExists("fn_core", LibType_Library))

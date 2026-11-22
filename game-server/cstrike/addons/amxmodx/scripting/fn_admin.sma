@@ -10,6 +10,7 @@
 #include <fn_core>
 #include <fn_menus>
 #include <fn_perms>
+#include <fn_common>
 
 new g_recent[33];
 new g_recentAct[33][24];
@@ -30,6 +31,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("admin", 2);
+
 	register_plugin("FreeNova Admin Hub", "3.0.0", "FreeNova");
 	register_clcmd("amx_admin", "cmdHub", ADMIN_ADMIN, "- administration hub");
 	/* NOTE (debug M12): say /admin belongs to menufront (loaded earlier,

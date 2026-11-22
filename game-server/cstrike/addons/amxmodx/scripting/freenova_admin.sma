@@ -28,6 +28,7 @@
 #include <nvault>
 #include <freenova_chat>
 #include <freenova_admin>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova Admin Grants v3"
 #define VERSION "3.0.0"
@@ -101,6 +102,8 @@ new g_iSweepOffline
 
 public plugin_init()
 {
+    fn_boot_banner("admin", 17)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     register_concmd("fn_admin_grant", "Cmd_Grant", FN_FLAG_MANAGER,

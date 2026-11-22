@@ -7,6 +7,7 @@
 #include <amxmisc>
 #include <nvault>
 #include <fn_core>
+#include <fn_common>
 
 new g_vaultPrefs;
 
@@ -27,6 +28,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("settings", 4);
+
 	register_plugin("FreeNova Settings", "3.0.0", "FreeNova");
 	register_clcmd("amx_settings", "cmdSettings", ADMIN_ALL, "- your preferences");
 	register_clcmd("say /settings", "cmdSettings", ADMIN_ALL);

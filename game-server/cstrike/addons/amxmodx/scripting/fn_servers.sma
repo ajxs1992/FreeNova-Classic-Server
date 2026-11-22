@@ -8,6 +8,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 #define MAXSERVERS 16
 
@@ -31,6 +32,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("servers", 2);
+
 	register_plugin("FreeNova Servers", "3.0.0", "FreeNova");
 	register_clcmd("amx_serversmenu", "cmdServers", ADMIN_ALL, "- browse community servers");
 	register_clcmd("say /servers", "cmdServers", ADMIN_ALL);

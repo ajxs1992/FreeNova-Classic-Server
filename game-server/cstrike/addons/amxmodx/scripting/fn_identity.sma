@@ -4,6 +4,7 @@
  * Auth/IP snapshots are taken at authorize time (not per use). */
 #include <amxmodx>
 #include <fn_core>
+#include <fn_common>
 
 new g_gen[MAX_PLAYERS + 1];
 new g_live[MAX_PLAYERS + 1];
@@ -29,6 +30,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("identity", 4);
+
 	register_plugin("FreeNova Identity", "3.0.0", "FreeNova");
 	if (!LibraryExists("fn_core", LibType_Library))
 	{

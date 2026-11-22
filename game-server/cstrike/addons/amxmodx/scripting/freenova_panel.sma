@@ -20,6 +20,7 @@
 #include <ranksultimate>
 #include <freenova_chat>
 #include <freenova_admin>
+#include <fn_common>
 
 // Natives from other plugins (called server-side)
 native skins_open_menu(id)
@@ -357,6 +358,8 @@ LoadVipFlags(id)
 // ============================================================
 public plugin_init()
 {
+    fn_boot_banner("panel", 35)
+
     register_plugin(PLUGIN, "1.0", AUTHOR)
 
     // Panel commands

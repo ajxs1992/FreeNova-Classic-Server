@@ -49,6 +49,7 @@
 
 #include <amxmodx>
 #include <amxmisc>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova Random Events"
 #define VERSION "1.0.0"
@@ -82,6 +83,8 @@ new Float:g_fEventValue = 1.0
 
 public plugin_init()
 {
+    fn_boot_banner("randevent", 4)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     g_pCvarEnabled  = register_cvar("fn_re_enabled", "1")

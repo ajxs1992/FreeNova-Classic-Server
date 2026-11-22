@@ -4,6 +4,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 #define MAX_CASES 32
 
@@ -38,6 +39,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("audit", 10);
+
 	register_plugin("FreeNova Audit", "2.0.0", "FreeNova");
 	g_confirm = TrieCreate();
 	g_cvarLastCase = register_cvar("fn_audit_last_case", "");

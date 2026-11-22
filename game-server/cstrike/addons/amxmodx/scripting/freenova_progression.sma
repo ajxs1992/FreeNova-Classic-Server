@@ -21,6 +21,7 @@
 #include <nvault>
 #include <crxranks>
 #include <crxranks_const>
+#include <fn_common>
 
 #define PLUGIN  "FreeNova Progression Layer"
 #define VERSION "1.0"
@@ -59,6 +60,8 @@ new pcvar_rnd_enabled, pcvar_rnd_minplayers, pcvar_rnd_min, pcvar_rnd_max, pcvar
 
 public plugin_init()
 {
+	fn_boot_banner("progression", 23)
+
 	register_plugin(PLUGIN, VERSION, AUTHOR)
 
 	// bot kill xp

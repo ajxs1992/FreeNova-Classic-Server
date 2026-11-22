@@ -9,6 +9,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 #define LINK_MAXQ 64
 
@@ -37,6 +38,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("link", 3);
+
 	register_plugin("FreeNova Link", "3.0.0", "FreeNova");
 	if (!LibraryExists("fn_core", LibType_Library))
 	{

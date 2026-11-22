@@ -10,6 +10,7 @@
 #include <freenova_web>
 #include <rsu>
 #include <freenova_achievements>
+#include <fn_common>
 
 native fn_hub_open(id)
 
@@ -68,6 +69,8 @@ public FnachNativeFilter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("achievements", 12)
+
 	register_plugin(PLUGIN, VERSION, AUTHOR)
 
 	// lint:allow library-missing - legacy provider name from before the RSU

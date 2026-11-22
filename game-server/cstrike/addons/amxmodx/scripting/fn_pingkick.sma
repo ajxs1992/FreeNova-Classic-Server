@@ -3,6 +3,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <reapi>
+#include <fn_common>
 
 #define TASK_CHECK  87001
 #define MAX_WARN    5
@@ -21,6 +22,8 @@ new Float:g_nextWarn[MAX_PLAYERS + 1]
 
 public plugin_init()
 {
+	fn_boot_banner("pingkick", 15)
+
 	register_plugin("High Ping Kicker", AMXX_VERSION_STR, "AMXX Dev Team")
 
 	// cvar names must NOT equal concmd names: GoldSrc resolves an existing

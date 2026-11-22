@@ -4,6 +4,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 new g_stack;
 new g_voteActive;
@@ -35,6 +36,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("maps", 12);
+
 	register_plugin("FreeNova Maps", "2.0.0", "FreeNova");
 	register_concmd("fn_maps_status", "cmdStatus", ADMIN_MAP, "- active stack + next map");
 	register_concmd("fn_extendmap", "cmdExtend", ADMIN_MAP, "<minutes> - extend via active stack");

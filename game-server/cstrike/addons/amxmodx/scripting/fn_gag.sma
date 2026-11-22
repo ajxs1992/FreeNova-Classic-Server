@@ -6,6 +6,7 @@
 #include <nvault>
 #include <reapi_vtc>
 #include <fn_core>
+#include <fn_common>
 
 #define TASK_UNGAG  55001
 
@@ -40,6 +41,8 @@ public _is_user_gagged(plugin, params)
 
 public plugin_init()
 {
+	fn_boot_banner("gag", 10)
+
 	register_plugin("Gag System", AMXX_VERSION_STR, "AMXX Dev Team")
 	register_dictionary("common.txt")
 

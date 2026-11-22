@@ -10,6 +10,7 @@
 #include <fn_core>
 #include <fn_audit>
 #include <fn_guard>
+#include <fn_common>
 
 new g_cvarOn, g_cvarAdMax, g_cvarRecon, g_cvarReconWin, g_cvarNotify;
 new g_adHits[MAX_PLAYERS + 1];
@@ -33,6 +34,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("policy", 8);
+
 	register_plugin("FreeNova Policy", "3.0.0", "FreeNova");
 	register_clcmd("say", "observeSay");
 	register_clcmd("say_team", "observeSay");

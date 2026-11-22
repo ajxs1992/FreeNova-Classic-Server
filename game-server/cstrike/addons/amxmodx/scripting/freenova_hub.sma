@@ -6,6 +6,7 @@
 #include <freenova_prefs>
 #include <freenova_ui>
 #include <freenova_web>
+#include <fn_common>
 
 // FreeNova Hub — single player navigation surface.
 // Owns no gameplay data. Every entry delegates to the owning plugin or MOTD.
@@ -62,6 +63,8 @@ public HubNativeFilter(const name[], index, trap)
 
 public plugin_init()
 {
+    fn_boot_banner("hub", 14)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     register_clcmd("say /freenova", "Cmd_Hub")

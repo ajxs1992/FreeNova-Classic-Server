@@ -5,6 +5,7 @@
  * direct-HUD fallback when this library is absent. */
 #include <amxmodx>
 #include <fn_core>
+#include <fn_common>
 
 new g_chanPri[5];
 new g_chanUntil[5];
@@ -29,6 +30,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("hud", 2);
+
 	register_plugin("FreeNova HUD", "3.0.0", "FreeNova");
 	if (!LibraryExists("fn_core", LibType_Library))
 	{

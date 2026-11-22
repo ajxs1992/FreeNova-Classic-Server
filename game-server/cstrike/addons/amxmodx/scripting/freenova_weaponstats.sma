@@ -4,6 +4,7 @@
 #include <cstrike>
 #include <csx>
 #include <menabp>
+#include <fn_common>
 
 // FreeNova Weapon Stats - persistent per-weapon kill/headshot/damage records.
 //
@@ -79,6 +80,8 @@ new g_iLateTries[MAX_PLAYERS + 1]
 
 public plugin_init()
 {
+    fn_boot_banner("weaponstats", 5)
+
     register_plugin(PLUGIN, VERSION, AUTHOR)
 
     BuildWeaponMap()

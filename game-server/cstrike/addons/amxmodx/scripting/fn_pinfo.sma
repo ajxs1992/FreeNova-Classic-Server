@@ -11,6 +11,7 @@
 #include <fn_core>
 #include <fn_perms>
 #include <fn_moderation>
+#include <fn_common>
 
 native is_user_gagged(id);
 native fn_scan_state(id);
@@ -33,6 +34,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("pinfo", 2);
+
 	register_plugin("FreeNova Intel", "3.0.0", "FreeNova");
 	register_clcmd("amx_pinfo", "cmdPinfo", ADMIN_KICK, "- player intelligence");
 	register_clcmd("say /pinfo", "cmdPinfo", ADMIN_KICK);

@@ -5,6 +5,7 @@
 #include <amxmisc>
 #include <fn_core>
 #include <fn_bans>
+#include <fn_common>
 
 #define MAX_RANGES 128
 
@@ -31,6 +32,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("ban_range", 6);
+
 	register_plugin("FreeNova Range Bans", "2.0.0", "FreeNova");
 	register_concmd("fn_rban", "cmdAdd", ADMIN_BAN, "<ip_start> <ip_end> <reason>");
 	register_concmd("fn_unrban", "cmdRemove", ADMIN_BAN, "<ip_start> <ip_end>");

@@ -12,6 +12,7 @@
 #include <fn_core>
 #include <fn_audit>
 #include <fn_state>
+#include <fn_common>
 
 #define MAX_NODES 18
 #define SWEEP_TASK 90210
@@ -41,6 +42,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("perms", 7);
+
 	register_plugin("FreeNova Permissions", "3.0.0", "FreeNova");
 	if (!LibraryExists("fn_core", LibType_Library))
 	{

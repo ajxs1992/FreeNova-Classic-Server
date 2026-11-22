@@ -3,6 +3,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 public plugin_natives()
 {
@@ -21,6 +22,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("sync", 3);
+
 	register_plugin("FreeNova Sync", "2.0.0", "FreeNova");
 	register_concmd("fn_sync", "cmdSync", ADMIN_BAN, "- delegate reconcile to active writer");
 	if (!LibraryExists("fn_core", LibType_Library))

@@ -9,6 +9,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_core>
+#include <fn_common>
 
 new Trie:g_vals;
 new bool:g_live;
@@ -34,6 +35,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("state", 4);
+
 	register_plugin("FreeNova State", "3.0.0", "FreeNova");
 	if (!LibraryExists("fn_core", LibType_Library))
 	{

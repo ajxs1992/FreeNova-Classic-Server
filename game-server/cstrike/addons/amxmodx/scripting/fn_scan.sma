@@ -7,6 +7,7 @@
 #include <fn_core>
 #include <fn_bans>
 #include <fn_audit>
+#include <fn_common>
 
 #define TASK_REMIND  76001
 #define TASK_SPEC    76101
@@ -40,6 +41,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_init()
 {
+	fn_boot_banner("scan", 16)
+
 	register_plugin("Scan System", AMXX_VERSION_STR, "AMXX Dev Team")
 
 	register_concmd("amx_scan", "cmdScan", ADMIN_BAN, "<name|#userid> [reason] - lock player in spectator")

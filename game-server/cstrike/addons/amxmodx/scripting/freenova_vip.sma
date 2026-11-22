@@ -13,6 +13,7 @@
 #include <freenova_web>
 #include <freenova_ui>
 #include <menabp>
+#include <fn_common>
 
 #pragma dynamic 16384
 
@@ -231,6 +232,8 @@ public plugin_precache()
 
 public plugin_init()
 {
+    fn_boot_banner("vip", 73);
+
     register_plugin(PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_AUTHOR);
     register_library("freenova_vip");
 

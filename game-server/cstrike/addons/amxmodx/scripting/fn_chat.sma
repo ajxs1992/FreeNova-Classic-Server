@@ -40,8 +40,9 @@ public plugin_init()
 }
 
 /* Authoritative gag verdict. 0 = gagged (drop + count), 1 = may speak.
- * Gag state itself stays owned by fn_gag (gagsystem); this is the single
- * consult point so emitters never disagree about it. */
+ * Gag state itself stays owned by freenova_gag, which registers the library
+ * name below (freenova_gag.sma:182); this is the single consult point so
+ * emitters never disagree about it. */
 public _can_speak(plugin, params)
 {
 	new id = get_param(1);
@@ -50,7 +51,7 @@ public _can_speak(plugin, params)
 	if (!is_user_connected(id))
 		return 0;
 	new bool:gagged = false;
-	if (LibraryExists("gagsystem", LibType_Library))
+	if (LibraryExists("freenova_gag", LibType_Library))
 		gagged = is_user_gagged(id) ? true : false;
 	if (gagged)
 	{

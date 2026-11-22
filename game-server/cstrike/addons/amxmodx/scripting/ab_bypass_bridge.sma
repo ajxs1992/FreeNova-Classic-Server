@@ -74,7 +74,11 @@ public advanced_bans_player_banned(target, admin, minutes, const reason[])
 	copy(pack, charsmax(pack), asNumber);
 	PG_ThreadQuery("QueryAsnCount", query, pack, sizeof(pack));
 
-	log_amx("[AB Bridge] Recorded ban on %s from %N", asNumber, target);
+	// %N is a SourceMod specifier; AMX Mod X has no such conversion, so this
+	// line printed a raw cell value as the player name (REVIEW.md 5.5).
+	new szName[MAX_NAME_LENGTH];
+	get_user_name(target, szName, charsmax(szName));
+	log_amx("[AB Bridge] Recorded ban on %s from %s", asNumber, szName);
 }
 
 public QueryAsnCount(failstate, query, error[], errcode, data[], datasize, Float:queuetime)

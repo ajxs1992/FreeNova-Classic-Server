@@ -32,7 +32,7 @@ h3{color:#78FF16;font-size:13px;border-bottom:1px solid #273427;padding-bottom:3
 
 <h3>GET MORE</h3>
 <span class="fngreen">/register</span> your account for a free 3-day VIP+ trial.<br>
-Join the community: <span class="fngreen">https://discord.gg/dqrWHhQykp</span> (contact: zizouondc)
+Join the community: <span class="fngreen">https://discord.gg/as8kzp5KAz</span> (contact: zizouondc)
 
 <div class="fnf">FreeNova &bull; The Ultimate Gaming Network</div>
 </body>

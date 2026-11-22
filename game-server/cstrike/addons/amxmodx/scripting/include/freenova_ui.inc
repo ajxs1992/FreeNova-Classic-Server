@@ -204,7 +204,7 @@ stock FN_GetDiscordUrl(szOut[], iLen)
 {
     get_cvar_string("fn_discord_url", szOut, iLen)
     if (!szOut[0])
-        copy(szOut, iLen, "https://discord.gg/dqrWHhQykp")
+        copy(szOut, iLen, "https://discord.gg/as8kzp5KAz")
 }
 
 stock FN_GetDiscordHandle(szOut[], iLen)

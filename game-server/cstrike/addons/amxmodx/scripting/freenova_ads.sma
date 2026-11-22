@@ -85,7 +85,7 @@ new const g_FallbackType[] =
 
 new const g_FallbackText[][] =
 {
-    "Join our Discord: discord.gg/dqrWHhQykp - news, events and support!",
+    "Join our Discord: discord.gg/as8kzp5KAz - news, events and support!",
     "Fast downloads on fn-gaming.net\\nMissing maps, sprays and sound mods install automatically",
     "Need gear or skills? Type /shop in chat to open the store.",
     "Want perks? Type /vip to see VIP tiers, benefits and the armory.",
@@ -93,7 +93,7 @@ new const g_FallbackText[][] =
     "Quick commands: /shop  /vip  /rank  /panel",
     "Web panel on the go: type /panel to open the FreeNova panel in your browser.",
     "Website + fastdl: fn-gaming.net - missing files download from our fastdl automatically.",
-    "Tell a friend about FreeNova - and grab your role on discord.gg/dqrWHhQykp!"
+    "Tell a friend about FreeNova - and grab your role on discord.gg/as8kzp5KAz!"
 }
 
 #define FALLBACK_COUNT  (sizeof g_FallbackText)

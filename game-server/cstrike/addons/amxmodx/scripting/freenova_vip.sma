@@ -290,7 +290,7 @@ public plugin_init()
     g_pFreeEnd       = register_cvar("vip_free_end", "08");
     #pragma unused g_pStartHP, g_pStartAP, g_pJump, g_pHPKill, g_pHPHS, g_pHPKillKnife, g_pHPHSKnife, g_pParachute, g_pMaxHP, g_pAdminFlag
     g_pAdminFlag     = register_cvar("vip_admin_flag", "d");
-    register_cvar("fn_discord_url", "https://discord.gg/dqrWHhQykp");
+    register_cvar("fn_discord_url", "https://discord.gg/as8kzp5KAz");
     register_cvar("fn_discord_handle", "zizouondc");
 
     // All chat commands are routed through the single say hooks below.

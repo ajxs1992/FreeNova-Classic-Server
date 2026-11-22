@@ -1,0 +1,18 @@
+# tools/models - the present must load, not just exist.
+#
+# precache_model() is what parses a studio model, so a non-zero index here means
+# ReHLDS's Mod_LoadModel accepted the file we generated.
+\[CS16TEST\] init
+\[CS16TEST\] tick
+\[MDLTEST\] precache model=models/winterfest/present\.mdl index=[1-9][0-9]*
+\[MDLTEST\] spawned ent=[1-9][0-9]* modelindex=[1-9][0-9]* frames=1 bone0=1
+\[MDLTEST\] done rehlds=1
+
+# ... and nothing anywhere complained about the model.
+!Mod_LoadModel
+!Host_Error
+!not precached
+!couldn't load
+!bad version
+!Run time error
+!bad load

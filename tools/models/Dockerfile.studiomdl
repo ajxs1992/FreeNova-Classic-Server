@@ -1,0 +1,14 @@
+# 32-bit Windows studiomdl.exe needs a 32-bit Windows, and the host wine here is
+# a wow64-only build that cannot start *any* PE32 image (see docs/MODELS.md).
+# This image is the smallest thing that can: Debian i386 + wine 8.0 (real win32).
+#
+#   docker build -t goldsrc-smd:1.0 -f tools/models/Dockerfile.studiomdl tools/models
+#
+# compile.sh builds it for you if it is missing.
+FROM i386/debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      wine wine32 libwine ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+ENV WINEDEBUG=-all
+WORKDIR /work

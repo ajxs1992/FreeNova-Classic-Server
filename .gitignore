@@ -1,0 +1,29 @@
+# Dependencies and package-manager caches. These were deliberately left out of the
+# 2026-11-22 snapshot (see README) and are regenerated with `npm install`.
+web-panel/node_modules/
+web-panel/.npm/
+web-panel/.wrangler/
+
+# Wrangler local secrets. Never committed; the live values live in relay/relay.env.
+.dev.vars
+**/.dev.vars
+
+# Output of tools/compile-plugins.sh. Build artefacts must never be committed, and
+# must never be written into the live game-server plugins/ tree.
+tools/build/
+
+# Python bytecode from `python3 -m py_compile web-panel/scripts/*.py`.
+__pycache__/
+*.pyc
+
+# OS / editor noise.
+.DS_Store
+*.orig
+*.rej
+*.swp
+*~
+
+# NOTE: log files are deliberately NOT ignored. amxmodx/logs/*.log and
+# web-panel/relay/relay.log are part of the snapshot, and the AMXX log files are
+# the only record of runtime errors on the live server. Ignore a specific noisy
+# file by name if one is added later; do not add a blanket *.log rule.

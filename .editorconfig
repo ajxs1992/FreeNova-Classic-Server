@@ -1,0 +1,46 @@
+root = true
+
+# Line endings are NOT normalised globally: this repository is mostly a verbatim
+# snapshot of Windows hosts and many files are CRLF (see .gitattributes). Editors
+# must keep whatever a file already uses for the snapshot trees.
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# PAWN: AMXX convention is 4 spaces; the sources are CRLF and must stay CRLF so a
+# local edit does not turn into a whole-file diff.
+[*.{sma,inc}]
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+trim_trailing_whitespace = false
+
+# Configs copied from the game host: keep bytes as they are.
+[{*.cfg,*.ini,*.txt}]
+end_of_line = crlf
+trim_trailing_whitespace = false
+
+[*.{js,mjs,cjs,json,yml,yaml,md}]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+
+[*.sql]
+indent_style = space
+indent_size = 4
+
+[*.py]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+
+[*.sh]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+
+[Makefile]
+indent_style = tab

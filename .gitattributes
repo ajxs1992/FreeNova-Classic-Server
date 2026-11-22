@@ -1,0 +1,59 @@
+# Byte-level rules for a repository that is mostly a *verbatim snapshot*.
+#
+# Deliberately NOT `* text=auto eol=lf`. 918 of the 3010 tracked files come from
+# Windows hosts and contain CRLF (several, like configs/plugins.ini, contain both
+# CRLF and LF). With text normalisation on, the next time any of them is touched
+# git would rewrite the whole file in the index: a 918-file diff, and a blob whose
+# bytes no longer match the live server. Leaving line endings unset means "no
+# conversion" and git still diffs them as text because they are not binary by
+# content. Files we author ourselves opt in to LF explicitly below.
+
+# ---- author-owned files: text, normalised to LF -----------------------------
+*.md                text eol=lf
+*.yml               text eol=lf
+*.yaml              text eol=lf
+.gitignore          text eol=lf
+.gitattributes      text eol=lf
+.editorconfig       text eol=lf
+tools/*.sh          text eol=lf
+.github/**          text eol=lf
+docs/**             text eol=lf
+
+# ---- binary: never diff, never convert, never merge line-wise --------------
+*.amxx              binary
+*.amx               binary
+*.so                binary
+*.dll               binary
+*.dylib             binary
+*.exe               binary
+*.wav               binary
+*.mp3               binary
+*.mdl               binary
+*.bsp               binary
+*.spr               binary
+*.wad               binary
+*.png               binary
+*.jpg               binary
+*.jpeg              binary
+*.gif               binary
+*.ico               binary
+*.woff              binary
+*.woff2             binary
+*.ttf               binary
+*.otf               binary
+*.zip               binary
+*.gz                binary
+*.7z                binary
+*.sq3               binary
+*.sq3-wal           binary
+*.sq3-shm           binary
+game-server/cstrike/addons/amxmodx/scripting/amxxpc       binary
+game-server/cstrike/addons/amxmodx/scripting/amxxpc32.so  binary
+
+# ---- generated / vendored trees --------------------------------------------
+# The AMXX distribution, Metamod and YaPB are third-party code copied verbatim;
+# keep them out of language statistics and of "generated" diffs.
+game-server/cstrike/addons/**     linguist-vendored
+web-panel/assets/**               linguist-generated
+# The local backup tree is snapshot material, not our source.
+web-panel/_backup_20261011/**     linguist-vendored

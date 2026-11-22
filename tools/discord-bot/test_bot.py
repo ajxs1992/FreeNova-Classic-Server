@@ -864,6 +864,38 @@ def test_command_guard_rate_limits_profile():
     assert not third.answer.get("embeds"), "the blocked call does not hit the leaderboard"
 
 
+def test_status_shows_the_peak_from_samples():
+    """`/status` adds the 24 h peak when the sample log has data - and omits it when not."""
+    import tempfile
+
+    async def fake_info(server, fresh=False):
+        return {"name": "FreeNova CS 1.6", "map": "de_dust2", "players": 9, "max": 32}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "samples.jsonl")
+        cfg = sample_cfg()
+        cfg["samples_path"] = path
+        instance = bot.build_bot(cfg)
+        original = bot.get_info
+        bot.get_info = fake_info
+        try:
+            empty = FakeInteraction()
+            asyncio.run(instance.tree.get_command("status").callback(empty))
+            names = [field.name for field in empty.answer["embeds"][0].fields]
+            assert bot.t("cmd.status.peak") not in names, "no samples, no peak field"
+
+            now = datetime.now(timezone.utc)
+            for minutes, players in ((5, 12), (15, 21)):
+                bot.append_sample(path, now - timedelta(minutes=minutes),
+                                  {"players": players, "map": "de_dust2", "max": 32})
+            busy = FakeInteraction()
+            asyncio.run(instance.tree.get_command("status").callback(busy))
+            fields = {field.name: field.value for field in busy.answer["embeds"][0].fields}
+            assert fields[bot.t("cmd.status.peak")].startswith("**21/32**")
+        finally:
+            bot.get_info = original
+
+
 # ----------------------------------------------------------------------- runner
 def main() -> int:
     tests = sorted((name, obj) for name, obj in globals().items()

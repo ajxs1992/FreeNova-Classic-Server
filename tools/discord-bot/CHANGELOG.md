@@ -235,3 +235,13 @@ One line per change, with the verification that was actually run. Newest last.
   profile, call 3 is ephemeral "Easy there…" with no embed) → **57/57 tests
   pass**; restart → login, `synced 7 command(s)`, presence line, REST still
   shows the same seven commands.
+
+- **`/status` answers "when is it busiest?"** (`bot.py`): the embed gained a
+  `Peak (24 h)` field computed from the bot's own probe samples
+  (`digest_stats`, so no extra network) - `**21/32** at 19:40` - and it is
+  simply absent until there is data. Two new string ids
+  (`cmd.status.peak`, `cmd.status.peak_value`).
+  *Verified:* `py_compile`; new test `test_status_shows_the_peak_from_samples`
+  (no samples → no field; two samples → `**21/32**`) → **58/58 tests pass**;
+  the real callback prints `Peak (24 h): **9/32** at <t:…>` for the live
+  server, and a restart shows login, `synced 7 command(s)`, presence.

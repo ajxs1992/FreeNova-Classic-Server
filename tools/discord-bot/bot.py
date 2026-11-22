@@ -206,6 +206,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "cmd.status.next": "Next map",
         "cmd.status.footer": "Updated {time} UTC",
         "cmd.status.address": "`{host}:{port}`",
+        "cmd.status.peak": "Peak (24 h)",
+        "cmd.status.peak_value": "**{peak}{max}**{at}",
         "cmd.players.desc": "Who is on the server right now",
         "cmd.players.count": "How many players to list (default 20)",
         "cmd.players.title": "{n} on {server}",
@@ -1891,6 +1893,16 @@ def build_bot(cfg: dict) -> commands.Bot:
         embed.add_field(name=t("cmd.status.players"),
                         value=f"**{info['players']}/{info['max']}**", inline=True)
         embed.add_field(name=t("cmd.status.next"), value=f"`{nxt}`" if nxt else "—", inline=True)
+        # "when is it busiest?" - straight from our own probe samples
+        now = datetime.now(timezone.utc)
+        samples = await asyncio.to_thread(load_samples, samples_path, now.timestamp() - 86400)
+        stats = digest_stats(samples, now)
+        if stats.get("peak") is not None:
+            free = f"/{stats['max']}" if stats.get("max") else ""
+            at = f" at <t:{int(stats['peak_at'].timestamp())}:t>" if stats.get("peak_at") else ""
+            embed.add_field(name=t("cmd.status.peak"),
+                            value=t("cmd.status.peak_value", peak=stats["peak"], max=free, at=at),
+                            inline=True)
         embed.set_footer(text=t("cmd.status.footer",
                                 time=datetime.now(timezone.utc).strftime("%H:%M")))
         await _reply(interaction, embed=embed)

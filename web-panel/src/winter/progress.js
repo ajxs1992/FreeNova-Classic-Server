@@ -16,7 +16,7 @@ import { parisDate } from "./season.js"
  * Advent state for every day 1..24.
  *   claimed  the game's claim ledger has the day
  *   today    the day is unlocked today and not claimed
- *   missed   unlocked on an earlier day and not claimed (catch-up, half value)
+ *   missed   an earlier day that was not claimed — expired, no half-value catch-up
  *   locked   not unlocked yet
  */
 export function adventStatus(season, state) {
@@ -178,7 +178,7 @@ export function headlines(cat, season, state) {
   if (adv.nextDay) {
     const label = adv.nextDay === adv.today
       ? `Day ${adv.nextDay} of the Advent calendar is ready to claim.`
-      : `Day ${adv.nextDay} was missed — claim it at half value before the season closes.`
+      : `Day ${adv.nextDay} was missed — it expired at midnight and cannot be claimed. The Advent Pass recovers missed days after the calendar closes.`
     out.push({ kicker: "ADVENT", text: label, href: "/winter/advent" })
   } else if (adv.nextLockedDay) {
     const entry = adventEntry(cat, adv.nextLockedDay)

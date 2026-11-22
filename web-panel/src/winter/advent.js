@@ -1,11 +1,12 @@
 // /winter/advent — the 24-day calendar.
 //
-// Four states, one per cell, and the rule from the owner decision (§6.3):
+// Four states, one per cell, and the FINAL owner rule (§6.3):
 //   claimed  the game's ledger has the day
-//   today    unlocked today, still unclaimed — full value
-//   missed   unlocked on an earlier day, still claimable at HALF value until
-//            the season closes (a late joiner is not punished, and nobody can
-//            cheapen the first days by skipping them)
+//   today    unlocked today, still unclaimed — claimable today only
+//   missed   the day has passed and was not claimed — EXPIRED. The catch-up at
+//            half value was withdrawn: after midnight the box is gone. At the
+//            end of the season the whole calendar can be unlocked by buying the
+//            Advent Pass, which turns every missed day back into a claim.
 //   locked   not unlocked yet — the reward stays hidden
 //
 // A reward is printed for `claimed` and `today` only. `missed` shows that it is
@@ -38,15 +39,13 @@ export function pageWinterAdvent(ctx) {
     let reward = ""
     if (d.status === "claimed") {
       const r = rewardText(cat, d.day)
-      reward = r
-        ? `<span class="r">${esc(r)}</span>${d.full ? "" : `<br><span class="r" style="color:#e8c547;">half value</span>`}`
-        : `<span class="r">claimed</span>`
+      reward = r ? `<span class="r">${esc(r)}</span>` : `<span class="r">claimed</span>`
     } else if (d.status === "today") {
       const r = rewardText(cat, d.day)
       reward = r ? `<span class="r">${esc(r)}</span><br><span class="r" style="color:#e8c547;">claim in game</span>`
         : `<span class="r">claim in game</span>`
     } else if (d.status === "missed") {
-      reward = `<span class="r">catch-up</span><br><span class="r" style="color:#e05a5a;">half value</span>`
+      reward = `<span class="r">expired</span><br><span class="r" style="color:#e05a5a;">no claim</span>`
     } else {
       reward = `<span class="r">locked</span>`
     }
@@ -67,7 +66,7 @@ export function pageWinterAdvent(ctx) {
   const body = `
 <table class="wf-kpis" cellspacing="0" cellpadding="0" border="0"><tr>
   ${statCard("Claimed", `${adv.claimedCount}/${adv.total}`, "days in the ledger", "green")}
-  ${statCard("Claimable now", fmt(adv.claimableNow), adv.missedCount ? `${adv.missedCount} at half value` : "nothing pending", adv.claimableNow ? "gold" : "")}
+  ${statCard("Claimable now", fmt(adv.claimableNow), adv.missedCount ? `${adv.missedCount} expired` : "nothing pending", adv.claimableNow ? "gold" : "")}
   ${statCard("Season closes", season.phase === "open" ? `${season.daysLeft}d` : season.phase === "before" ? "not open" : "closed", winterTime(season.closesAt, season.tz), "red")}
 </tr></table>
 ${status}
@@ -77,14 +76,14 @@ ${status}
   <div class="wf-note">
     <span class="wf-dot" style="background:#0d231b;border-color:#3dff9e"></span>claimed
     <span class="wf-dot" style="background:#1d1a0f;border-color:#e8c547;margin-left:8px;"></span>today
-    <span class="wf-dot" style="background:#1b1010;border-color:#7a3b3b;margin-left:8px;"></span>missed &mdash; still claimable
+    <span class="wf-dot" style="background:#1b1010;border-color:#7a3b3b;margin-left:8px;"></span>missed &mdash; expired
     <span class="wf-dot" style="background:#101820;border-color:#22303c;margin-left:8px;"></span>locked
   </div>
-  <div class="wf-note">The season closes <b>${winterTime(season.closesAt, season.tz)}</b> — that is 24 December 23:59 Europe/Paris, shown in your own timezone when your browser can. A day you missed stays claimable until then at <b>half value</b>.</div>
+  <div class="wf-note">The season closes <b>${winterTime(season.closesAt, season.tz)}</b> — 24 December 23:59 Europe/Paris, shown in your own timezone when your browser can. Each day can only be claimed <b>on its own date</b>: once midnight passes, that box expires. Missed days can only be recovered by buying the <b>Advent Pass</b> after the calendar closes.</div>
 </div>
 <div class="card" style="margin-top:8px;">
   <div class="h2">How to claim</div>
-  <div class="wf-note">Type <code>/advent</code> in game to claim today's box (or a missed one, at half value). Claims are written by the game server and appear here on the next snapshot — this page never grants anything.</div>
+  <div class="wf-note">Type <code>/advent</code> in game to claim <b>today's</b> box. A box can only be claimed on its own date — after midnight it expires and cannot be claimed, at any value. Claims are written by the game server and appear here on the next snapshot; this page never grants anything.</div>
 </div>`
 
   return winterPage("ADVENT", body, { season, nav: navTabs(url, "advent"), url })

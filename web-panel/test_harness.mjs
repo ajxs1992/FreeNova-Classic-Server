@@ -63,6 +63,15 @@ import {
 import { render as renderDashboardV2 } from "./src/v2/pages/dashboard.js"
 import { icon as v2icon, ICON_NAMES } from "./src/v2/icons.js"
 import { page as v2page } from "./src/v2/shell.js"
+// Levels page + the envelope (this agent: workstreams 14 and 15).
+import {
+  LEVEL_REWARDS, REWARD_KINDS, MAX_LEVEL, LEVEL_XP,
+  levelFromXp, levelPosition, rewardAt, nextRewardLevel, rewardState, rewardText, milestones
+} from "./src/winter/levels.js"
+import {
+  MAIL_DDL, MAIL_KINDS, unreadCount, loadInbox, loadMessage, sendMail,
+  ensureMailTables, normalizeKind, isVisible, expiryFromDays, applyMailReads
+} from "./src/winter/mail.js"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const root = mkdtempSync(join(tmpdir(), "freenova-panel-test-"))
@@ -251,6 +260,9 @@ const limited = new Panel("limited", { PANEL_PUBLIC_RATE_LIMIT: "2" })
 // Winterfest gets its own process: the section below pushes a season window and
 // turns the Christmas skin on, which must not leak into the checks above.
 const winterPanel = new Panel("winter", { FN_LOCAL_TRUST: "1" })
+// Levels + Mail get their own process too: they seed players and a mailbox, and
+// must not disturb the databases the sections above assert against.
+const levelPanel = new Panel("levels-mail", { FN_LOCAL_TRUST: "1" })
 
 try {
   await panel.start(18080)
@@ -1334,7 +1346,9 @@ try {
     check("advent page: exactly one 'today' cell while the calendar is open",
       seasonOpenNow ? todayCells === 1 : todayCells === 0, `today=${todayCells} day=${dayNow}/${monthNow}`)
     check("advent page: the closing rule is printed with its timezone",
-      adventBody.includes("Europe/Paris") && adventBody.includes("half value"))
+      adventBody.includes("Europe/Paris") && adventBody.includes("on its own date"))
+    check("advent page: the withdrawn half-value catch-up is not advertised",
+      !adventBody.includes("half value") || adventBody.includes("withdrawn"))
     check("advent page: it names the owner's timezone enhancement",
       adventBody.includes("your own timezone") || adventBody.includes("Europe/Paris"))
 
@@ -1660,6 +1674,403 @@ try {
     await winterPanel.stop()
   }
 
+
+  // ============================ 14. Levels page + the envelope =============
+  // Workstreams 14 (docs/WINTERFEST-WORKSTREAMS.md row 14) and 15 (row 15):
+  // the rank ladder page and the inbox behind the red dot in the top bar.
+  // Pure units first (curve, rewards, cross-reference, inbox scoping), then the
+  // two pages over HTTP against a panel with a seeded player and mailbox.
+  {
+    // The same catalogue fixture the winter section uses (one shape, one place).
+    const lvCat = normalizeWinterCatalog(winterCatalogue())
+
+    // ---- 14a. the curve is the RSU table, not a formula -------------------
+    check("levels: 19 rungs, one per RSU rank", MAX_LEVEL === 19 && LEVEL_XP.length === 19,
+      `max=${MAX_LEVEL} xp=${LEVEL_XP.length}`)
+    check("levels: the XP floors are the [Ranks] table in rank_system_ultimate.ini",
+      LEVEL_XP[0] === 0 && LEVEL_XP[1] === 2816 && LEVEL_XP[18] === 30000,
+      JSON.stringify([LEVEL_XP[0], LEVEL_XP[1], LEVEL_XP[18]]))
+    check("levels: a level is derived from XP by the floors, never by division",
+      levelFromXp(0) === 1 && levelFromXp(2815) === 1 && levelFromXp(2816) === 2 &&
+      levelFromXp(12013) === 14 && levelFromXp(29999) === 18 && levelFromXp(30000) === 19 &&
+      levelFromXp(999999) === 19,
+      [levelFromXp(0), levelFromXp(2815), levelFromXp(2816), levelFromXp(12013), levelFromXp(999999)].join(","))
+
+    // ---- 14b. a level-1 player is arithmetic, not NaN ---------------------
+    const lvl1 = levelPosition({ xp: 0, level: 1, rank_id: 1, bp_xp: 0, bp_tier: 0 })
+    check("levels: a level-1 player at 0 XP shows 0/2816 and 0%",
+      lvl1.level === 1 && lvl1.into === 0 && lvl1.span === 2816 && lvl1.toNext === 2816 && lvl1.pct === 0,
+      JSON.stringify({ l: lvl1.level, into: lvl1.into, span: lvl1.span, pct: lvl1.pct }))
+    const noRow = levelPosition(null)
+    const flat = JSON.stringify(noRow, (k, v) => typeof v === "number" && Number.isNaN(v) ? "NaN" : v)
+    check("levels: no snapshot is level 1 with no NaN anywhere",
+      noRow.level === 1 && noRow.found === false && !flat.includes("NaN") && !flat.includes("null,"),
+      flat.slice(0, 120))
+    check("levels: a malformed row cannot produce NaN",
+      !JSON.stringify(levelPosition({ xp: "abc", level: "x", rank_id: null, bp_xp: undefined })).includes("NaN"))
+    const mid = levelPosition({ xp: 12013, level: 14, rank_id: 14, bp_xp: 900, bp_tier: 2 })
+    check("levels: a mid-ladder player reads floor, next rung and distance",
+      mid.floor === 12013 && mid.nextAt === 13088 && mid.toNext === 1075 && mid.pct === 0,
+      JSON.stringify({ f: mid.floor, n: mid.nextAt, d: mid.toNext }))
+    check("levels: the top rung is 100% and has no next",
+      levelPosition({ xp: 30000, level: 19, rank_id: 19 }).atMax === true &&
+      levelPosition({ xp: 30000, level: 19, rank_id: 19 }).nextAt === null &&
+      levelPosition({ xp: 30000, level: 19, rank_id: 19 }).pct === 100)
+    check("levels: the Battle Pass tier is carried as a SEPARATE figure",
+      mid.bpTier === 2 && mid.bpTier !== mid.level,
+      `bp=${mid.bpTier} level=${mid.level}`)
+
+    // ---- 14c. the reward table matches levels.ini (lockstep, enforced) ----
+    const iniText = readFileSync(
+      join(here, "..", "game-server", "cstrike", "addons", "amxmodx", "configs",
+        "freenova", "winterfest", "levels.ini"), "utf8")
+    const iniRows = iniText.split(/\r?\n/)
+      .map(l => l.replace(/;.*$/, "").trim())
+      .filter(l => /^\d+\s*\|/.test(l))
+      .map(l => {
+        const f = l.split("|").map(x => x.trim())
+        return { level: Number(f[0]), kind: f[1], id: Number(f[2]), amount: Number(f[3]), state: f[4] }
+      })
+    check("levels: levels.ini has a row for every rung but level 1", iniRows.length === 18,
+      String(iniRows.length))
+    const drift = []
+    for (const row of iniRows) {
+      const mine = LEVEL_REWARDS.find(r => r.level === row.level)
+      if (!mine || mine.kind !== row.kind || mine.id !== row.id || mine.amount !== row.amount || mine.state !== row.state)
+        drift.push(`${row.level}:${row.kind}/${row.id}/${row.amount}/${row.state} vs ${JSON.stringify(mine)}`)
+    }
+    const extra = LEVEL_REWARDS.filter(r => !iniRows.some(i => i.level === r.level)).map(r => r.level)
+    check("levels: LEVEL_REWARDS is byte-for-byte levels.ini (keep in lockstep)",
+      drift.length === 0 && extra.length === 0,
+      (drift.join(" | ") + (extra.length ? " extra:" + extra.join(",") : "")).slice(0, 220))
+
+    // ---- 14d. a reward that is not implemented is coming, and NOT claimable --
+    const liveRow = { level: 6, kind: "gingerbread", id: 0, amount: 125, state: "live" }
+    const spinRow = { level: 11, kind: "spin", id: 0, amount: 1, state: "live" } // config LIES on purpose
+    const coinRow = { level: 14, kind: "coins", id: 0, amount: 250, state: "live" }
+    const deadRow = { level: 4, kind: "pass_xp", id: 0, amount: 50, state: "coming" }
+    check("levels: a live, implemented reward is live", rewardState(liveRow).state === "live")
+    check("levels: spin is forced to coming even when the config says live",
+      rewardState(spinRow).state === "coming" && /workstream 13|wheel/.test(rewardState(spinRow).why),
+      rewardState(spinRow).why)
+    check("levels: coins are forced to coming (no coin kind in wf_grant)",
+      rewardState(coinRow).state === "coming" && /coin/.test(rewardState(coinRow).why), rewardState(coinRow).why)
+    check("levels: a config 'coming' stays coming", rewardState(deadRow).state === "coming")
+    check("levels: an unknown reward kind is coming, never live",
+      rewardState({ level: 3, kind: "sleigh", state: "live" }).state === "coming")
+    check("levels: REWARD_KINDS only calls implemented things available",
+      REWARD_KINDS.gingerbread.available === true && REWARD_KINDS.ornament.available === true &&
+      REWARD_KINDS.spin.available === false && REWARD_KINDS.coins.available === false &&
+      REWARD_KINDS.cosmetic.available === false)
+    check("levels: rewards are worded from real ids (ornament names from the catalogue)",
+      rewardText({ kind: "ornament", id: 3 }, lvCat) === "Silver Snowflake" &&
+      rewardText({ kind: "gingerbread", amount: 1250 }, lvCat) === "1,250 GingerBread" &&
+      rewardText({ kind: "title", id: 1 }, lvCat) === "the \"Ice Warrior\" title",
+      rewardText({ kind: "title", id: 1 }, lvCat))
+    check("levels: an absent catalogue falls back to the id, not to a guess",
+      rewardText({ kind: "ornament", id: 3 }, normalizeWinterCatalog(null)) === "Ornament #3")
+    check("levels: next reward and the next three milestones",
+      nextRewardLevel(1) === 2 && nextRewardLevel(10) === 11 && nextRewardLevel(19) === null &&
+      milestones(1, 3).map(m => m.level).join(",") === "2,3,4" &&
+      milestones(17, 3).map(m => m.level).join(",") === "18,19" &&
+      milestones(19, 3).length === 0,
+      JSON.stringify(milestones(17, 3).map(m => m.level)))
+
+    // ---- 14e. the mailbox: scoping, expiry, unread ------------------------
+    const mDb = openLocalD1(join(root, "levels-mail-unit.sq3"))
+    const mEnv = { DB: mDb, SYNC_SECRET: SECRET, FN_LOCAL_TRUST: "1" }
+    await ensureMailTables(mEnv)
+    await ensureMailTables(mEnv) // twice: every statement is IF NOT EXISTS
+    const mTables = mDb.raw.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='winter_mail'").all()
+    check("mail: winter_mail exists after the DDL", mTables.length === 1)
+    const mCols = mDb.raw.prepare("PRAGMA table_info(winter_mail)").all().map(r => r.name)
+    check("mail: the table carries every column the brief names",
+      ["id", "steamid", "kind", "title", "body", "created_at", "read_at", "expires_at", "payload"]
+        .every(c => mCols.includes(c)), mCols.join(","))
+    check("mail: MAIL_DDL is IF NOT EXISTS only (never rewrites a live table)",
+      MAIL_DDL.every(sql => /IF NOT EXISTS/.test(sql)) && !/ALTER|DROP/.test(MAIL_DDL.join(" ")))
+    check("mail: the four kinds are system/event/grant/admin",
+      MAIL_KINDS.join(",") === "system,event,grant,admin")
+    check("mail: an unknown kind normalizes to system", normalizeKind("nonsense") === "system" &&
+      normalizeKind("GRANT") === "grant")
+
+    const mailNow = Math.floor(Date.now() / 1000)
+    const alice = "STEAM_0:0:700001"
+    const bob = "STEAM_0:0:700002"
+    check("mail: an empty inbox counts 0 unread", (await unreadCount(mEnv, alice, mailNow)) === 0)
+    check("mail: an empty inbox lists nothing", (await loadInbox(mEnv, alice, { now: mailNow })).length === 0)
+    const sentA = await sendMail(mEnv, { target: alice, kind: "system", title: "Hello Alice", body: "one", now: mailNow })
+    check("mail: one steamid gets exactly one row", sentA.ok === true && sentA.sent === 1, JSON.stringify(sentA))
+    await sendMail(mEnv, { target: alice, kind: "grant", title: "Reward paid", body: "two", now: mailNow + 1, payload: '{"ref":"g:1"}' })
+    await sendMail(mEnv, { target: bob, kind: "admin", title: "Hello Bob", body: "three", now: mailNow + 2 })
+    const expired = await sendMail(mEnv, { target: alice, kind: "event", title: "Expired one", body: "gone",
+      now: mailNow, expiresAt: mailNow - 10 })
+    check("mail: an expiry in the past is refused at send time", expired.ok === false && expired.status === 400,
+      JSON.stringify(expired))
+    mDb.raw.prepare("INSERT INTO winter_mail (steamid,kind,title,body,created_at,read_at,expires_at,payload) VALUES (?1,?2,?3,?4,?5,0,?6,'')")
+      .run(alice, "event", "Already expired", "gone", mailNow - 500, mailNow - 5)
+    check("mail: unread counts only unexpired messages", (await unreadCount(mEnv, alice, mailNow)) === 2,
+      String(await unreadCount(mEnv, alice, mailNow)))
+    const aliceInbox = await loadInbox(mEnv, alice, { now: mailNow })
+    check("mail: the inbox hides expired rows", aliceInbox.length === 2 && !aliceInbox.some(m => m.title === "Already expired"),
+      JSON.stringify(aliceInbox.map(m => m.title)))
+    check("mail: the inbox is scoped to its own steamid",
+      !aliceInbox.some(m => m.title === "Hello Bob") &&
+      (await loadInbox(mEnv, bob, { now: mailNow })).length === 1,
+      JSON.stringify((await loadInbox(mEnv, bob, { now: mailNow })).map(m => m.title)))
+    const bobMessage = (await loadInbox(mEnv, bob, { now: mailNow }))[0]
+    check("mail: another player's message id resolves to nothing",
+      (await loadMessage(mEnv, alice, bobMessage.id, mailNow)) === null)
+    check("mail: its own message id resolves",
+      (await loadMessage(mEnv, alice, aliceInbox[0].id, mailNow)) !== null)
+    check("mail: a steamid that cannot be parsed sees nothing",
+      (await loadInbox(mEnv, "not-a-steamid", { now: mailNow })).length === 0 &&
+      (await unreadCount(mEnv, "", mailNow)) === 0)
+    // The game reports a read; the panel only ever decreases the count.
+    mDb.raw.prepare("UPDATE winter_mail SET read_at=?1 WHERE steamid=?2 AND title=?3").run(mailNow + 5, alice, "Hello Alice")
+    check("mail: a reported read drops the unread count", (await unreadCount(mEnv, alice, mailNow)) === 1,
+      String(await unreadCount(mEnv, alice, mailNow)))
+    check("mail: the read timestamp is kept", (await loadInbox(mEnv, alice, { now: mailNow }))
+      .some(m => m.title === "Hello Alice" && m.readAt === mailNow + 5))
+    // The game -> panel direction: the read report (the payload sync.js will
+    // forward). Monotonic, idempotent, scoped to the right steamid.
+    const readReported = await applyMailReads(mEnv, [
+      { steamid: alice, id: aliceInbox.find(m => m.title === "Reward paid").id, at: mailNow + 9 },
+      { steamid: bob, id: aliceInbox.find(m => m.title === "Reward paid").id, at: mailNow + 9 },
+      { steamid: "not-a-steamid", id: 1, at: mailNow },
+    ])
+    check("mail: the game's read report updates exactly the right row",
+      readReported.updated === 1 && readReported.skipped === 2,
+      JSON.stringify(readReported))
+    check("mail: another player's read report cannot touch somebody else's mail",
+      (await loadInbox(mEnv, alice, { now: mailNow })).every(m => m.title !== "Reward paid" || m.readAt === mailNow + 9) &&
+      (await loadInbox(mEnv, bob, { now: mailNow }))[0].readAt === 0)
+    const replayRead = await applyMailReads(mEnv, [{ steamid: alice, id: aliceInbox.find(m => m.title === "Reward paid").id, at: mailNow + 99 }])
+    check("mail: a replayed read report is a no-op (read_at never moves backwards)",
+      replayRead.updated === 0 &&
+      (await loadInbox(mEnv, alice, { now: mailNow })).some(m => m.title === "Reward paid" && m.readAt === mailNow + 9),
+      JSON.stringify(replayRead))
+    check("mail: isVisible() honours expires_at = 0 as never",
+      isVisible({ expiresAt: 0 }, mailNow) === true && isVisible({ expiresAt: mailNow - 1 }, mailNow) === false)
+
+    // ---- 14f. the broadcast's refusals -----------------------------------
+    const noTitle = await sendMail(mEnv, { target: alice, kind: "system", title: "  ", body: "x" })
+    check("mail: an empty title is refused", noTitle.ok === false && noTitle.status === 400)
+    const longTitle = await sendMail(mEnv, { target: alice, title: "x".repeat(81), body: "x" })
+    check("mail: an over-long title is refused", longTitle.ok === false && /80/.test(longTitle.error))
+    const angle = await sendMail(mEnv, { target: alice, title: "ok", body: "<script>x</script>" })
+    check("mail: angle brackets are refused (the body is rendered on a page)", angle.ok === false)
+    const badTarget = await sendMail(mEnv, { target: "everyone-ish", title: "ok", body: "x" })
+    check("mail: a target that is neither * nor a steamid is refused",
+      badTarget.ok === false && /steamid/i.test(badTarget.error), badTarget.error)
+    const badJson = await sendMail(mEnv, { target: alice, title: "ok", body: "x", payload: "{not json" })
+    check("mail: a payload must be JSON when it is given", badJson.ok === false && /JSON/.test(badJson.error))
+    const nobody = await sendMail(mEnv, { target: "*", title: "ok", body: "x" })
+    check("mail: 'everyone' with no player snapshots is refused, not silently sent",
+      nobody.ok === false && /no player/i.test(nobody.error), nobody.error)
+    check("mail: expires in days parses, and 0/blank means never",
+      expiryFromDays("", mailNow) === 0 && expiryFromDays("0", mailNow) === mailNow &&
+      expiryFromDays("7", mailNow) === mailNow + 7 * 86400 && expiryFromDays("400", mailNow) === -1 &&
+      expiryFromDays("-3", mailNow) === -1)
+    mDb.raw.close()
+
+    // ---- 14g. the two pages over HTTP -------------------------------------
+    await levelPanel.start(18084)
+    const pDb = openLocalD1(levelPanel.dbFile)
+    await ensureMailTables({ DB: pDb })
+    const lvNow = Math.floor(Date.now() / 1000)
+    const rookie = "STEAM_0:0:800001"
+    const veteran = "STEAM_0:0:800002"
+    const stranger = "STEAM_0:0:800003"
+    const seedPlayer = (sid, name, xp, level, bpxp, bptier) => pDb.raw.prepare(
+      `INSERT OR REPLACE INTO players (steamid,name,xp,level,rank_id,bp_xp,bp_tier,coins,last_seen)
+       VALUES (?1,?2,?3,?4,?4,?5,?6,0,?7)`).run(sid, name, xp, level, bpxp, bptier, lvNow)
+    seedPlayer(rookie, "Rookie One", 0, 1, 0, 0)
+    seedPlayer(veteran, "Veteran Two", 12013, 14, 900, 2)
+    const insMail = pDb.raw.prepare(
+      "INSERT INTO winter_mail (steamid,kind,title,body,created_at,read_at,expires_at,payload) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
+    insMail.run(rookie, "system", "Welcome to Winterfest", "Find a present and open it.", lvNow - 600, 0, 0, "")
+    insMail.run(rookie, "grant", "Reward paid", "Silver Snowflake is yours.", lvNow - 300, 0, 0, '{"ref":"ornament:3"}')
+    const secretBody = "Only the stranger may read this sentence"
+    insMail.run(stranger, "admin", "Stranger's secret", secretBody, lvNow - 100, 0, 0, "")
+    const strangerId = Number(pDb.raw.prepare("SELECT MAX(id) AS id FROM winter_mail").get().id)
+
+    const lget = async (path) => {
+      const res = await fetch(levelPanel.base + path)
+      return { status: res.status, body: await res.text() }
+    }
+    const strip = t => t.replace(/<script[\s\S]*?<\/script>/g, "")
+    // Raw HTML is not readable prose: "Level" and "1" live in different tags, and
+    // an apostrophe is escaped. Assertions against a page go through this.
+    const text = t => t
+      .replace(/<style[\s\S]*?<\/style>/g, " ")
+      .replace(/<script[\s\S]*?<\/script>/g, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&middot;/g, "\u00b7").replace(/&rsaquo;/g, ">").replace(/&lsaquo;/g, "<")
+      .replace(/&check;/g, "v").replace(/&rarr;/g, "->").replace(/&amp;/g, "&")
+      .replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/\s+/g, " ")
+
+    const lv1 = await lget("/levels?steamid=" + encodeURIComponent(rookie))
+    check("levels route: /levels answers 200", lv1.status === 200, "-> " + lv1.status)
+    const lv1Text = text(lv1.body)
+    check("levels page: a level-1 player shows Level 1, 0/2,816 and 0%, with no NaN",
+      lv1Text.includes("Level 1 of 19") && lv1Text.includes("0 / 2,816") &&
+      lv1Text.includes("0% of the way") && !lv1Text.includes("NaN"), lv1Text.slice(0, 0))
+    check("levels page: the curve is the real table (first and last rung)",
+      lv1.body.includes("Unranked") && lv1.body.includes("Global Elite") && lv1.body.includes("30,000 XP"))
+    check("levels page: the next reward is named",
+      text(lv1.body).includes("Next reward at level 2 : 75 GingerBread"), "")
+    check("levels page: the next three milestones are listed",
+      lv1.body.includes("The next three milestones") && lv1.body.includes("3,730 XP") &&
+      lv1.body.includes("4,207 XP"))
+    check("levels page: a coming reward is tagged coming",
+      /class="wf-tag coming">coming</.test(lv1.body) && lv1.body.includes("spin token"))
+    check("levels page: nothing on it is claimable (no form, no claim link)",
+      !/<form/i.test(lv1.body) && !/<button/i.test(lv1.body) && !/href="[^"]*claim/i.test(lv1.body))
+    check("levels page: it says Phase 1 is informational",
+      /Informational in Phase 1/i.test(lv1Text) && /nothing on this page is claimable/i.test(lv1Text))
+    check("levels page: rank level and Battle Pass tier are labelled as different tracks",
+      /not this level/i.test(lv1.body) && lv1.body.includes("bp_xp"))
+    check("levels page: the sidebar carries PROGRESSION > Levels",
+      lv1.body.includes(">Progression<") && /class="on"[^>]*href="[^"]*\/levels/.test(lv1.body.replace(/\n/g, "")) ||
+      (lv1.body.includes("Progression") && lv1.body.includes('href="/levels')))
+    check("levels page: the top bar carries the envelope", lv1.body.includes("wf-env") && lv1.body.includes("/mail"))
+    check("levels page: the envelope shows the unread dot when there is unread mail",
+      lv1.body.includes('class="dot wf-dot"') && /class="wf-count">2</.test(lv1.body))
+    // lifetimeBoard() only lists players with XP > 0, so the rookie is correctly
+    // absent from the board while the veteran, at 12,013 XP, is on it.
+    const boardText = lv1Text.slice(lv1Text.indexOf("Leaderboard"))
+    check("levels page: the leaderboard is the existing lifetime board, top 10",
+      lv1Text.includes("Leaderboard") && boardText.includes("Veteran Two") &&
+      boardText.includes("Lv 14") && !boardText.includes("Rookie One"), boardText.slice(0, 120))
+    const lvVet = await lget("/levels?steamid=" + encodeURIComponent(veteran))
+    const lvVetText = text(lvVet.body)
+    check("levels page: a mid-ladder player reads its own rung",
+      lvVetText.includes("Level 14 of 19") && lvVetText.includes("12,013") &&
+      lvVetText.includes("Master Guardian Elite") && !lvVetText.includes("NaN"))
+    const lvNone = await lget("/levels")
+    const lvNoneText = text(lvNone.body)
+    check("levels page: with no steamid it renders the zero state and still shows the curve",
+      lvNone.status === 200 && lvNoneText.includes("No player selected") &&
+      lvNoneText.includes("Global Elite") && !lvNoneText.includes("NaN"))
+    const lvUnknown = await lget("/levels?steamid=" + encodeURIComponent("STEAM_0:0:899999"))
+    check("levels page: an unknown player says there is no snapshot, it does not invent one",
+      lvUnknown.status === 200 && /no server snapshot/i.test(lvUnknown.body))
+
+    // With the catalogue pushed, the reward table resolves ids to real names
+    // (the cross-reference the brief asks for) instead of falling back to ids.
+    const catPushLv = await push(levelPanel, { players: [], catalogs: { winterfest: winterCatalogue() } })
+    check("levels page: the catalogue can be pushed while the panel runs", catPushLv.status === 200, "-> " + catPushLv.status)
+    const lvCatPage = text((await lget("/levels?steamid=" + encodeURIComponent(rookie))).body)
+    // Ornament ids resolve to the fixture's names; set 6 is not in the fixture, so
+    // that reward must fall back to its set id instead of inventing a title.
+    check("levels page: ornament rewards resolve through the catalogue",
+      lvCatPage.includes("Silver Snowflake") && lvCatPage.includes("Brass Bell") &&
+      !lvCatPage.includes("Ornament #3"))
+    check("levels page: a title whose set is not in the catalogue falls back to the set id",
+      lvCatPage.includes("the title of ornament set #6"))
+
+    const mailEmpty = await lget("/mail?steamid=" + encodeURIComponent(veteran))
+    check("mail route: /mail answers 200", mailEmpty.status === 200, "-> " + mailEmpty.status)
+    check("mail page: an empty inbox says so and has no red dot",
+      text(mailEmpty.body).includes("No messages yet") && !mailEmpty.body.includes('class="dot wf-dot"'), "")
+    const mailRookie = await lget("/mail?steamid=" + encodeURIComponent(rookie))
+    check("mail page: unread count is in the top bar and the sidebar",
+      /class="wf-count">2</.test(mailRookie.body) && /class="pill">2</.test(mailRookie.body))
+    check("mail page: the red dot is there when something is unread",
+      mailRookie.body.includes('class="dot wf-dot"'))
+    check("mail page: the messages are listed newest first",
+      mailRookie.body.indexOf("Reward paid") < mailRookie.body.indexOf("Welcome to Winterfest"))
+    check("mail page: the panel offers no mark-as-read write",
+      !/<form/i.test(mailRookie.body) && !/method="post"/i.test(mailRookie.body) &&
+      /no player login|read-only/i.test(mailRookie.body))
+    const mailView = await lget("/mail?steamid=" + encodeURIComponent(rookie) + "&id=" + strangerId)
+    check("mail page: another player's message id is a 404 and leaks nothing",
+      mailView.status === 404 && !mailView.body.includes(secretBody) &&
+      !mailView.body.includes("Stranger") && !mailView.body.includes("secret"), "-> " + mailView.status)
+    // The title is escaped on the page (&#39;), which is what makes it safe to render.
+    const strangerInbox = await lget("/mail?steamid=" + encodeURIComponent(stranger))
+    check("mail page: the stranger's own inbox shows that message",
+      strangerInbox.body.includes("Stranger&#39;s secret") &&
+      text(strangerInbox.body).includes("Stranger's secret"), "")
+    check("mail page: a stranger's mail never appears in another player's inbox",
+      !mailRookie.body.includes("Stranger") && !mailRookie.body.includes(secretBody))
+    const ownId = Number(pDb.raw.prepare("SELECT id FROM winter_mail WHERE steamid=?1 ORDER BY id DESC LIMIT 1").get(rookie).id)
+    const mailOwn = await lget("/mail?steamid=" + encodeURIComponent(rookie) + "&id=" + ownId)
+    check("mail page: its own message opens with its body",
+      mailOwn.status === 200 && mailOwn.body.includes("Silver Snowflake is yours"))
+    check("mail page: an unread message tells the player to mark it read in game",
+      mailOwn.status === 200 && /marked read in game/i.test(mailOwn.body) && mailOwn.body.includes("/mail"))
+    check("mail page: an expired message is gone rather than shown",
+      (await lget("/mail?steamid=" + encodeURIComponent(rookie) + "&id=999999")).status === 404)
+    const postMail = await fetch(levelPanel.base + "/mail", { method: "POST", body: "steamid=" + encodeURIComponent(rookie) })
+    check("mail route: there is no POST route (no unauthenticated write path)", postMail.status === 405,
+      "-> " + postMail.status)
+    const postLevels = await fetch(levelPanel.base + "/levels", { method: "POST", body: "level=19" })
+    check("levels route: there is no POST route either", postLevels.status === 405, "-> " + postLevels.status)
+    const compactMail = await lget("/mail?steamid=" + encodeURIComponent(rookie) + "&compact=1")
+    check("mail page: the compact/MOTD skin draws no SVG and no script",
+      compactMail.status === 200 && !compactMail.body.includes("<svg") &&
+      compactMail.body.includes("MAIL ("), "")
+    check("both routes keep the skin wrapper working (http 200 on /rules while the season is on)",
+      (await lget("/levels?compact=1")).status === 200)
+
+    // ---- 14h. the admin broadcast (existing admin session + CSRF) ---------
+    const noSession = await fetch(levelPanel.base + "/admin?s=mail", { redirect: "manual" })
+    const noSessionBody = await noSession.text()
+    check("admin mail: the section is behind the staff login",
+      noSession.status === 302 || /Sign in|password/i.test(noSessionBody), "-> " + noSession.status)
+    const loginRes = await fetch(levelPanel.base + "/admin/login", {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "steamid=STEAM_0%3A0%3A683671116&password=" + encodeURIComponent(ADMIN),
+    })
+    const cookies = (loginRes.headers.getSetCookie ? loginRes.headers.getSetCookie() : [])
+      .map(c => c.split(";")[0]).join("; ")
+    check("admin mail: staff login sets a session cookie", loginRes.status === 302 && cookies.includes("fn_staff"),
+      "-> " + loginRes.status)
+    const admMail = await fetch(levelPanel.base + "/admin?s=mail", { headers: { cookie: cookies } })
+    const admMailBody = await admMail.text()
+    check("admin mail: /admin?s=mail renders the send form",
+      admMail.status === 200 && admMailBody.includes("Send a message") && admMailBody.includes("Last 20 messages"),
+      "-> " + admMail.status)
+    check("admin mail: the sidebar has a Mail item", admMailBody.includes('href="/admin?s=mail"'))
+    const csrf = (admMailBody.match(/name="csrf" value="([a-f0-9]+)"/) || [])[1] || ""
+    check("admin mail: the form carries the session CSRF token", csrf.length >= 16, csrf.slice(0, 8))
+    const noCsrf = await fetch(levelPanel.base + "/admin/mail", {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: cookies },
+      body: "target=*&title=No%20csrf&body=x",
+    })
+    check("admin mail: a POST without the CSRF token is refused", noCsrf.status === 403, "-> " + noCsrf.status)
+    const badDays = await fetch(levelPanel.base + "/admin/mail", {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: cookies },
+      body: "csrf=" + encodeURIComponent(csrf) + "&target=*&kind=admin&title=x&body=y&expires_days=999",
+    })
+    const badDaysBody = await badDays.text()
+    check("admin mail: an impossible expiry is refused with a message",
+      badDays.status === 200 && /Expiry must be a whole number of days/.test(badDaysBody), "-> " + badDays.status)
+    const sent = await fetch(levelPanel.base + "/admin/mail", {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: cookies },
+      body: "csrf=" + encodeURIComponent(csrf) + "&target=*&kind=event&title=" +
+        encodeURIComponent("Christmas event tonight") + "&body=" + encodeURIComponent("Double XP from 20:00.") +
+        "&expires_days=7",
+    })
+    check("admin mail: a valid broadcast redirects back to the section", sent.status === 302, "-> " + sent.status)
+    const broadcast = pDb.raw.prepare("SELECT steamid, kind, title, expires_at FROM winter_mail WHERE title='Christmas event tonight'").all()
+    check("admin mail: the broadcast fans out one row per known player",
+      broadcast.length === 2 && broadcast.every(r => r.kind === "event" && Number(r.expires_at) > lvNow),
+      JSON.stringify(broadcast.map(r => r.steamid)))
+    check("admin mail: the audit log records the broadcast",
+      !!levelPanel.first("SELECT id FROM admin_audit WHERE action='MAIL_SENT' LIMIT 1"))
+    check("mail page: the broadcast reached the player's inbox",
+      (await lget("/mail?steamid=" + encodeURIComponent(veteran))).body.includes("Christmas event tonight"))
+    pDb.raw.close()
+    await levelPanel.stop()
+  }
+
 } catch (e) {
   bad("suite", e && e.stack ? e.stack : String(e))
   console.error("--- panel output ---\n" + panel.output.split("\n").slice(-25).join("\n"))
@@ -1670,8 +2081,213 @@ try {
   await trusted.stop()
   await limited.stop()
   try { await winterPanel.stop() } catch {}
+  try { await levelPanel.stop() } catch {}
   await wait(200)
   try { rmSync(root, { recursive: true, force: true }) } catch {}
+}
+
+// ===================================================================== //
+// 10. the Spin Wheel (workstream 13, docs/WINTERFEST-SPIN.md)            //
+// ===================================================================== //
+// The wheel is DATA, so it is checked against the data: the rows below are read
+// from configs/freenova/winterfest/spin.ini ON DISK and compared with
+// src/winter/spin_data.js, which is what the page renders from. If those two
+// ever drift, the panel advertises odds the game does not roll - the one thing
+// this page must never do.
+//
+// The page is a VIEWER (it cannot spend a token: there is no game-side consumer
+// for a panel action), so the checks also prove the absence of a write path and
+// the honesty of the zero state, then create the two mirror columns/tables the
+// page already knows how to read and prove they light it up.
+{
+  const spinPanel = new Panel("spin", { FN_LOCAL_TRUST: "1" })
+  const spinRoot = mkdtempSync(join(tmpdir(), "freenova-spin-test-"))
+  spinPanel.dbFile = join(spinRoot, "spin.sq3")
+  const { readFileSync } = await import("node:fs")
+  const {
+    SPIN_SECTORS, SPIN_WHEEL, SPIN_RARITIES, spinOdds, spinTotalWeight,
+    rarityWeight, prizeText, nextResetAt,
+  } = await import("./src/winter/spin_data.js")
+
+  try {
+    await spinPanel.start(18084)
+
+    const sid = "STEAM_0:0:777001"
+    const sget = async (path, headers) => {
+      const res = await fetch(spinPanel.base + path, { headers: headers || {} })
+      return { status: res.status, body: await res.text() }
+    }
+    const noScriptBody = t => t.replace(/<script[\s\S]*?<\/script>/g, "")
+    const route = "/winter/spin?steamid=" + encodeURIComponent(sid)
+
+    // ---- 10a. the page's wheel IS the game's wheel -----------------------
+    const iniText = readFileSync(join(here, "..", "game-server", "cstrike", "addons", "amxmodx",
+      "configs", "freenova", "winterfest", "spin.ini"), "utf8")
+    const iniWheel = {}
+    const iniSectors = []
+    let iniSection = ""
+    for (const rawLine of iniText.split("\n")) {
+      const line = rawLine.trim()
+      if (!line || line[0] === ";" || line[0] === "#" || line.startsWith("//")) continue
+      if (line[0] === "[") { iniSection = line.slice(1, line.indexOf("]")).trim().toLowerCase(); continue }
+      if (iniSection === "wheel") {
+        const eq = line.indexOf("=")
+        if (eq > 0) iniWheel[line.slice(0, eq).trim()] = line.slice(eq + 1).trim()
+      } else if (iniSection === "sector") {
+        const f = line.split("|").map(x => x.trim())
+        iniSectors.push({ label: f[0], kind: f[1], amount: Number(f[2]), weight: Number(f[3]), rarity: f[4] })
+      }
+    }
+    check("spin: spin.ini has 8..12 sectors (the brief's range)",
+      iniSectors.length >= 8 && iniSectors.length <= 12, String(iniSectors.length))
+    check("spin: the page's sectors are spin.ini's sectors, row for row",
+      JSON.stringify(iniSectors) === JSON.stringify(SPIN_SECTORS.map(s => ({
+        label: s.label, kind: s.kind, amount: s.amount, weight: s.weight, rarity: s.rarity,
+      }))),
+      JSON.stringify(iniSectors.map(s => s.label)))
+    check("spin: the page's wheel settings are spin.ini's [wheel] block",
+      Number(iniWheel.free_per_day) === SPIN_WHEEL.freePerDay &&
+      Number(iniWheel.reset_hour) === SPIN_WHEEL.resetHour &&
+      Number(iniWheel.max) === SPIN_WHEEL.max &&
+      Number(iniWheel.step) === SPIN_WHEEL.stepSeconds &&
+      iniWheel.timezone === SPIN_WHEEL.timezone &&
+      iniWheel.fade_rarity === SPIN_WHEEL.fadeRarity &&
+      Number(iniWheel.enabled) === (SPIN_WHEEL.enabled ? 1 : 0),
+      JSON.stringify(iniWheel))
+    check("spin: every weight is >= 2 and the odds add up to 100 %",
+      SPIN_SECTORS.every(s => s.weight >= 2) &&
+      Math.abs(spinOdds().reduce((a, s) => a + s.pct, 0) - 100) < 1e-9,
+      JSON.stringify({ total: spinTotalWeight(), rare: rarityWeight(SPIN_WHEEL.fadeRarity).pct.toFixed(1) }))
+    check("spin: the fade threshold is worth what the ini header claims (5 %)",
+      Math.abs(rarityWeight("rare").pct - 5) < 1e-9, String(rarityWeight("rare").pct))
+
+    // ---- 10b. the page, with no mirror at all (the shipped deployment) ---
+    const bare = await sget(route)
+    check("spin: /winter/spin answers 200", bare.status === 200, "-> " + bare.status)
+    check("spin: it is the reference palette (page, card, border, gold, green)",
+      ["#0b1030", "#0d1430", "#2a3d6e", "#f5c451", "#3fbf6f"].every(c => bare.body.includes(c)))
+    check("spin: the wheel is inline SVG, one slice per sector",
+      bare.body.includes("<svg") && bare.body.includes('viewBox="0 0 480 480"') &&
+      (bare.body.match(/<path d="M240 240/g) || []).length === SPIN_SECTORS.length,
+      String((bare.body.match(/<path d="M240 240/g) || []).length))
+    check("spin: every sector is labelled on the page",
+      SPIN_SECTORS.every(s => bare.body.includes(s.label)),
+      SPIN_SECTORS.filter(s => !bare.body.includes(s.label)).map(s => s.label).join(","))
+    check("spin: the prize table shows the configured odds as percentages",
+      spinOdds().every(s => bare.body.includes(`${s.pctText}%`)),
+      spinOdds().map(s => s.pctText + "%").join(" "))
+    check("spin: the table says what each prize actually is",
+      bare.body.includes(prizeText({}, { kind: "gingerbread", amount: 5 })) &&
+      bare.body.includes("a random ornament you do not own yet") &&
+      bare.body.includes("common present") && bare.body.includes("rare present"))
+    check("spin: no NaN and no undefined outside the enhancement script",
+      !noScriptBody(bare.body).includes("NaN") && !noScriptBody(bare.body).includes("undefined"))
+    check("spin: READ-ONLY - the page has no form, no button and no POST",
+      !/<form/i.test(bare.body) && !/<button/i.test(bare.body) && !/method=["']?post/i.test(bare.body))
+    check("spin: it says where a spin actually happens",
+      bare.body.includes("spins happen in game") && bare.body.includes("<code>/spin</code>"))
+    check("spin: with no pushed counter it says 'not mirrored' instead of printing a 0",
+      bare.body.includes("not mirrored") && bare.body.includes("winter_players.spins"))
+    check("spin: the zero state names what is missing, not a fake result row",
+      bare.body.includes("winter_spin_log") && !bare.body.includes("No results to show.</b> You have not spun"))
+    check("spin: the daily reset is a <time> element the browser localises",
+      /<time class="wf-time" datetime="\d{4}-\d{2}-\d{2}T/.test(bare.body) &&
+      bare.body.includes("Europe/Paris") && bare.body.includes("1 free spin a day"))
+    check("spin: the rare+ chip matches the configured rare-or-better weight",
+      bare.body.includes(`${rarityWeight(SPIN_WHEEL.fadeRarity).pct.toFixed(1)}%`))
+    check("spin: the shared tab bar is there and no tab claims to be current",
+      bare.body.includes("wf-tabs") && !/<span class="on">Spin/.test(bare.body))
+    check("spin: no route of its own under the page is invented",
+      (await sget("/winter/spin/anything")).status === 404)
+    check("spin: a page with no player selected still answers, with the standard note",
+      (await fetch(spinPanel.base + "/winter/spin")).status === 200)
+
+    // The GoldSrc MOTD browser cannot render SVG and must not get a script.
+    const motd = await sget(route + "&compact=1", { "user-agent": "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)" })
+    check("spin: the compact skin drops the SVG for a text wheel",
+      motd.status === 200 && !motd.body.includes("<svg") && motd.body.includes("drawn in a browser"),
+      "-> " + motd.status)
+    check("spin: the compact skin keeps every sector and its odds",
+      SPIN_SECTORS.every(s => motd.body.includes(s.label)) &&
+      spinOdds().every(s => motd.body.includes(`${s.pctText}%`)))
+    check("spin: the compact skin ships no script at all", !motd.body.includes("<script"))
+
+    // ---- 10c. the mirror: the columns/tables the game will push ----------
+    // THIS IS THE DDL docs/WINTERFEST-SPIN.md §6 asks workstream 5 (and 1) for.
+    // Creating it here is the proof that the read path works the day it lands.
+    const db = openLocalD1(spinPanel.dbFile)
+    await ensureWinterTables({ DB: db })
+    db.raw.prepare("ALTER TABLE winter_players ADD COLUMN spins INTEGER NOT NULL DEFAULT 0").run()
+    db.raw.prepare("ALTER TABLE winter_players ADD COLUMN spin_serial INTEGER NOT NULL DEFAULT 0").run()
+    db.raw.prepare(`CREATE TABLE IF NOT EXISTS winter_spin_log (
+        steamid TEXT NOT NULL, season TEXT NOT NULL DEFAULT '',
+        serial INTEGER NOT NULL, sector INTEGER NOT NULL,
+        label TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT '',
+        amount INTEGER NOT NULL DEFAULT 0, rarity TEXT NOT NULL DEFAULT '',
+        claim_key TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (steamid, serial))`).run()
+    const t0 = Math.floor(Date.now() / 1000)
+    db.raw.prepare("INSERT INTO winter_players (steamid, season, snowflakes, spins, spin_serial, seen_at) VALUES (?1,'2026',145,3,2,?2)")
+      .run(sid, t0)
+    db.raw.prepare("INSERT INTO winter_spin_log (steamid, season, serial, sector, label, kind, amount, rarity, claim_key, at) VALUES (?1,'2026',1,2,'5 GingerBread','gingerbread',5,'common','wfspin#1',?2)")
+      .run(sid, t0 - 120)
+    db.raw.prepare("INSERT INTO winter_spin_log (steamid, season, serial, sector, label, kind, amount, rarity, claim_key, at) VALUES (?1,'2026',2,10,'Rare Present','gift',2,'rare','wfspin#2',?2)")
+      .run(sid, t0 - 60)
+    db.raw.close()
+
+    const lit = await sget(route)
+    check("spin mirror: the counter is shown once the game pushes it",
+      lit.body.includes("Your spins") && /class="wfs-v gold">3/.test(lit.body), "")
+    check("spin: the counter is shown against the configured cap", lit.body.includes("/ 10"))
+    // The sector labels also appear on the wheel and in the prize table, so the
+    // order has to be read inside the results card only.
+    const resultsCard = (lit.body.split("Your last")[1] || "").split("How a spin works")[0]
+    check("spin mirror: both results are listed, newest first",
+      resultsCard.includes("Rare Present") && resultsCard.includes("5 GingerBread") &&
+      resultsCard.indexOf("Rare Present") < resultsCard.indexOf("5 GingerBread"),
+      resultsCard.slice(0, 120))
+    check("spin mirror: a result carries a real timestamp the browser localises",
+      (lit.body.match(/<time class="wf-time" datetime=/g) || []).length >= 2)
+    check("spin mirror: the claim key is NOT published",
+      !lit.body.includes("wfspin#"), "the ledger key is server-side only")
+    check("spin mirror: 'not mirrored' is gone once the number is real",
+      !lit.body.includes("not mirrored"))
+    check("spin mirror: an unknown rarity or kind cannot break the page", await (async () => {
+      const d2 = openLocalD1(spinPanel.dbFile)
+      d2.raw.prepare("INSERT INTO winter_spin_log (steamid, season, serial, sector, label, kind, amount, rarity, claim_key, at) VALUES (?1,'2026',3,99,'','weird',0,'mythic','wfspin#3',?2)")
+        .run(sid, t0 - 30)
+      d2.raw.close()
+      const r = await sget(route)
+      return r.status === 200 && r.body.includes("mythic")
+    })(), "")
+    check("spin mirror: a label from the game is escaped, never markup", await (async () => {
+      const d3 = openLocalD1(spinPanel.dbFile)
+      d3.raw.prepare("INSERT INTO winter_spin_log (steamid, season, serial, sector, label, kind, amount, rarity, claim_key, at) VALUES (?1,'2026',4,1,'<script>alert(1)</script>','nothing',0,'common','wfspin#4',?2)")
+        .run(sid, t0 - 10)
+      d3.raw.close()
+      const r = await sget(route)
+      return r.body.includes("&lt;script&gt;alert(1)&lt;/script&gt;") && !r.body.includes("<script>alert(1)</script>")
+    })(), "")
+
+    // ---- 10d. the reset arithmetic the page prints -----------------------
+    const nowSpin = Math.floor(Date.now() / 1000)
+    const nextReset = nextResetAt(nowSpin, SPIN_WHEEL.resetHour, parisMidnight, parisParts)
+    check("spin: the next reset is in the future and within a day",
+      nextReset > nowSpin && nextReset - nowSpin <= 26 * 3600,
+      `${nextReset - nowSpin}s`)
+    check("spin: the reset instant is Paris midnight when the hour is 0",
+      nextReset === parisMidnight(parisParts(nextReset).y, parisParts(nextReset).m, parisParts(nextReset).d),
+      String(nextReset))
+    check("spin: the rarity colours are the reference palette",
+      SPIN_RARITIES.common.color === "#9fb0d0" && SPIN_RARITIES.uncommon.color === "#3fbf6f" &&
+      SPIN_RARITIES.rare.color === "#4070c0" && SPIN_RARITIES.legendary.color === "#f5c451")
+  } catch (e) {
+    bad("spin suite", e && e.stack ? e.stack : String(e))
+    try { console.error("--- spin panel output ---\n" + spinPanel.output.split("\n").slice(-20).join("\n")) } catch {}
+  } finally {
+    try { await spinPanel.stop() } catch {}
+    try { rmSync(spinRoot, { recursive: true, force: true }) } catch {}
+  }
 }
 
 if (failures) {

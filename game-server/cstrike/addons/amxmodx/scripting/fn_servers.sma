@@ -36,7 +36,9 @@ public plugin_init()
 
 	register_plugin("FreeNova Servers", "3.0.0", "FreeNova");
 	register_clcmd("amx_serversmenu", "cmdServers", ADMIN_ALL, "- browse community servers");
+	register_concmd("fn_servers", "cmdServerList", ADMIN_ALL, "- print the configured server list (console)");
 	register_clcmd("say /servers", "cmdServers", ADMIN_ALL);
+	register_clcmd("say_team /servers", "cmdServers", ADMIN_ALL);
 	if (!LibraryExists("fn_core", LibType_Library))
 	{
 		log_amx("[FN-SERVERS] fn_core missing, pausing self");
@@ -114,6 +116,18 @@ public cmdServers(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 1))
 		return PLUGIN_HANDLED;
+
+	// Server console / RCON: no menu to draw and nobody to connect.
+	if (id <= 0)
+	{
+		PrintList();
+		return PLUGIN_HANDLED;
+	}
+
+	// A bot has no client to draw a menu on and cannot act on a connect.
+	if (!is_user_connected(id) || is_user_bot(id) || is_user_hltv(id))
+		return PLUGIN_HANDLED;
+
 	if (!g_servers)
 	{
 		client_print(id, print_chat, "[FN] no community servers configured (configs/fn_servers.ini).");
@@ -131,9 +145,37 @@ public cmdServers(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
+/* The same list the menu is built from, printed to the server console. This is
+ * what an operator runs after a deploy to prove the config parsed - and it is
+ * the console-safe half of /servers (a console caller has no menu and nobody to
+ * connect). */
+PrintList()
+{
+	console_print(0, "[FN-SERVERS] %d configured server(s) from configs/fn_servers.ini:", g_servers);
+	for (new i = 0; i < g_servers; i++)
+		console_print(0, "  %d. %s | %s | %s", i + 1, g_names[i], g_addrs[i], g_descs[i]);
+	if (!g_servers)
+		console_print(0, "[FN-SERVERS] list is empty - /servers is advertised but does nothing.");
+}
+
+public cmdServerList(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+		return PLUGIN_HANDLED;
+	PrintList();
+	return PLUGIN_HANDLED;
+}
+
 public srvH(id, menu, item)
 {
 	if (item < 0)
+	{
+		menu_destroy(menu);
+		return PLUGIN_HANDLED;
+	}
+
+	// The player may have disconnected while the menu was open.
+	if (!is_user_connected(id) || is_user_bot(id))
 	{
 		menu_destroy(menu);
 		return PLUGIN_HANDLED;

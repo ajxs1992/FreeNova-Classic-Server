@@ -126,3 +126,26 @@ One line per change, with the verification that was actually run. Newest last.
   fresh/stale/no-webhook/missing files, `updown_enabled` for all modes, and
   `alert_transition` over down→down→up→down→down including `down_after=1`.
   All test messages were deleted and the config/state restored afterwards.
+
+- **Command hygiene** (`bot.py`): descriptions and options now read like a
+  player wrote them (`/players` gained `count` 1-32 and a "showing 3 of 9,
+  sorted by score" footer; `/map` title is the map's name; `/profile` says
+  "rank, XP, battle pass and playtime"). One red `offline_embed()` card is used
+  by `/status`, `/players` and `/map` instead of three different sentences; the
+  palette is the site's (`#36DEAB` mint for state, `#7DD3FC` for live players,
+  `#E8C547` for XP/battle pass, dim grey for "nothing to show", `#F07178` for
+  trouble). `/profile` stays ephemeral. New `/help` builds itself from the live
+  command tree (so it cannot go stale) and explains the presence line. Command
+  sync is now single-source: with a `guild_id` the tree is synced to the guild
+  and the global set is emptied (verified: 7 guild commands, `[]` global);
+  without one it syncs globally. The journal no longer carries discord.py's
+  voice/message-intent warnings (logger levels set), so a restart reads as
+  login → sync → presence.
+  *Verified:* `py_compile`; every command driven through the real callback with
+  a fake interaction (`/help` lists all seven with their options, `/players
+  3` renders the footer, `/map` shows `de Train · next de_aztec · 4/24`,
+  `/top week` is dim with the honest note, `/top all` is gold) and the
+  rendered embed colours are exactly the ones above; restart → journal shows
+  `synced 7 command(s) to guild …; global set emptied`, `commands: events, help,
+  map, players, profile, status, top`, `presence: de Train · 9/32 · defuse
+  (live)`; REST shows the same seven names with their new descriptions.

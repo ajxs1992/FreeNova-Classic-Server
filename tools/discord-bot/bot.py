@@ -1364,7 +1364,39 @@ def command_guard(ephemeral: bool = False):
 
 ERROR_TEXT = "Something went wrong on my side - the server and the leaderboard are still up. Try again in a moment."
 
-SERVER_ERROR_TEXT = "🔴 **{name}** is not answering on `{host}:{port}` right now."
+
+def offline_embed(server: dict, detail: str = "") -> discord.Embed:
+    """One red card for "the game server is not answering", used by every command."""
+    embed = discord.Embed(
+        title=f"{server['name']} is offline",
+        colour=COLOUR_WARN,
+        description=detail or (f"No answer from `{server['host']}:{server['port']}` on the last probe. "
+                               "The bot keeps trying; this is the game server, not the panel."),
+    )
+    embed.set_footer(text="A2S over UDP · checked just now")
+    return embed
+
+
+def help_embed(entries: list[tuple[str, str, list[tuple[str, str]]]], base: str,
+               server_name: str) -> discord.Embed:
+    """`/help` built from the live command table, so it cannot go stale."""
+    embed = discord.Embed(title="What I can do",
+                          description=(f"I watch **{server_name}** over A2S and the public "
+                                       "leaderboard - no panel needed."),
+                          colour=COLOUR_OK)
+    for name, description, options in entries:
+        value = description or "-"
+        for option, option_description in options:
+            value += f"\n`{option}` · {option_description}"
+        embed.add_field(name=f"/{name}", value=value[:1024], inline=False)
+    embed.add_field(
+        name="Also",
+        value=("My status line shows the live map and player count, turns into *waiting for "
+               "players* when the server is empty and *for the server to come back* when it is "
+               "down.\nEvent notices and the daily digest are posted automatically."),
+        inline=False)
+    embed.set_footer(text=f"Leaderboard: {base.replace('https://', '')} · English only for now")
+    return embed
 
 
 def build_bot(cfg: dict) -> commands.Bot:
@@ -1383,10 +1415,16 @@ def build_bot(cfg: dict) -> commands.Bot:
                 guild = discord.Object(id=int(guild_id))
                 bot.tree.copy_global_to(guild=guild)
                 synced = await bot.tree.sync(guild=guild)
+                # one source of truth: guild commands update instantly, so drop
+                # any global copies instead of showing every command twice
+                bot.tree.clear_commands(guild=None)
+                await bot.tree.sync()
+                log.info("synced %d command(s) to guild %s; global set emptied",
+                         len(synced), guild_id)
             else:
                 synced = await bot.tree.sync()
-            log.info("synced %d command(s): %s", len(synced),
-                     ", ".join(sorted(c.name for c in synced)))
+                log.info("synced %d global command(s)", len(synced))
+            log.info("commands: %s", ", ".join(sorted(c.name for c in synced)))
         except Exception:                      # noqa: BLE001
             log.exception("command sync failed")
         if not monitor_loop.is_running():
@@ -1585,8 +1623,7 @@ def build_bot(cfg: dict) -> commands.Bot:
     async def status_cmd(interaction: discord.Interaction) -> None:
         info = await get_info(server)
         if not info:
-            await _reply(interaction, content=SERVER_ERROR_TEXT.format(
-                name=server["name"], host=server["host"], port=server["port"]))
+            await _reply(interaction, embed=offline_embed(server))
             return
         nxt = next_map(map_pool(cfg.get("mapcycle")), info["map"])
         embed = discord.Embed(title=info["name"], colour=COLOUR_OK,
@@ -1599,23 +1636,30 @@ def build_bot(cfg: dict) -> commands.Bot:
 
     @bot.tree.command(name="players", description="Who is on the server right now")
     @command_guard()
-    async def players_cmd(interaction: discord.Interaction) -> None:
+    @app_commands.describe(count="How many players to list (default 20)")
+    async def players_cmd(interaction: discord.Interaction,
+                          count: app_commands.Range[int, 1, 32] = 20) -> None:
         players = await get_players(server)
         if players is None:
-            await _reply(interaction, content=SERVER_ERROR_TEXT.format(
-                name=server["name"], host=server["host"], port=server["port"]))
+            await _reply(interaction, embed=offline_embed(server))
             return
         if not players:
-            await _reply(interaction, content="Nobody is on right now - the server is up and waiting.")
+            embed = discord.Embed(title=f"{server['name']} is empty", colour=COLOUR_DIM,
+                                  description="Nobody is on right now - the server is up and "
+                                              "waiting for players.")
+            await _reply(interaction, embed=embed)
             return
         players.sort(key=lambda p: (-p["score"], -p["seconds"]))
+        shown = players[:int(count)]
         lines = [f"`{i:>2}.` **{p['name'][:24]}** - {p['score']} pts, {fmt_duration(p['seconds'])}"
-                 for i, p in enumerate(players, 1)]
+                 for i, p in enumerate(shown, 1)]
         embed = discord.Embed(title=f"{len(players)} on {server['name']}", colour=COLOUR_LIVE,
-                              description="\n".join(lines[:25]))
+                              description="\n".join(lines))
+        if len(players) > len(shown):
+            embed.set_footer(text=f"showing {len(shown)} of {len(players)} · sorted by score")
         await _reply(interaction, embed=embed)
 
-    @bot.tree.command(name="map", description="Current and next map")
+    @bot.tree.command(name="map", description="The current map and what comes next")
     @command_guard()
     async def map_cmd(interaction: discord.Interaction) -> None:
         info = await get_info(server)
@@ -1623,15 +1667,17 @@ def build_bot(cfg: dict) -> commands.Bot:
         pool = map_pool(cfg.get("mapcycle"))
         nxt = next_map(pool, current)
         if not current:
-            await _reply(interaction, content=SERVER_ERROR_TEXT.format(
-                name=server["name"], host=server["host"], port=server["port"]))
+            await _reply(interaction, embed=offline_embed(server))
             return
-        embed = discord.Embed(title="Map", colour=COLOUR_OK, description=f"**Now:** `{current}`")
+        embed = discord.Embed(title=f"Map · {humanise_map(current)}", colour=COLOUR_OK,
+                              description=f"**Now:** `{current}`")
         if nxt:
             embed.add_field(name="Next", value=f"`{nxt}`", inline=True)
         if current in pool:
             embed.add_field(name="In the cycle", value=f"{pool.index(current) + 1}/{len(pool)}",
                             inline=True)
+        if not pool:
+            embed.set_footer(text="No mapcycle file configured - next map unknown")
         await _reply(interaction, embed=embed)
 
     @bot.tree.command(name="top", description="The leaderboard - all time, or by week/month")
@@ -1645,7 +1691,9 @@ def build_bot(cfg: dict) -> commands.Bot:
     async def top_cmd(interaction: discord.Interaction,
                       period: app_commands.Choice[str] | None = None,
                       count: app_commands.Range[int, 1, 15] = 10) -> None:
-        chosen = period.value if period else "all"
+        chosen = period.value if isinstance(period, app_commands.Choice) else period
+        if chosen not in PERIODS:
+            chosen = "all"
         board = await _in_thread(fetch_leaderboard, base, chosen, count, budget=HTTP_TIMEOUT + 1)
         if board is None:                      # budget blown: answer anyway
             board = Leaderboard(chosen, url=f"{base}/top15",
@@ -1653,8 +1701,9 @@ def build_bot(cfg: dict) -> commands.Bot:
                                 note_kind="unavailable")
         title = f"Top {len(board.rows)} · {PERIOD_LABEL[chosen]}" if board.ok else \
             f"Leaderboard · {PERIOD_LABEL[chosen]}"
-        embed = discord.Embed(title=title, url=board.url,
-                              colour=COLOUR_BP if board.ok else COLOUR_WARN)
+        colour = COLOUR_BP if board.ok else (
+            COLOUR_DIM if board.note_kind == "period" else COLOUR_WARN)
+        embed = discord.Embed(title=title, url=board.url, colour=colour)
         if board.ok:
             embed.description = "\n".join(row.line() for row in board.rows)
             embed.set_footer(text=f"Source: {board.url.replace('https://', '')}")
@@ -1664,14 +1713,16 @@ def build_bot(cfg: dict) -> commands.Bot:
                 embed.set_footer(text="Weekly and monthly boards are not live yet - all-time is.")
         await _reply(interaction, embed=embed)
 
-    @bot.tree.command(name="profile", description="A player's leaderboard profile (rank, XP, battle pass)")
+    @bot.tree.command(name="profile", description="A player's rank, XP, battle pass and playtime")
     @command_guard(ephemeral=True)
     @app_commands.describe(player="Player name as used in game, or a STEAM_0:0:12345 id")
     async def profile_cmd(interaction: discord.Interaction, player: str) -> None:
         result = await _in_thread(lookup_profile, base, player, budget=HTTP_TIMEOUT * 2 + 1)
         if result is None:
-            await _reply(interaction, content=f"The leaderboard at {base} didn't answer in time.",
-                         ephemeral=True)
+            await _reply(interaction, embed=discord.Embed(
+                title="Leaderboard timeout", colour=COLOUR_WARN,
+                description=f"{base} didn't answer in time - try again in a moment."),
+                ephemeral=True)
             return
         if not result.ok:
             await _reply(interaction, embed=lookup_embed(result), ephemeral=True)
@@ -1689,6 +1740,16 @@ def build_bot(cfg: dict) -> commands.Bot:
         embed.set_footer(text="Schedule: ~/.config/freenova-bot/events.json · times in your timezone")
         await _reply(interaction, embed=embed)
 
+    @bot.tree.command(name="help", description="What this bot can do")
+    @command_guard()
+    async def help_cmd(interaction: discord.Interaction) -> None:
+        entries = []
+        for command in sorted(bot.tree.get_commands(), key=lambda c: c.name):
+            options = [(parameter.name, parameter.description)
+                       for parameter in getattr(command, "parameters", [])]
+            entries.append((command.name, command.description, options))
+        await _reply(interaction, embed=help_embed(entries, base, server["name"]))
+
     return bot
 
 
@@ -1701,7 +1762,11 @@ def setup_logging(level: int = logging.INFO) -> None:
         stream=sys.stdout,
         force=True,
     )
-    logging.getLogger("discord").setLevel(logging.WARNING)
+    # discord.py's chattier corners: voice deps we never use, and the
+    # message-content intent warning that does not apply to slash commands
+    logging.getLogger("discord.client").setLevel(logging.ERROR)
+    logging.getLogger("discord.gateway").setLevel(logging.WARNING)
+    logging.getLogger("discord.ext.commands.bot").setLevel(logging.ERROR)
     logging.getLogger("discord.http").setLevel(logging.WARNING)
 
 

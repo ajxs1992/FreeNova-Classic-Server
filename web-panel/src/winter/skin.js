@@ -78,7 +78,12 @@ export async function applyWinterSkin(request, env, res, nowSec) {
     if (!season.active) return res
 
     const body = await res.text()
-    if (body.includes(MARK)) return res
+    // The idempotency guard must hand back a READABLE body: `res.text()` above
+    // drained it, so returning `res` itself would fail downstream with
+    // "Body is unusable" (the v2 dashboard carries the marker deliberately —
+    // it draws its own Winterfest palette and must not be repainted).
+    if (body.includes(MARK))
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: new Headers(res.headers) })
     let out = body
     const style = `<style>${WINTER_SKIN_CSS}</style>`
     if (/<\/head>/i.test(out)) out = out.replace(/<\/head>/i, style + "</head>")

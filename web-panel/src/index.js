@@ -23,6 +23,7 @@ import { pageMotdV2 } from "./motd.js"
 import { pageBoards } from "./boards_page.js"
 import { handleWinter } from "./winter/index.js"
 import { applyWinterSkin } from "./winter/skin.js"
+import { handleV2 } from "./v2/index.js"
 // The two dashboard surfaces the owner drew in the sidebar (docs/design/
 // WINTERFEST-DASHBOARD.md): Levels under PROGRESSION and the envelope in the top
 // bar. They are ordinary GET pages: /levels is informational (no claim path in
@@ -206,7 +207,9 @@ async function routeRequest(request, env, ctx) {
         url.searchParams.set("compact", "1")
 
       // Rank emblems, processed medals, badges, /i icons from ./assets
-      if (env.ASSETS && (path === "/logo.png" || path.startsWith("/ranks/") || path.startsWith("/badges/") || path.startsWith("/medals/") || path.startsWith("/i/") || path.startsWith("/missions/") || path.startsWith("/bp/"))) {
+      // /winter/*.png is the dashboard's cropped art (assets/winter/). Narrow to
+      // image extensions so it can never shadow the /winter/* pages below.
+      if (env.ASSETS && (path === "/logo.png" || path.startsWith("/ranks/") || path.startsWith("/badges/") || path.startsWith("/medals/") || path.startsWith("/i/") || path.startsWith("/missions/") || path.startsWith("/bp/") || /^\/winter\/[a-z0-9_]+\.(png|jpe?g|webp|svg)$/i.test(path))) {
         const res = await env.ASSETS.fetch(request)
         if (res && res.status !== 404) return res
       }
@@ -216,6 +219,12 @@ async function routeRequest(request, env, ctx) {
       // out of the same renderer (src/winter/render.js).
       if (path === "/winter" || path.startsWith("/winter/"))
         return await handleWinter(request, env, url)
+
+      // The v2 design rebuild (src/v2/). /v2/… only: the routes below keep
+      // serving the live panel untouched until each replacement is verified
+      // (docs/design/PANEL-REBUILD.md — cutover is one page per commit).
+      if (path === "/v2" || path.startsWith("/v2/"))
+        return await handleV2(request, env, url)
 
       const view = (url.searchParams.get("view") || url.searchParams.get("tab") || "").toLowerCase()
       if ((route === "/" || route === "/battlepass.php" || route === "/rsu.php") && view) {

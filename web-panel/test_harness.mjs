@@ -36,6 +36,17 @@ import {
   premiumExtraCoins, premiumCoins, xpPerTier, PREMIUM_COINS,
   bpTierFromXp, bpInto, playerBpTier, BP_MAX_TIER,
 } from "./src/bp_track.js"
+// MOTD v2 + public API + weekly/monthly boards (this agent's surface).
+import {
+  periodBounds, weekKeyAt, monthKeyAt, previousKey, keysBefore, parisMidnight, isoWeekOf
+} from "./src/periods.js"
+import {
+  ensureBoardTables, refreshMarks, periodBoard, lifetimeBoard, settlePeriod,
+  maybeRollover, playerBadges, playerPeriodStanding, playerLifetimeStanding
+} from "./src/boards.js"
+import { normalizeSteamid } from "./src/publicapi.js"
+import { countdownText } from "./src/schedule.js"
+import { renderFallback } from "./src/motd.js"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const root = mkdtempSync(join(tmpdir(), "freenova-panel-test-"))
@@ -167,15 +178,19 @@ function player(steamid, extra) {
 
 const routes = ["/hub", "/profile", "/bp", "/battlepass", "/missions", "/achievements",
   "/competitive", "/events", "/vip", "/shop", "/skins", "/models", "/cosmetics",
-  "/settings", "/rules", "/top15", "/admin"]
+  "/settings", "/rules", "/top15", "/top/week", "/top/month", "/admin"]
 
 // =================================================================== main ==
 const panel = new Panel("main")
 const trusted = new Panel("trusted", { FN_LOCAL_TRUST: "1" })
+// A third process so the public-API rate limit can be exercised without
+// spending the main panel's bucket.
+const limited = new Panel("limited", { PANEL_PUBLIC_RATE_LIMIT: "2" })
 
 try {
   await panel.start(18080)
   await trusted.start(18081)
+  await limited.start(18082)
 
   // ---------------------------------------------------------- 1. smoke ----
   for (const route of routes) {
@@ -518,6 +533,398 @@ try {
   check("playerBpTier ignores rank xp/level",
     playerBpTier({ xp: 59000, level: 52, bp_xp: 0, bp_tier: 0 }, 1000) === 1,
     String(playerBpTier({ xp: 59000, level: 52, bp_xp: 0, bp_tier: 0 }, 1000)))
+
+  // ============================================ 8. public JSON API =========
+  // /api/public/* is unauthenticated and read-only: shape, 404s, and the
+  // promise that it leaks no personal state.
+  const jget = async (path) => {
+    const res = await fetch(panel.base + path)
+    let body = null
+    try { body = await res.json() } catch {}
+    return { res, body, headers: res.headers }
+  }
+
+  const st0 = await jget("/api/public/status")
+  check("status 200", st0.res.status === 200, "-> " + st0.res.status)
+  check("status is no-store", st0.headers.get("cache-control") === "no-store",
+    String(st0.headers.get("cache-control")))
+  check("status has server/events/updated",
+    Boolean(st0.body && st0.body.server && st0.body.events && st0.body.updated))
+  check("status keeps player count honest before a live push",
+    st0.body.server.players === null || typeof st0.body.server.players === "number",
+    "players=" + JSON.stringify(st0.body.server.players))
+
+  // The game's own signed push is the only source of a live count.
+  const liveTs = Math.floor(Date.now() / 1000)
+  const livePush = await push(panel, {
+    server: { map: "de_dust2", hostname: "Harness Server", players: 5, humans: 5, maxplayers: 32, hh: 0 },
+    players: [],
+  })
+  check("server meta push accepted", livePush.status === 200, "-> " + livePush.status)
+  const st1 = await jget("/api/public/status")
+  check("status reports the pushed player count", st1.body.server.players === 5,
+    "players=" + JSON.stringify(st1.body.server.players))
+  check("status reports the slot count", st1.body.server.max === 32, "max=" + JSON.stringify(st1.body.server.max))
+  check("status reports the pushed map", st1.body.server.map === "de_dust2", String(st1.body.server.map))
+  check("status marks a fresh push live", st1.body.server.stale === false && st1.body.server.online === true,
+    `stale=${st1.body.server.stale} online=${st1.body.server.online}`)
+
+  // An old push must turn the count back into null, never into a stale number.
+  const metaWriter = new DatabaseSync(panel.dbFile)
+  try {
+    metaWriter.prepare(`UPDATE meta SET value=?2 WHERE key=?1`).run("last_push", String(liveTs - 600))
+  } finally { metaWriter.close() }
+  const stOld = await jget("/api/public/status")
+  check("a stale push reports players as null", stOld.body.server.players === null,
+    "players=" + JSON.stringify(stOld.body.server.players))
+  check("a stale push is flagged", stOld.body.server.stale === true, String(stOld.body.server.stale))
+  await push(panel, { server: { map: "cs_office", hostname: "Harness Server", players: 3, humans: 3, maxplayers: 32 }, players: [] })
+
+  const topAll = await jget("/api/public/top?period=all&limit=2")
+  check("top all 200", topAll.res.status === 200, "-> " + topAll.res.status)
+  check("top all honours limit", Array.isArray(topAll.body.rows) && topAll.body.rows.length === 2,
+    "rows=" + (topAll.body.rows || []).length)
+  check("top all is ordered by xp", topAll.body.rows[0].value >= topAll.body.rows[1].value,
+    `${topAll.body.rows[0].value} >= ${topAll.body.rows[1].value}`)
+  check("top rows carry name/value/metric/period",
+    ["name", "value", "metric", "period"].every(k => k in topAll.body.rows[0]),
+    Object.keys(topAll.body.rows[0]).join(","))
+
+  const badPeriod = await jget("/api/public/top?period=decade")
+  check("top rejects an unknown period with 400", badPeriod.res.status === 400, "-> " + badPeriod.res.status)
+  check("top 400 explains the allowed periods",
+    badPeriod.body && badPeriod.body.error === "bad_period" && Array.isArray(badPeriod.body.allowed),
+    JSON.stringify(badPeriod.body && badPeriod.body.error))
+
+  const killBoard = await jget("/api/public/top?period=all&metric=kills&limit=3")
+  check("top supports metric=kills", killBoard.res.status === 200 && killBoard.body.metric === "kills" &&
+    (killBoard.body.rows.length === 0 || killBoard.body.rows.every(r => r.metric === "kills")),
+    `${killBoard.res.status} ${killBoard.body && killBoard.body.metric}`)
+
+  const weekNow = Math.floor(Date.now() / 1000)
+  const topWeek = await jget("/api/public/top?period=week&limit=5")
+  check("top week 200", topWeek.res.status === 200, "-> " + topWeek.res.status)
+  check("top week uses the Europe/Paris ISO week", topWeek.body.window.key === weekKeyAt(weekNow),
+    `${topWeek.body.window.key} vs ${weekKeyAt(weekNow)}`)
+  check("top week publishes its window bounds",
+    topWeek.body.window.tz === "Europe/Paris" &&
+    topWeek.body.window.start === periodBounds("week", weekNow).start &&
+    topWeek.body.window.end === periodBounds("week", weekNow).end,
+    JSON.stringify(topWeek.body.window))
+  check("top week publishes coverage instead of pretending completeness",
+    topWeek.body.coverage && typeof topWeek.body.coverage.complete === "boolean",
+    JSON.stringify(topWeek.body.coverage))
+  const topMonth = await jget("/api/public/top?period=month&limit=5")
+  check("top month uses the calendar month", topMonth.body.window.key === monthKeyAt(weekNow),
+    `${topMonth.body.window.key} vs ${monthKeyAt(weekNow)}`)
+
+  // The website board and the API board must show the same window and the same
+  // numbers: one boundary implementation, no second opinion.
+  const siteWeek = await fetch(panel.base + "/top/week")
+  const siteWeekBody = await siteWeek.text()
+  check("the site has a weekly board", siteWeek.status === 200, "-> " + siteWeek.status)
+  check("the site's weekly board names the same period key the API returns",
+    siteWeekBody.includes(weekKeyAt(weekNow)), weekKeyAt(weekNow))
+  const siteMonth = await fetch(panel.base + "/top/month")
+  check("the site has a monthly board", siteMonth.status === 200, "-> " + siteMonth.status)
+  const apiWeekRows = (await jget("/api/public/top?period=week&limit=15")).body.rows
+  check("the site board and the API board agree row for row",
+    apiWeekRows.every(r => siteWeekBody.includes(r.name || r.steamid)),
+    apiWeekRows.map(r => r.name).join(","))
+
+  const meApi = await jget("/api/public/player/0-0-101")
+  check("player 200 for the packed form", meApi.res.status === 200, "-> " + meApi.res.status)
+  check("player answers the canonical steamid", meApi.body.steamid === "STEAM_0:0:101", String(meApi.body.steamid))
+  check("player carries the documented fields",
+    ["name", "rank", "bp_tier", "bp_xp", "bp_next_xp", "coins", "playtime_minutes", "badges"].every(k => k in meApi.body),
+    Object.keys(meApi.body).join(","))
+  check("player leaks no personal state",
+    !("last_seen" in meApi.body) && !("cc" in meApi.body) && !("server_id" in meApi.body) &&
+    !JSON.stringify(meApi.body).includes("192.0.2."),
+    Object.keys(meApi.body).join(","))
+  const colonPlayer = await jget("/api/public/player/" + encodeURIComponent("STEAM_0:0:101"))
+  check("player accepts the colon form", colonPlayer.res.status === 200 && colonPlayer.body.steamid === "STEAM_0:0:101",
+    "-> " + colonPlayer.res.status)
+
+  const missing = await jget("/api/public/player/0-0-9999999")
+  check("unknown player 404", missing.res.status === 404, "-> " + missing.res.status)
+  check("unknown player 404 shape", missing.body.error === "player_not_found" && missing.body.steamid === "STEAM_0:0:9999999",
+    JSON.stringify(missing.body))
+  const badSid = await jget("/api/public/player/not-a-steamid")
+  check("malformed steamid 400", badSid.res.status === 400 && badSid.body.error === "bad_steamid",
+    "-> " + badSid.res.status)
+  check("normalizeSteamid round-trips both forms",
+    normalizeSteamid("0-0-101") === "STEAM_0:0:101" &&
+    normalizeSteamid("STEAM_0:0:101") === "STEAM_0:0:101" &&
+    normalizeSteamid("nope") === "")
+
+  // Events: the panel schedule. The detail column is added lazily on first
+  // read, so an older replica gains it without a manual migration.
+  const evEmpty = await jget("/api/public/events")
+  check("events 200", evEmpty.res.status === 200, "-> " + evEmpty.res.status)
+  check("events declares the panel as its source", evEmpty.body.source === "panel", String(evEmpty.body.source))
+  const evWriter = new DatabaseSync(panel.dbFile)
+  let evId = 0
+  try {
+    const info = evWriter.prepare(
+      `INSERT INTO events (title, type, status, start_at, end_at, xp_mult, coins_mult)
+       VALUES (?1,'xp_mult','active',?2,?3,2,1)`
+    ).run("Harness Double XP", liveTs - 600, liveTs + 3600)
+    evId = Number(info.lastInsertRowid)
+  } finally { evWriter.close() }
+  const evOne = await jget("/api/public/events")
+  const rowEv = (evOne.body.events || []).find(e => e.title === "Harness Double XP")
+  check("events lists an active event", Boolean(rowEv) && rowEv.state === "active",
+    JSON.stringify(rowEv))
+  check("events exposes title/starts_at/ends_at/detail/state",
+    rowEv && ["title", "starts_at", "ends_at", "detail", "state"].every(k => k in rowEv),
+    rowEv ? Object.keys(rowEv).join(",") : "missing")
+  check("a live event appears in status.events.now",
+    (await jget("/api/public/status")).body.events.now.some(e => e.title === "Harness Double XP"))
+  const detailWriter = new DatabaseSync(panel.dbFile)
+  let hasDetailCol = false
+  try {
+    hasDetailCol = detailWriter.prepare(`PRAGMA table_info(events)`).all().some(c => c.name === "detail")
+    detailWriter.prepare(`UPDATE events SET detail=?2 WHERE id=?1`).run(evId, "2x XP on every kill.")
+  } finally { detailWriter.close() }
+  check("events.detail is added lazily to an older replica", hasDetailCol)
+
+  const evList = await jget("/api/public/events")
+  check("events 404s an unknown sub-path", (await jget("/api/public/nope")).res.status === 404)
+  check("no public response leaks a secret", !JSON.stringify([st1.body, topAll.body, meApi.body, evList.body]).includes(SECRET))
+
+  const counted = await fetch(limited.base + "/api/public/status")
+  await fetch(limited.base + "/api/public/status")
+  const overLimit = await fetch(limited.base + "/api/public/status")
+  check("public API rate-limits a poll loop", counted.status === 200 && overLimit.status === 429,
+    `${counted.status} then ${overLimit.status}`)
+  const limitBody = await overLimit.json().catch(() => ({}))
+  check("rate-limit answer is JSON", limitBody.error === "rate_limited", JSON.stringify(limitBody.error))
+
+  // ================================================ 9. MOTD v2 pages =======
+  const motdPages = [
+    "/m/p/0-0-101.htm",
+    "/m/i/0-0-101/daily.htm",
+    "/m/i/0-0-101/weekly.htm",
+    "/m/i/0-0-101/completed.htm",
+    "/m/b/0-0-101/battlepass.htm",
+    "/m/t/0-0-101/top15.htm",
+    "/m/t/0-0-101/week.htm",
+    "/m/t/0-0-101/month.htm",
+    "/m/e/0-0-101/events.htm",
+    "/m/p/0-0-9999999.htm",       // player the panel has never seen
+    "/m/p/0-0-101",               // .htm optional
+  ]
+  const FORBIDDEN = ["<script", "<img", "<link", "<iframe", "display:flex", "display: flex",
+    "display:grid", "display: grid", "var(", "NaN", "undefined", "&amp;middot;"]
+  for (const p of motdPages) {
+    const res = await fetch(panel.base + p)
+    const body = await res.text()
+    const badWords = FORBIDDEN.filter(w => body.includes(w))
+    check(`motd ${p} renders`, res.status === 200, "-> " + res.status)
+    check(`motd ${p} is a self-contained MSIE-safe document`, badWords.length === 0, badWords.join(","))
+    check(`motd ${p} carries noindex + no-referrer`,
+      res.headers.get("x-robots-tag") === "noindex" && res.headers.get("referrer-policy") === "no-referrer",
+      `${res.headers.get("x-robots-tag")} / ${res.headers.get("referrer-policy")}`)
+    check(`motd ${p} tells the player what to type`, body.includes("!missions"))
+  }
+  const profPage = await (await fetch(panel.base + "/m/p/0-0-101.htm")).text()
+  check("motd header shows the player name", profPage.includes("harness-101"))
+  check("motd header shows the BP tier and the coin balance",
+    profPage.includes("TIER 1/60") && profPage.includes("coins"), "tier/coins strip present")
+
+  // A player row with every counter at zero (the most common first impression).
+  const steamFresh = "STEAM_0:0:909"
+  await push(panel, { players: [player(steamFresh, { xp: 0, bp_xp: 0, bp_tier: 0, coins: 0, last_seen: Math.floor(Date.now() / 1000) })] })
+  const freshPage = await (await fetch(panel.base + "/m/p/0-0-909.htm")).text()
+  check("a zero-data player renders tier 1", freshPage.includes("TIER 1/60"))
+  check("a zero-data player is unranked, not rank 0", freshPage.includes("Unranked"))
+  check("a zero-data player page is free of NaN/undefined",
+    !freshPage.includes("NaN") && !freshPage.includes("undefined"))
+  const freshJson = await (await fetch(panel.base + "/api/public/player/0-0-909")).json()
+  check("a zero-data player has rank null in the API", freshJson.rank === null, String(freshJson.rank))
+  check("a zero-data player has tier 1 and 0 XP in the API",
+    freshJson.bp_tier === 1 && freshJson.bp_xp === 0, `${freshJson.bp_tier} / ${freshJson.bp_xp}`)
+  check("a zero-data player asks the next tier for a full bar",
+    freshJson.bp_next_xp === freshJson.bp_tier_xp, `${freshJson.bp_next_xp} / ${freshJson.bp_tier_xp}`)
+
+  // Badges reach the MOTD header and /api/public/player.
+  const badgeWriter = new DatabaseSync(panel.dbFile)
+  try {
+    badgeWriter.prepare(
+      `INSERT OR IGNORE INTO badges (steamid, kind, period, label, awarded_at) VALUES (?1,?2,?3,?4,?5)`
+    ).run(steamA, "weekly_champion", "2026-W45", "Weekly #1 · Week 45 · 2026", liveTs)
+  } finally { badgeWriter.close() }
+  const badgedPage = await (await fetch(panel.base + "/m/p/0-0-101.htm")).text()
+  check("a badge is drawn as text in the MOTD header", badgedPage.includes("Weekly #1"))
+  const badgedApi = await (await fetch(panel.base + "/api/public/player/0-0-101")).json()
+  check("a badge is exposed by /api/public/player",
+    Array.isArray(badgedApi.badges) && badgedApi.badges.some(b => b.kind === "weekly_champion" && b.label.includes("Weekly #1")),
+    JSON.stringify(badgedApi.badges))
+  check("badges are text only (no client content)",
+    badgedApi.badges.every(b => !/[<>]/.test(b.label) && Object.keys(b).sort().join(",") === "kind,label,period"),
+    JSON.stringify(badgedApi.badges[0]))
+
+  // Existing MOTD contract: the documented redirects and 404s still hold.
+  const redirMissions = await fetch(panel.base + "/m/b/0-0-101/missions.htm", { redirect: "manual" })
+  check("/m/b/*/missions still 302s to /m/i/", redirMissions.status === 302 &&
+    redirMissions.headers.get("location") === "/m/i/0-0-101/daily.htm",
+    `${redirMissions.status} ${redirMissions.headers.get("location")}`)
+  const goneS = await fetch(panel.base + "/m/s/0-0-1/x.htm", { redirect: "manual" })
+  check("/m/s/ is still 404", goneS.status === 404, "-> " + goneS.status)
+
+  // The degradation path: no DB, no theme, no snapshot — still a useful page.
+  const fb = renderFallback("test: database unavailable", { FN_PUBLIC_ADDR: "example.invalid:27015" })
+  const fbBody = await fb.text()
+  check("the static fallback is HTTP 200", fb.status === 200, "-> " + fb.status)
+  check("the static fallback names the server", fbBody.includes("example.invalid:27015"))
+  check("the static fallback tells the player what to type", fbBody.includes("!missions") && fbBody.includes("!bp"))
+  check("the static fallback is self-contained",
+    !/<script|<img|<link|<iframe/i.test(fbBody) && !fbBody.includes("var(") && !fbBody.includes("display:flex"),
+    "no external resource")
+
+  // ================================= 10. Europe/Paris period arithmetic ===
+  const at = s => Math.floor(Date.parse(s) / 1000)
+  const iso = s => new Date(s * 1000).toISOString()
+  const w47 = periodBounds("week", at("2026-11-22T21:00:00Z"))
+  check("week boundary is Monday 00:00 Europe/Paris", w47.key === "2026-W47" &&
+    iso(w47.start) === "2026-11-15T23:00:00.000Z" && iso(w47.end) === "2026-11-22T23:00:00.000Z",
+    `${w47.key} ${iso(w47.start)}..${iso(w47.end)}`)
+  check("a Sunday 23:30 Paris instant is still the previous ISO week",
+    weekKeyAt(at("2026-11-22T23:30:00Z")) === "2026-W48",
+    weekKeyAt(at("2026-11-22T23:30:00Z")))
+  check("DST start does not shift the week boundary",
+    iso(periodBounds("week", at("2026-03-30T12:00:00Z")).start) === "2026-03-29T22:00:00.000Z",
+    iso(periodBounds("week", at("2026-03-30T12:00:00Z")).start))
+  check("DST end does not shift the week boundary",
+    iso(periodBounds("week", at("2026-10-28T12:00:00Z")).start) === "2026-10-25T23:00:00.000Z",
+    iso(periodBounds("week", at("2026-10-28T12:00:00Z")).start))
+  check("ISO week-year edge (2026-12-31 is 2026-W53)",
+    weekKeyAt(at("2026-12-31T23:30:00Z")) === "2026-W53" && weekKeyAt(at("2027-01-01T10:00:00Z")) === "2026-W53",
+    `${weekKeyAt(at("2026-12-31T23:30:00Z"))} / ${weekKeyAt(at("2027-01-01T10:00:00Z"))}`)
+  const nov = periodBounds("month", at("2026-11-30T23:30:00Z"))
+  check("the month boundary is the 1st 00:00 Europe/Paris", nov.key === "2026-12" &&
+    iso(nov.start) === "2026-11-30T23:00:00.000Z", `${nov.key} ${iso(nov.start)}`)
+  check("a Paris November instant stays in November",
+    monthKeyAt(at("2026-11-30T22:59:00Z")) === "2026-11" &&
+    iso(periodBounds("month", at("2026-11-30T22:59:00Z")).end) === "2026-11-30T23:00:00.000Z",
+    monthKeyAt(at("2026-11-30T22:59:00Z")))
+  check("parisMidnight is DST-aware",
+    iso(parisMidnight(2026, 3, 30)) === "2026-03-29T22:00:00.000Z" &&
+    iso(parisMidnight(2026, 10, 26)) === "2026-10-25T23:00:00.000Z",
+    `${iso(parisMidnight(2026, 3, 30))} / ${iso(parisMidnight(2026, 10, 26))}`)
+  check("isoWeekOf follows the Thursday rule", isoWeekOf(2026, 1, 1).week === 1 && isoWeekOf(2025, 12, 29).year === 2026,
+    JSON.stringify(isoWeekOf(2025, 12, 29)))
+  check("previousKey walks back one period",
+    previousKey("week", at("2026-11-22T21:00:00Z")) === "2026-W46" &&
+    previousKey("month", at("2026-11-22T21:00:00Z")) === "2026-10",
+    `${previousKey("week", at("2026-11-22T21:00:00Z"))} / ${previousKey("month", at("2026-11-22T21:00:00Z"))}`)
+  check("keysBefore skips nothing across a year boundary",
+    keysBefore("week", "2026-W01", at("2026-01-10T12:00:00Z"), 2).join(",") === "2025-W52,2025-W51",
+    keysBefore("week", "2026-W01", at("2026-01-10T12:00:00Z"), 2).join(","))
+
+  // ==================================== 11. boards, rollover, badges ======
+  // A disposable database, so the rollover can be driven straight past a
+  // boundary without waiting for a real Monday.
+  const boardDb = join(root, "boards.sq3")
+  const bd = openLocalD1(boardDb)
+  // Minimal players table: the boards read steamid/name/xp(/kills) only.
+  bd.raw.exec(`CREATE TABLE IF NOT EXISTS players (
+    steamid TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', xp INTEGER NOT NULL DEFAULT 0,
+    kills INTEGER NOT NULL DEFAULT 0, coins INTEGER NOT NULL DEFAULT 0,
+    last_seen INTEGER NOT NULL DEFAULT 0)`)
+  bd.raw.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`)
+  const bEnv = { DB: bd }
+  check("board tables are created on demand", await ensureBoardTables(bEnv) === true)
+  const bNow = Math.floor(Date.now() / 1000)
+  const bPrev = previousKey("week", bNow)
+  const insPlayer = (sid, name, xp) => bd.raw.prepare(
+    `INSERT INTO players (steamid, name, xp, coins, last_seen) VALUES (?,?,?,0,?)`
+  ).run(sid, name, xp, bNow)
+  insPlayer("STEAM_0:0:501", "alpha", 1000)
+  insPlayer("STEAM_0:0:502", "bravo", 2000)
+  insPlayer("STEAM_0:0:503", "charlie", 0)
+
+  await refreshMarks(bEnv, bNow, { force: true })
+  const baseRow = bd.raw.prepare(
+    `SELECT base, last_value FROM board_marks WHERE period='week' AND metric='xp' AND steamid='STEAM_0:0:501'`
+  ).get()
+  check("the first read inside a period records the baseline", Number(baseRow.base) === 1000, JSON.stringify(baseRow))
+
+  bd.raw.prepare(`UPDATE players SET xp=1400 WHERE steamid='STEAM_0:0:501'`).run()
+  bd.raw.prepare(`UPDATE players SET xp=2100 WHERE steamid='STEAM_0:0:502'`).run()
+  await refreshMarks(bEnv, bNow, { force: true })
+  const wBoard = await periodBoard(bEnv, { period: "week", limit: 10, now: bNow })
+  check("the weekly board shows the period delta, not lifetime xp",
+    wBoard.rows[0].value === 400 && wBoard.rows[1].value === 100,
+    JSON.stringify(wBoard.rows.map(r => [r.name, r.value])))
+  check("a player with no progress this period is not listed",
+    !wBoard.rows.some(r => r.steamid === "STEAM_0:0:503"), JSON.stringify(wBoard.rows.map(r => r.steamid)))
+  check("the weekly board ranks by value", wBoard.rows[0].rank === 1 && wBoard.rows[0].name === "alpha",
+    JSON.stringify(wBoard.rows[0]))
+  check("the board reports its coverage honestly", wBoard.coverage.complete === false &&
+    wBoard.coverage.observed_players === 3, JSON.stringify(wBoard.coverage))
+
+  const stand = await playerPeriodStanding(bEnv, "STEAM_0:0:502", { period: "week", now: bNow })
+  check("own weekly standing counts the gap to the player above",
+    stand.rank === 2 && stand.behind === 300 && stand.ahead.name === "alpha", JSON.stringify(stand))
+  const lifeStand = await playerLifetimeStanding(bEnv, { xp: 2100 })
+  check("own lifetime standing is exact", lifeStand.rank === 1 && lifeStand.ahead === null, JSON.stringify(lifeStand))
+  const zeroStand = await playerLifetimeStanding(bEnv, { xp: 0 })
+  check("a player with 0 xp has no rank", zeroStand.rank === null, JSON.stringify(zeroStand))
+
+  // Settle last week: a baseline recorded then, snapshotted after the boundary.
+  const insMark = (sid, key, base, last, first) => bd.raw.prepare(
+    `INSERT OR REPLACE INTO board_marks (period, period_key, steamid, metric, base, last_value, first_seen, seen_at)
+     VALUES ('week', ?, ?, 'xp', ?, ?, ?, ?)`
+  ).run(key, sid, base, last, first, first)
+  const weekStart = periodBounds("week", bNow).start - 1
+  insMark("STEAM_0:0:501", bPrev, 0, 5000, weekStart - 7 * 86400)
+  insMark("STEAM_0:0:502", bPrev, 0, 3000, weekStart - 7 * 86400)
+  insMark("STEAM_0:0:503", bPrev, 0, 1000, weekStart - 7 * 86400)
+
+  const roll1 = await maybeRollover(bEnv, bNow)
+  check("the first rollover only records where we are", roll1.settled.length === 0 &&
+    bd.raw.prepare(`SELECT COUNT(*) AS n FROM board_history`).get().n === 0, JSON.stringify(roll1))
+
+  bd.raw.prepare(`UPDATE meta SET value=?1 WHERE key='board_settled:week'`).run(bPrev)
+  const roll2 = await maybeRollover(bEnv, bNow)
+  const hist = bd.raw.prepare(`SELECT rank, steamid, name, value FROM board_history WHERE period='week' ORDER BY rank`).all()
+  check("a finished week is snapshotted into board_history", hist.length === 3, JSON.stringify(hist))
+  check("the snapshot keeps the winner in order", hist[0].steamid === "STEAM_0:0:501" && hist[0].value === 5000,
+    JSON.stringify(hist[0]))
+  check("rollover awards the weekly champion badge",
+    bd.raw.prepare(`SELECT COUNT(*) AS n FROM badges WHERE kind='weekly_champion' AND period=?1`).get(bPrev).n === 1,
+    bPrev)
+  check("rollover awards top-3 badges for the podium",
+    bd.raw.prepare(`SELECT COUNT(*) AS n FROM badges WHERE kind='weekly_top3' AND period=?1`).get(bPrev).n === 3)
+  const roll3 = await maybeRollover(bEnv, bNow)
+  check("a second rollover is a no-op (idempotent)", roll3.settled.length === 0 &&
+    bd.raw.prepare(`SELECT COUNT(*) AS n FROM board_history`).get().n === 3, JSON.stringify(roll3))
+
+  // Three weeks running for the same name.
+  const wk2 = previousKey("week", weekStart - 1)
+  const wk3 = previousKey("week", weekStart - 8 * 86400)
+  for (const k of [wk2, wk3]) insMark("STEAM_0:0:501", k, 0, 1000, weekStart - 21 * 86400)
+  for (const k of [wk2, wk3]) insMark("STEAM_0:0:502", k, 0, 500, weekStart - 21 * 86400)
+  await settlePeriod(bEnv, "week", wk3, bNow)
+  await settlePeriod(bEnv, "week", wk2, bNow)
+  await settlePeriod(bEnv, "week", bPrev, bNow)
+  check("top 3 three weeks running is awarded once per player",
+    bd.raw.prepare(`SELECT COUNT(*) AS n FROM badges WHERE kind='weekly_streak3'`).get().n === 2 &&
+    bd.raw.prepare(`SELECT COUNT(*) AS n FROM badges WHERE kind='weekly_streak3' AND steamid='STEAM_0:0:501'`).get().n === 1,
+    JSON.stringify(bd.raw.prepare(`SELECT steamid, period FROM badges WHERE kind='weekly_streak3'`).all()))
+  check("badges are readable per player",
+    (await playerBadges(bEnv, "STEAM_0:0:501")).some(b => b.kind === "weekly_champion"))
+  check("a player with no badges gets an empty list",
+    (await playerBadges(bEnv, "STEAM_0:0:999")).length === 0)
+  check("the lifetime board reads the players table",
+    (await lifetimeBoard(bEnv, { limit: 5 })).rows[0].steamid === "STEAM_0:0:502",
+    JSON.stringify((await lifetimeBoard(bEnv, { limit: 5 })).rows.map(r => [r.name, r.value])))
+  check("countdown text is server-side plain text",
+    countdownText({ state: "active", starts_at: 0, ends_at: bNow + 7200 }, bNow) === "ends in 2h",
+    countdownText({ state: "active", starts_at: 0, ends_at: bNow + 7200 }, bNow))
+  bd.raw.close()
 } catch (e) {
   bad("suite", e && e.stack ? e.stack : String(e))
   console.error("--- panel output ---\n" + panel.output.split("\n").slice(-25).join("\n"))
@@ -525,6 +932,7 @@ try {
 } finally {
   await panel.stop()
   await trusted.stop()
+  await limited.stop()
   await wait(200)
   try { rmSync(root, { recursive: true, force: true }) } catch {}
 }

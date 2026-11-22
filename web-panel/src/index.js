@@ -18,6 +18,9 @@ import { pageIcons } from "./icons.js"
 import { page404, html, errorState, setMotdCompact } from "./ui.js"
 import { pageHub } from "./hub.js"
 import { pageGameSurface, pageSettings, pageRules } from "./gamepages.js"
+import { handlePublicApi } from "./publicapi.js"
+import { pageMotdV2 } from "./motd.js"
+import { pageBoards } from "./boards_page.js"
 
 export default {
   async fetch(request, env, ctx) {
@@ -72,6 +75,12 @@ async function routeRequest(request, env, ctx) {
       if (request.method !== "GET")
         return new Response("method not allowed", { status: 405 })
 
+      // Public read-only JSON (docs/PUBLIC-API.md). No session, no secret, no
+      // token: additive to every route above and below. Dispatched after the
+      // method gate so a POST to it stays a plain 405.
+      if (path === "/api/public" || path.startsWith("/api/public/"))
+        return await handlePublicApi(request, env, url)
+
       // GoldSrc MOTD: short path only (HTTP -102 if the URL is too long).
       //   /m/b/0-0-123456.htm   optional tab: /m/a/0-0-123456/hof.htm
       const SHORT = { p: "/profile", b: "/battlepass", t: "/top", i: "/missions", a: "/achievements", v: "/vip", e: "/events", r: "/tournament" }
@@ -98,6 +107,21 @@ async function routeRequest(request, env, ctx) {
             ? `/m/i/${motdPath[2]}/${extra === "missions" ? "daily" : extra}.htm`
             : "/missions"
           return new Response(null, { status: 302, headers: { location: dest } })
+        }
+        // MOTD v2 (src/motd.js): p / i / e / b / t are the five player-facing
+        // pages the game opens. They are one self-contained document each
+        // (inline CSS, no script, no images) and carry X-Robots-Tag +
+        // Referrer-Policy. The remaining codes keep the legacy rewrite below.
+        const V2 = { p: "p", i: "i", e: "e", b: "b", t: "t" }
+        if (V2[code]) {
+          setMotdCompact(true)
+          if (extra) url.searchParams.set("tab", extra)
+          return await pageMotdV2(env, url, {
+            code: V2[code],
+            steamid: minted,
+            tab: extra,
+            page: /^\d+$/.test(extra) ? Number(extra) : 0
+          })
         }
         if (/^\d+$/.test(extra)) url.searchParams.set("from", extra)
         else if (extra) url.searchParams.set("tab", extra)
@@ -205,6 +229,10 @@ async function routeRequest(request, env, ctx) {
         case "/top/wins":
         case "/top/playtime":
         case "/top/rating":  return await pageTop15(env, url, request)
+        // Weekly / monthly boards: one boundary implementation with
+        // /api/public/top and the MOTD top tabs (src/periods.js + boards.js).
+        case "/top/week":    return await pageBoards(env, url, "week")
+        case "/top/month":   return await pageBoards(env, url, "month")
         case "/mapend":      return await pageMapEnd(env, url)
         case "/profile":
         case "/rankstats":

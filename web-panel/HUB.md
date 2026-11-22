@@ -46,6 +46,42 @@ and `/u/<sid>/shop` return 404.
 - `/compare` → 302 to `/profile` (`?steamid=` forwarded)
 - `/discord` → 302 to the Discord invite
 
+### MOTD v2 (`src/motd.js`)
+
+`/m/p`, `/m/i`, `/m/e`, `/m/b` and `/m/t` are served by MOTD v2: one
+self-contained document each (inline CSS only, no `<script>`, no `<img>`, no
+`<link>`, no flex/grid/CSS variables), with `X-Robots-Tag: noindex` and
+`Referrer-Policy: no-referrer`, and a static "server info + type `!missions`"
+fallback (HTTP 200) if live data cannot be read within 2 s.
+
+| Path | Page | Tabs |
+|---|---|---|
+| `/m/p/<sid>.htm` | Profile + player header (name, rank, BP tier + XP bar, coins, badges) | — |
+| `/m/i/<sid>/<tab>.htm` | Missions with progress bars and rewards | `daily`, `weekly`, `special`, `seasonal`, `completed` |
+| `/m/b/<sid>.htm` | Battle Pass: tier, XP to next, next three `reward_track` rewards | — |
+| `/m/t/<sid>/<tab>.htm` | Top 3 + own position ("#12, 840 XP behind #11") | `top15` (lifetime), `week`, `month` |
+| `/m/e/<sid>.htm` | Events running now + next, countdown computed server-side | — |
+
+`/m/a`, `/m/r` and `/m/v` still render the legacy pages through the rewrite
+below. The `.htm` suffix stays optional and the steamid may be packed or
+colon-form everywhere it already was.
+
+### Public JSON API (`src/publicapi.js`)
+
+Read-only, unauthenticated, `Cache-Control: no-store`, 120 req/min per client
+address: `/api/public/status`, `/api/public/top?period=week|month|all`,
+`/api/public/player/<steamid>`, `/api/public/events`. Shapes, samples, honest
+limits (including why `players`/`max` are `null` for a stale push) and the
+weekly/monthly boundary rules are documented in `../docs/PUBLIC-API.md`. The
+Discord bot should read these instead of scraping `/top15`.
+
+Weekly/monthly boards and the text badges come from `src/periods.js` +
+`src/boards.js` (Europe/Paris ISO week / calendar month), the same code the
+website boards (`/top/week`, `/top/month`), the MOTD top tabs and
+`/api/public/top` use. The panel's own event schedule is managed at
+`/admin?s=events` (staff session) — the game-side `configs/freenova/events.ini`
+is still the source of truth for the multipliers the server applies.
+
 ### Missions product (`/m/i/`, `/missions`)
 In-page tabs: `daily`, `weekly`, `special`, `seasonal`, `completed`.
 Missions is **not** a Battle Pass tab. A link from BP to `/missions` is a foreign

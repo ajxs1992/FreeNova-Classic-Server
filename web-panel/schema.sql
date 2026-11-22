@@ -330,3 +330,59 @@ CREATE TABLE IF NOT EXISTS event_history (
     end_at          INTEGER NOT NULL DEFAULT 0,
     completed_at    INTEGER NOT NULL DEFAULT 0
 );
+
+-- ============================================================ weekly / monthly boards
+-- Additive 2026-11-22 (MOTD v2 + public API). Safe on the live replica: every
+-- statement is IF NOT EXISTS / CREATE INDEX IF NOT EXISTS, so booting the
+-- runner over an existing database (server_local.mjs execs this file) only
+-- creates what is missing and never rewrites a live row.
+-- src/boards.js repeats the same DDL lazily, so a deployment that never execs
+-- this file still gets the tables the first time a board is read.
+--
+-- board_marks: per-player, per-period baseline of a lifetime counter. A period
+-- value is max(0, last_value - base) — never an invented number (boards.js).
+CREATE TABLE IF NOT EXISTS board_marks (
+    period      TEXT NOT NULL,              -- week | month
+    period_key  TEXT NOT NULL,              -- 2026-W47 | 2026-11
+    steamid     TEXT NOT NULL,
+    metric      TEXT NOT NULL DEFAULT 'xp',
+    base        INTEGER NOT NULL DEFAULT 0,
+    last_value  INTEGER NOT NULL DEFAULT 0,
+    first_seen  INTEGER NOT NULL DEFAULT 0,
+    seen_at     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (period, period_key, steamid, metric)
+);
+CREATE INDEX IF NOT EXISTS idx_board_marks_key ON board_marks (period, period_key, metric, last_value DESC);
+
+-- board_history: the settled top N of a finished period ("last week's winner").
+CREATE TABLE IF NOT EXISTS board_history (
+    period      TEXT NOT NULL,
+    period_key  TEXT NOT NULL,
+    metric      TEXT NOT NULL DEFAULT 'xp',
+    rank        INTEGER NOT NULL,
+    steamid     TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    value       INTEGER NOT NULL DEFAULT 0,
+    settled_at  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (period, period_key, metric, rank)
+);
+CREATE INDEX IF NOT EXISTS idx_board_history_key ON board_history (period, period_key, metric, rank);
+
+-- badges: TEXT ONLY (no client content, no images, no models). Awarded by the
+-- rollover in boards.js: weekly #1, monthly #1, weekly top 3, top 3 x3 weeks.
+CREATE TABLE IF NOT EXISTS badges (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    steamid     TEXT NOT NULL,
+    kind        TEXT NOT NULL,              -- weekly_champion | monthly_champion | weekly_top3 | weekly_streak3
+    period      TEXT NOT NULL DEFAULT '',   -- the period key the badge was won in
+    label       TEXT NOT NULL DEFAULT '',
+    awarded_at  INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (steamid, kind, period)
+);
+CREATE INDEX IF NOT EXISTS idx_badges_player ON badges (steamid);
+
+-- events: the player-facing blurb the panel schedule publishes
+-- (/api/public/events, /m/e/). ALTER is not idempotent, so the column is added
+-- lazily by src/schedule.js ensureScheduleDetailColumn() with a PRAGMA guard
+-- instead of here — running this file twice must stay harmless.
+

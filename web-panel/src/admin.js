@@ -1,6 +1,7 @@
 // FreeNova Admin Control Center — modern browser UI (not MOTD).
 // Game remains the spender. Staff POSTs queue actions; HMAC stays on game POSTs.
 import { ensureOpsTables } from "./sync.js"
+import { ensureScheduleDetailColumn } from "./schedule.js"
 
 const OWNER = "STEAM_0:0:683671116"
 const OPS_STEAM = "STEAM_0:0:0"
@@ -341,6 +342,9 @@ async function seedStaff(env) {
 
 export async function ensureAdminTables(env) {
   await ensureOpsTables(env)
+  // events.detail is the player-facing blurb /api/public/events and /m/e/
+  // publish. Adding it lazily keeps this migration safe on the live replica.
+  await ensureScheduleDetailColumn(env)
   await seedStaff(env)
 }
 
@@ -626,6 +630,16 @@ async function handleEventPost(env, session, body) {
         return { status: 400, error: "Reward text cannot exceed 120 characters." }
       upd.set("reward", reward)
     }
+    // The public blurb the panel schedule publishes (MOTD + /api/public/events).
+    // Same escaping rules as reward text: it is rendered into an MOTD page.
+    if (body.detail !== undefined) {
+      const detail = String(body.detail).replace(/\s+/g, " ").trim()
+      if (/[\r\n\0<>]/.test(detail))
+        return { status: 400, error: "Public blurb cannot contain angle brackets or line breaks." }
+      if (detail.length > 160)
+        return { status: 400, error: "Public blurb cannot exceed 160 characters." }
+      upd.set("detail", detail)
+    }
     // Prize amounts: parsed (and range-checked) even when the scheduled-only
     // gate below will reject them, so staff always see the field error first.
     const amounts = new Map()
@@ -674,6 +688,9 @@ async function handleEventPost(env, session, body) {
   const type = String(body.type || "xp_mult")
   if (!title) return { status: 400, error: "Event name is required." }
   if (!EVENT_TYPES.has(type)) return { status: 400, error: "Unknown event type." }
+  const detail = String(body.detail || "").replace(/\s+/g, " ").trim().slice(0, 160)
+  if (/[\r\n\0<>]/.test(detail))
+    return { status: 400, error: "Public blurb cannot contain angle brackets or line breaks." }
   const start = parseInt(body.start_at, 10) || Date.parse(body.start || "") / 1000 || nowSec()
   const end = parseInt(body.end_at, 10) || Date.parse(body.end || "") / 1000 || (start + 3600)
   if (!(end > start)) return { status: 400, error: "Event could not be created because its end time is before its start time." }
@@ -690,10 +707,14 @@ async function handleEventPost(env, session, body) {
   if (clash)
     return { status: 400, error: `Conflicts with event #${clash.id} (${clash.title}). Same category cannot overlap.` }
   await env.DB.prepare(
-    `INSERT INTO events (title, type, status, start_at, end_at, xp_mult, coins_mult, conflict_group, created_by, created_at)
-     VALUES (?1,?2,'scheduled',?3,?4,?5,?6,?7,?8,?9)`
-  ).bind(title, type, start, end, xp, coins, group, session.steamid, nowSec()).run()
+    `INSERT INTO events (title, type, status, start_at, end_at, xp_mult, coins_mult, conflict_group, created_by, created_at, detail)
+     VALUES (?1,?2,'scheduled',?3,?4,?5,?6,?7,?8,?9,?10)`
+  ).bind(title, type, start, end, xp, coins, group, session.steamid, nowSec(), detail).run()
   await audit(env, session.steamid, "EVENT_CREATED", title)
+  // TODO(push): when sync.js gains a `srv_event_schedule` action, the game can
+  // pull this schedule instead of staff editing configs/freenova/events.ini by
+  // hand. Until the plugin implements and validates that action, nothing here
+  // writes to the game — the ini stays the source of truth for multipliers.
   return { status: 200, ok: true }
 }
 
@@ -830,6 +851,8 @@ async function renderEvents(env, session, url, flash) {
       <input type="hidden" name="csrf" value="${csrf}">
       <input type="hidden" name="op" value="create">
       <label>Name</label><input name="title" required>
+      <label>Public blurb (players see this on /api/public/events and the MOTD)</label>
+      <input name="detail" maxlength="160" placeholder="What players get and when">
       <label>Type</label>
       <select name="type">
         <option value="xp_mult">XP multiplier</option>
@@ -848,6 +871,8 @@ async function renderEvents(env, session, url, flash) {
       </div>
       <p><button type="submit">Create scheduled event</button></p>
       <p class="muted">The game applies multipliers on the next snapshot. Compatible XP events cannot overlap.</p>
+      <p class="muted">The game server's <code>configs/freenova/events.ini</code> is still the source of truth for the
+      multipliers it applies; this scheduler is the panel's own schedule, and it is what the MOTD and the bot read.</p>
     </form></div>`
   } else if (tab === "history") {
     inner = hist.length
@@ -860,7 +885,7 @@ async function renderEvents(env, session, url, flash) {
     inner = show.length ? `<div class="card"><table>
       <tr><th>ID</th><th>Title</th><th>Type</th><th>Status</th><th>Window</th><th>XP</th><th></th></tr>
       ${show.map(e => `<tr>
-        <td>${esc(e.id)}</td><td>${esc(e.title)}</td><td>${esc(e.type)}</td>
+        <td>${esc(e.id)}</td><td>${esc(e.title)}${e.detail ? `<br><span class="muted">${esc(e.detail)}</span>` : ""}</td><td>${esc(e.type)}</td>
         <td><span class="badge ${e.status === "active" ? "" : e.status === "error" ? "err" : "off"}">${esc(e.status)}</span></td>
         <td>${esc(fmtTime(e.start_at))} → ${esc(fmtTime(e.end_at))}</td>
         <td>${esc(e.xp_mult)}x</td>

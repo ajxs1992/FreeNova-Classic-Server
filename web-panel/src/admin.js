@@ -67,10 +67,14 @@ function nowSec() { return Math.floor(Date.now() / 1000) }
 // Anything else (a bare x-forwarded-for, a missing header) is "unknown", which
 // only means the shared bucket is used - never a bucket the caller chooses.
 function clientIp(request) {
-  const direct = request.headers.get("x-freenova-client-ip")
-  if (direct) return String(direct).trim().slice(0, 64) || "unknown"
+  // cf-connecting-ip first: Cloudflare sets it and overwrites anything the
+  // client sent, so on the Worker it is the one trustworthy source. On the
+  // local runner the header is stripped from client input (server_local.mjs) and
+  // x-freenova-client-ip is stamped from the socket instead.
   const cf = request.headers.get("cf-connecting-ip")
   if (cf) return String(cf).split(",")[0].trim().slice(0, 64) || "unknown"
+  const direct = request.headers.get("x-freenova-client-ip")
+  if (direct) return String(direct).trim().slice(0, 64) || "unknown"
   return "unknown"
 }
 

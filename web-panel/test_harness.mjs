@@ -367,6 +367,18 @@ try {
       .run("login_fail:203.0.113.9", "9:" + staleAt)
   } finally { writer.close() }
 
+  // A client cannot pick its own lockout bucket with a platform header: the
+  // runner strips cf-connecting-ip / x-forwarded-for and stamps the socket
+  // address instead, so this failure lands in the shared bucket, not in
+  // "login_fail:203.0.113.77".
+  await fetch(panel.base + "/admin", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", "cf-connecting-ip": "203.0.113.77" },
+    body: "steamid=STEAM_0%3A0%3A683671116&password=spoof",
+  })
+  const spoofRow = panel.first(`SELECT value FROM meta WHERE key=?1`, "login_fail:203.0.113.77")
+  check("client cannot choose its lockout bucket", !spoofRow, spoofRow ? "row exists" : "")
+
   let blocked = 0
   for (let i = 0; i < 6; i++) {
     const res = await fetch(panel.base + "/admin", {

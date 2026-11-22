@@ -92,7 +92,9 @@ const env = {
 // and login lockout read the platform client address, so the runner supplies it
 // from the socket and strips the ones a caller could otherwise choose
 // (REVIEW.md §4.2 M2).
-const CLIENT_CONTROLLED_IP = ["x-forwarded-for", "x-freenova-client-ip", "forwarded", "x-real-ip"]
+// cf-connecting-ip is Cloudflare's header; this process is not behind
+// Cloudflare, so a client sending it is trying to pick its own rate-limit bucket.
+const CLIENT_CONTROLLED_IP = ["x-forwarded-for", "x-freenova-client-ip", "cf-connecting-ip", "forwarded", "x-real-ip"]
 
 function toWebRequest(req, bodyBuf) {
   const host = req.headers.host || `127.0.0.1:${PORT}`

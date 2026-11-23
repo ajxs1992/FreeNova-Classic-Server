@@ -263,6 +263,7 @@ new bool:g_bBoughtHeal[MAX_PLAYERS + 1]
 
 // Headshot Only event (toggled by panel via cvar)
 new g_pCvarHSOnly
+new g_pDebug          // bp_debug: the per-spawn armour conversion line and friends
 new g_pCvarDoubleXP   // owned by freenova_panel
 new g_pCvarHappyHour  // owned by freenova_progression
 new g_pCvarEventXp    // owned by freenova_sync (fn_event_xp_mult)
@@ -465,6 +466,8 @@ public plugin_init()
     // Season premium entitlement (store/RCON hook). Usage:
     // amx_bpent <steamid> <season> <lane 1-3> <order-id>
     register_concmd("amx_bpent", "Cmd_BpEntitlement")
+    // Diagnostic: what would the spawn-armour rule do at bonus N? See Cmd_ArmorProbe.
+    register_concmd("bp_armor_probe", "Cmd_ArmorProbe", ADMIN_CFG, "<player> <bonus> - run the spawn-armour rule for a bonus and print it")
 
     // Game events
     register_event("CurWeapon", "Event_CurWeapon", "be", "1=1")
@@ -494,6 +497,7 @@ public plugin_init()
     }
 
     g_pCvarHSOnly = register_cvar("fn_headshot_only", "0")
+    g_pDebug = register_cvar("bp_debug", "0")
 
     // File backup is a last-resort fallback when nvault_lookup misses.
     // Vault is the source of truth; the .dat files are not a second writer
@@ -1162,15 +1166,15 @@ public Task_ApplySpawn(taskid)
 
     RebuildPlayerState(id, false)
 
-    set_user_health(id, 100 + g_iHPBonus[id])
-
-    new iArmorStage = g_iShopSkillLevel[id][SKILL_SPAWN_ARMOR]
-    new iTotalArmor = g_iArmorBonus[id]
-    new bool:bIsVip = (fnvip_get_tier(id) >= FNVIP_VIP)
-    if(iTotalArmor > 0)
-    {
-        cs_set_user_armor(id, iTotalArmor, (iArmorStage >= 2 || bIsVip) ? CS_ARMOR_VESTHELM : CS_ARMOR_KEVLAR)
-    }
+    // ---- spawn armour + health (playtest fix 2026-11) ---------------------
+    // CS 1.6 caps armour at 100, so `100 + bonus` was always 100 and every point
+    // of the armour perk above the cap was silently thrown away - which is why
+    // the perk felt worthless to a VIP (who already spawns with 100) and why a
+    // non-VIP perk player spawned with LESS than 100. BpApplySpawnArmour() owns
+    // the whole decision now: perk = 100 AP + helmet on every spawn, the overflow
+    // above 100 becomes HP at 1 HP per 2 AP up to the spawn HP ceiling.
+    new iOverflowHp = BpApplySpawnArmour(id)
+    set_user_health(id, 100 + g_iHPBonus[id] + iOverflowHp)
 
     // Battle Pass tier 8: free defuse kit on CT spawn.
     // "item_defuser" is not a CS 1.6 item class: every call logged
@@ -1182,17 +1186,11 @@ public Task_ApplySpawn(taskid)
     if(g_iMilestonePaid[id] >= 8 && cs_get_user_team(id) == CS_TEAM_CT && !cs_get_user_defuse(id))
         give_item(id, "item_thighpack")
 
-    // Battle Pass tier 14: extra HE on spawn.
+    // Battle Pass tier 14: extra HE on spawn. Armour is NOT decided here any
+    // more (it used to be an else-if chain, so a tier-14+ player silently got no
+    // armour at all): BpApplySpawnArmour() above already applied it.
     if(g_iMilestonePaid[id] >= 14)
         give_item(id, "weapon_hegrenade")
-    else if(bIsVip)
-    {
-        cs_set_user_armor(id, 100, CS_ARMOR_VESTHELM)
-    }
-    else
-    {
-        cs_set_user_armor(id, 0, CS_ARMOR_NONE)
-    }
 
     set_user_gravity(id, g_fGravityMult[id])
 
@@ -1227,6 +1225,68 @@ stock GiveHealthNadeSmoke(id)
     set_entvar(ent, var_HealthNade_ThrowHealingAmount, fHeal)
     set_entvar(ent, var_HealthNade_DrinkHealingAmount, fHeal)
     set_entvar(ent, var_HealthNade_Radius, 260.0)
+}
+
+// ---- spawn armour (playtest fix 2026-11) ---------------------------------
+// The engine clips cs_set_user_armor() above 100, so everything the Battle Pass
+// armour perk grants beyond that used to be thrown away. The rule now, and the
+// numbers chosen for it (documented in docs/WINTERFEST-PLAYTEST-FIXES.md §5):
+//   * a player WITH the armour perk spawns with 100 AP and a helmet, every spawn;
+//   * the part of the bonus above the engine cap becomes HP at 1 HP per 2 AP;
+//   * that HP may not push the player past the spawn HP ceiling (100 + the 20
+//     HP cap RebuildPlayerState() already enforces), so it can never be a tap.
+#define BP_SPAWN_ARMOR_CAP      100   // the engine's own armour cap
+#define BP_ARMOR_HP_DIV         2     // 2 armour points that cannot be used = 1 HP
+#define BP_SPAWN_HP_CEILING     120   // 100 base + the 20 HP ceiling
+#define BP_ARMOR_BONUS_CEILING  200   // sanity ceiling on the BONUS itself (must
+                                      // be able to pass 100 or there is nothing
+                                      // to convert)
+
+// Applies this spawn's armour and returns the HP the overflow converted into
+// (0 for everyone without overflow, which is the normal case). Called from
+// Task_ApplySpawn and from the paid "Full HP + Armor" shop item.
+stock BpApplySpawnArmour(id)
+{
+    new iBonus = g_iArmorBonus[id]
+    if(iBonus > 0)
+    {
+        // The perk: 100 and a helmet on every spawn, for everyone who has it.
+        cs_set_user_armor(id, BP_SPAWN_ARMOR_CAP, CS_ARMOR_VESTHELM)
+
+        // Everything above the engine cap is converted, at 2 AP per HP, but never
+        // past the spawn HP ceiling - so the conversion is worth something and
+        // still cannot be farmed.
+        new iOver = iBonus - BP_SPAWN_ARMOR_CAP
+        new iHp = 0
+        if(iOver > 0)
+        {
+            iHp = iOver / BP_ARMOR_HP_DIV
+            new iRoom = BP_SPAWN_HP_CEILING - (100 + g_iHPBonus[id])
+            if(iRoom < 0)
+                iRoom = 0
+            if(iHp > iRoom)
+                iHp = iRoom
+        }
+
+        // Once per spawn, debug level only: an operator tuning the perk needs to
+        // see the decision and the conversion, a normal boot stays quiet.
+        if(get_pcvar_num(g_pDebug))
+            log_amx("[BP] spawn armour id=%d: bonus=%d -> %d AP + helmet, %d AP of overflow -> +%d HP (2 AP = 1 HP, ceiling %d)",
+                id, iBonus, BP_SPAWN_ARMOR_CAP, (iOver > 0) ? iOver : 0, iHp, BP_SPAWN_HP_CEILING)
+        return iHp
+    }
+
+    // No perk: unchanged from before this fix. A VIP keeps the flat 100 + helmet
+    // it always had, everyone else spawns with no armour.
+    new bool:bVip = (fnvip_get_tier(id) >= FNVIP_VIP) ? true : false
+    if(bVip)
+        cs_set_user_armor(id, 100, CS_ARMOR_VESTHELM)
+    else
+        cs_set_user_armor(id, 0, CS_ARMOR_NONE)
+
+    if(get_pcvar_num(g_pDebug))
+        log_amx("[BP] spawn armour id=%d: no armour perk -> %s", id, bVip ? "VIP 100 AP + helmet" : "no armour")
+    return 0
 }
 
 RebuildPlayerState(id, bool:bLive)
@@ -1373,7 +1433,10 @@ RebuildPlayerState(id, bool:bLive)
 
     // Hard caps: skills are sidegrades, not raw stat inflation.
     g_iHPBonus[id] = min(g_iHPBonus[id], 20)
-    g_iArmorBonus[id] = min(g_iArmorBonus[id], 100)
+    // The armour BONUS is deliberately not clamped at the engine's 100 any more:
+    // everything above 100 is converted to HP at spawn (BpApplySpawnArmour), and
+    // clamping here would delete it before the conversion could see it.
+    g_iArmorBonus[id] = min(g_iArmorBonus[id], BP_ARMOR_BONUS_CEILING)
     if(g_fNimbleMult[id] > 1.10)
         g_fNimbleMult[id] = 1.10
     if(g_fFeatherFall[id] > 0.50)
@@ -1406,9 +1469,15 @@ RebuildPlayerState(id, bool:bLive)
 
         if(g_iArmorBonus[id] > oldArmor)
         {
+            // Mid-round (a skill bought in the shop): grant the difference, but
+            // never above the engine cap. No HP conversion here - the conversion
+            // is a spawn rule, so a live purchase cannot become an HP tap.
             new CsArmorType:type
             new curArmor = cs_get_user_armor(id, type)
-            cs_set_user_armor(id, curArmor + (g_iArmorBonus[id] - oldArmor), CS_ARMOR_VESTHELM)
+            new iNew = curArmor + (g_iArmorBonus[id] - oldArmor)
+            if(iNew > BP_SPAWN_ARMOR_CAP)
+                iNew = BP_SPAWN_ARMOR_CAP
+            cs_set_user_armor(id, iNew, CS_ARMOR_VESTHELM)
         }
 
         set_user_gravity(id, g_fGravityMult[id])
@@ -2480,6 +2549,46 @@ stock BpBackfillPremium(id, milestone)
             SaveCoins(id)
         }
     }
+}
+
+// Server console: bp_armor_probe <player> <bonus> - run the SHIPPED spawn-armour
+// rule for a bonus an operator chooses, print what it did, and put the player's
+// own bonus back. The perk is level-gated (max ~28 today), so without this a
+// value above the 100 cap - the overflow conversion - could only be reached by
+// waiting for a future config. Admin-only, console or rcon.
+public Cmd_ArmorProbe(id, level, cid)
+{
+    if(!cmd_access(id, level, cid, 3))
+        return PLUGIN_HANDLED
+
+    new szArg[32]
+    read_argv(1, szArg, charsmax(szArg))
+    new iTarget = cmd_target(id, szArg, CMDTARGET_ALLOW_SELF)
+    if(!iTarget)
+        return PLUGIN_HANDLED
+
+    new szBonus[16]
+    read_argv(2, szBonus, charsmax(szBonus))
+    new iBonus = clamp(str_to_num(szBonus), 0, 500)
+
+    new szName[32]
+    get_user_name(iTarget, szName, charsmax(szName))
+
+    // Swap the derived bonus in, run the shipped function unchanged, swap back.
+    new iSaved = g_iArmorBonus[iTarget]
+    g_iArmorBonus[iTarget] = iBonus
+    new iHp = BpApplySpawnArmour(iTarget)
+    g_iArmorBonus[iTarget] = iSaved
+
+    new CsArmorType:type
+    new iAp = cs_get_user_armor(iTarget, type)
+    new szOut[192]
+    formatex(szOut, charsmax(szOut),
+        "bonus=%d -> armour=%d helmet=%s, +%d HP (ceiling %d HP, 2 AP = 1 HP)",
+        iBonus, iAp, (type == CS_ARMOR_VESTHELM) ? "yes" : "no", iHp, BP_SPAWN_HP_CEILING)
+    console_print(id, "[BP] armour probe %s: %s", szName, szOut)
+    log_amx("[BP] armour probe %s (%d): %s", szName, iTarget, szOut)
+    return PLUGIN_HANDLED
 }
 
 public Cmd_Coins(id)
@@ -3979,8 +4088,15 @@ public ConsumableHandler(id, menu, item)
                 return PLUGIN_HANDLED
             }
             g_bBoughtHeal[id] = true
-            set_user_health(id, 100 + g_iHPBonus[id])
-            cs_set_user_armor(id, 100 + g_iArmorBonus[id], CS_ARMOR_VESTHELM)
+            // Paid full restore: 100 AP + helmet, and the same overflow rule as a
+            // spawn for a perk owner. It is not BpApplySpawnArmour()'s no-perk
+            // branch here: a paying player must never lose the armour they had.
+            new iHealHp = 0
+            if(g_iArmorBonus[id] > 0)
+                iHealHp = BpApplySpawnArmour(id)
+            else
+                cs_set_user_armor(id, 100, CS_ARMOR_VESTHELM)
+            set_user_health(id, 100 + g_iHPBonus[id] + iHealHp)
             client_printcolor(id, "[FreeNova Shop] Full HP + Armor restored! (-%d coins)", cost)
         }
         case 2:

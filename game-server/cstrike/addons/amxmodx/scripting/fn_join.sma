@@ -23,6 +23,7 @@
 #include <amxmodx>
 #include <amxmisc>
 #include <fn_common>
+#include <freenova_web>   // fn_open_panel(): the one MOTD-vs-menu decision
 
 #define PLUGIN  "FreeNova Join Welcome"
 #define VERSION "1.0.0"
@@ -95,16 +96,26 @@ public CmdMotd(id)
 	if (!is_user_connected(id) || is_user_bot(id))
 		return PLUGIN_HANDLED;
 
-	new file[64];
-	get_pcvar_string(g_pMotdFile, file, charsmax(file));
-
-	if (!file[0] || !file_exists(file))
+	// fn_open_panel() is the single MOTD-vs-menu decision in the stack: it
+	// refuses the MOTD under Low Performance Mode, when no panel is configured
+	// and when the file is gone, and logs which of those it was.
+	if (fn_open_panel(id, FN_PANEL_MOTD))
 	{
-		client_print(id, print_chat, "[FreeNova] The MOTD file is missing (%s) - tell an admin.", file);
-		log_amx("[JOIN] motd file '%s' not found", file);
+		log_amx("[JOIN] motd shown for id=%d", id);
 		return PLUGIN_HANDLED;
 	}
 
-	show_motd(id, file, "FreeNova");
+	if (fn_panel_denied() == FN_PANEL_DENY_LPM)
+	{
+		// Low performance mode: no HTML, one chat line, and the menu command that
+		// carries the same information.
+		client_print(id, print_chat, "[FreeNova] Low performance mode is on - the MOTD stays closed. Say /help for the menu or /wintermenu for Winterfest.");
+		return PLUGIN_HANDLED;
+	}
+
+	new file[64];
+	get_pcvar_string(g_pMotdFile, file, charsmax(file));
+	client_print(id, print_chat, "[FreeNova] The MOTD file is missing (%s) - tell an admin.", file);
+	log_amx("[JOIN] motd file '%s' not found", file);
 	return PLUGIN_HANDLED;
 }

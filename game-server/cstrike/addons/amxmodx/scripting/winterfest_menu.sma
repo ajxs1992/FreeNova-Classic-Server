@@ -6,17 +6,30 @@
  * Module map: docs/WINTERFEST-DEV.md.
  *
  * Commands
- *   /christmas    the hub (every entry below, with its state on the row)
- *   /gifts        presents you carry, and opening one from the list
+ *   /christmas    the Winterfest PANEL page (/winter on the panel base URL).
+ *                 Falls back to the hub menu below whenever the panel cannot be
+ *                 shown: no panel configured, auth still pending, or Low
+ *                 Performance Mode on (see fn_open_panel in freenova_web.inc).
+ *   /wintermenu   the hub menu, always. One command away from every screen, and
+ *                 the automatic fallback behind /christmas.
+ *   /gifts        presents you carry, and opening one from the list   (panel
+ *                 page /winter/gifts first, this menu when it cannot open)
  *   /tree         style, level, how many of the 24 slots are filled, the next
- *                 milestone and where the panel page lives
+ *                 milestone and where the panel page lives   (/winter/tree)
  *   /ornaments    the catalogue: owned / missing / which set it belongs to
+ *                 (/winter/ornaments)
  *   /advent       the 24 calendar days, claim the one that is open
+ *                 (/winter/advent)
  *   /winterpass   tier, XP, and the rewards ahead (free track only)
- *   /christmashop says what it is: Phase 2
+ *                 (/winter/pass)
+ *   /christmashop says what it is: Phase 2 - a menu, because there is no page
  *   /opengift     owned by winterfest_gifts (the opening theatre). If that
  *                 module is not loaded this plugin registers a fallback so the
  *                 option is never dead.
+ *
+ * The menu body of each command is a plain function (GiftMenu, OrnMenu, ...) so
+ * the hub menu can open the menu directly instead of bouncing the player back
+ * through the panel decision a second time.
  *
  * RULES THIS FILE FOLLOWS
  *   - a brand-new player (0 GingerBread, 0 presents, 0 ornaments, no claims) sees
@@ -34,6 +47,7 @@
 #include <amxmisc>
 #include <winterfest>
 #include <freenova_ui>   // stocks only (menu chrome) - no runtime dependency
+#include <freenova_web>  // fn_open_panel(): the MOTD-vs-menu decision, LPM included
 
 #define PLUGIN  "Winterfest Menu"
 #define VERSION "1.0.0"
@@ -70,10 +84,17 @@ public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR)
 
-	register_clcmd("say /christmas", "cmdHub")
-	register_clcmd("say_team /christmas", "cmdHub")
-	register_clcmd("say /xmas", "cmdHub")
-	register_clcmd("say_team /xmas", "cmdHub")
+	register_clcmd("say /christmas", "cmdChristmas")
+	register_clcmd("say_team /christmas", "cmdChristmas")
+	register_clcmd("say /xmas", "cmdChristmas")
+	register_clcmd("say_team /xmas", "cmdChristmas")
+	register_clcmd("say /winter", "cmdChristmas")
+	register_clcmd("say_team /winter", "cmdChristmas")
+	// The menu itself, one command away whatever the panel does.
+	register_clcmd("say /wintermenu", "cmdHub")
+	register_clcmd("say_team /wintermenu", "cmdHub")
+	register_clcmd("say /christmasmenu", "cmdHub")
+	register_clcmd("say_team /christmasmenu", "cmdHub")
 	register_clcmd("say /gifts", "cmdGifts")
 	register_clcmd("say_team /gifts", "cmdGifts")
 	register_clcmd("say /tree", "cmdTree")
@@ -87,8 +108,10 @@ public plugin_init()
 	register_clcmd("say /christmashop", "cmdShop")
 	register_clcmd("say_team /christmashop", "cmdShop")
 
-	// The panel page for /tree. Empty by default: the panel release owns the
-	// URL, and printing a wrong one is worse than printing none.
+	// The panel page path, and the last-resort in-game link printer. Both are
+	// cvars because the panel release owns where its pages live; a wrong path is
+	// a config edit, not a recompile. The HOST never lives here: it is fnweb_url
+	// (see fn_open_panel in freenova_web.inc).
 	register_cvar("wf_panel_url", "")
 
 	if (!LibraryExists("winterfest_core", LibType_Library))
@@ -139,11 +162,36 @@ stock WfClosedLine(id)
 	new window[48], name[48]
 	wf_season_name(name, charsmax(name))
 	wf_season_window(window, charsmax(window))
-	client_print_color(id, print_team_default, "^4[WF]^1 %s runs %s. Nothing to do until then.", name, window)
+	WfSayFmt(id, "%s runs %s. Nothing to do until then.", name, window)
 }
 
 // ============================================================
-// Hub
+// Entry point: the panel
+// ============================================================
+// /christmas opens the WINTERFEST PANEL PAGE. The menu is not gone - it is
+// /wintermenu - and it is what this function does whenever fn_open_panel() says
+// the panel cannot be shown (Low Performance Mode, no panel configured, auth
+// still pending, loopback host, cooldown). One function decides, so the answer
+// is the same for every command in this file.
+public cmdChristmas(id)
+{
+	if (!WfPlayer(id))
+		return PLUGIN_HANDLED
+
+	if (!WfOpen())
+	{
+		WfClosedLine(id)
+		return PLUGIN_HANDLED
+	}
+
+	if (fn_open_panel(id, FN_PANEL_WINTER))
+		return PLUGIN_HANDLED
+
+	return cmdHub(id)
+}
+
+// ============================================================
+// Hub menu (/wintermenu, and the fallback behind every panel command)
 // ============================================================
 public cmdHub(id)
 {
@@ -222,12 +270,12 @@ public hubHandler(id, menu, item)
 
 	switch (item)
 	{
-		case 0: cmdGifts(id)
+		case 0: GiftMenu(id)
 		case 1: cmdOpenFallback(id)
-		case 2: cmdTree(id)
-		case 3: cmdOrnaments(id)
-		case 4: cmdAdvent(id)
-		case 5: cmdPass(id)
+		case 2: TreeSummary(id)
+		case 3: OrnMenu(id, 0)
+		case 4: AdventMenu(id, 0)
+		case 5: PassSummary(id)
 		case 6: cmdShop(id)
 	}
 	return PLUGIN_HANDLED
@@ -236,6 +284,8 @@ public hubHandler(id, menu, item)
 // ============================================================
 // Presents
 // ============================================================
+// The command asks the panel first; the menu body is a separate function so the
+// hub menu can open it without a second panel decision.
 public cmdGifts(id)
 {
 	if (!WfPlayer(id))
@@ -245,6 +295,17 @@ public cmdGifts(id)
 		WfClosedLine(id)
 		return PLUGIN_HANDLED
 	}
+
+	if (fn_open_panel(id, FN_PANEL_WINTER_GIFTS))
+		return PLUGIN_HANDLED
+
+	return GiftMenu(id)
+}
+
+GiftMenu(id)
+{
+	if (!WfPlayer(id))
+		return PLUGIN_HANDLED
 
 	new count = wf_gift_count(id)
 	new title[64]
@@ -293,8 +354,9 @@ public giftsHandler(id, menu, item)
 		return PLUGIN_HANDLED
 
 	WfOpenOne(id, instance)
-	// Back to the list: the player usually has more than one present.
-	cmdGifts(id)
+	// Back to the list: the player usually has more than one present. The menu,
+	// not cmdGifts(): the player is already past the panel decision.
+	GiftMenu(id)
 	return PLUGIN_HANDLED
 }
 
@@ -344,8 +406,9 @@ public cmdOpenFallback(id)
 // Tree
 // ============================================================
 // Text, not a menu: the owner's decision (§6.1) is that the tree is a panel
-// surface. In game it is a five-line summary, which is all a 1999 chat console
-// can honestly render.
+// surface. /tree opens the panel page; when there is no panel the same facts are
+// printed as a five-line summary, which is all a 1999 chat console can honestly
+// render.
 public cmdTree(id)
 {
 	if (!WfPlayer(id))
@@ -356,6 +419,17 @@ public cmdTree(id)
 		return PLUGIN_HANDLED
 	}
 
+	if (fn_open_panel(id, FN_PANEL_WINTER_TREE))
+		return PLUGIN_HANDLED
+
+	return TreeSummary(id)
+}
+
+TreeSummary(id)
+{
+	if (!WfPlayer(id))
+		return PLUGIN_HANDLED
+
 	new style = wf_tree_style(id)
 	new sname[32]
 	wf_tree_style_name(style, sname, charsmax(sname))
@@ -364,8 +438,8 @@ public cmdTree(id)
 	new slots = wf_tree_slots()
 	new level = wf_tree_level(id)
 
-	client_print_color(id, print_team_default, "^4[WF]^1 Tree: style ^3%s^1, level ^3%d^1.", sname, level)
-	client_print_color(id, print_team_default, "^4[WF]^1 Slots filled: ^3%d / %d^1.", filled, slots)
+	WfSayFmt(id, "Tree: style ^3%s^1, level ^3%d^1.", sname, level)
+	WfSayFmt(id, "Slots filled: ^3%d / %d^1.", filled, slots)
 
 	new next = wf_tree_next_set(id)
 	if (next > 0)
@@ -373,23 +447,35 @@ public cmdTree(id)
 		new setname[48], title[64]
 		wf_set_name(next, setname, charsmax(setname))
 		wf_set_title(next, title, charsmax(title))
-		client_print_color(id, print_team_default,
-			"^4[WF]^1 Next milestone: ^3%s^1 (%d/%d ornaments) - it unlocks the ^3%s^1 title.",
+		WfSayFmt(id,
+			"Next milestone: ^3%s^1 (%d/%d ornaments) - it unlocks the ^3%s^1 title.",
 			setname, wf_set_owned(id, next), wf_set_total(next), title)
 	}
 	else
 	{
-		client_print_color(id, print_team_default,
-			"^4[WF]^1 Every set is complete - level %d is as tall as this tree grows this season.", level)
+		WfSayFmt(id,
+			"Every set is complete - level %d is as tall as this tree grows this season.", level)
 	}
 
-	new url[96]
-	get_cvar_string("wf_panel_url", url, charsmax(url))
-	if (url[0])
-		client_print_color(id, print_team_default, "^4[WF]^1 Panel: ^3%s^1", url)
+	// Where the 2D tree lives. Built from the panel's own base URL and its
+	// Winterfest root (fnweb_url + fnweb_winter_path), so a moved panel is a
+	// config edit and no host is hardcoded here. wf_panel_url stays as the last
+	// resort for an operator who set it by hand.
+	new szBase[80], szRoot[48], szWhere[128]
+	szWhere[0] = 0
+	if (FNWeb_BaseUrl(szBase, charsmax(szBase)))
+	{
+		FNWeb_WinterRoot(szRoot, charsmax(szRoot))
+		formatex(szWhere, charsmax(szWhere), "%s%s", szBase, szRoot)
+	}
 	else
-		client_print_color(id, print_team_default,
-			"^4[WF]^1 The 2D tree (drag ornaments between the 24 slots) opens with the panel release.")
+		get_cvar_string("wf_panel_url", szWhere, charsmax(szWhere))
+
+	if (szWhere[0])
+		WfSayFmt(id, "Panel: ^3%s^1", szWhere)
+	else
+		WfSayFmt(id,
+			"The 2D tree (drag ornaments between the 24 slots) opens on the panel - ask an admin for the address.")
 	return PLUGIN_HANDLED
 }
 
@@ -405,7 +491,19 @@ public cmdOrnaments(id)
 		WfClosedLine(id)
 		return PLUGIN_HANDLED
 	}
-	ornPage(id, 0)
+
+	if (fn_open_panel(id, FN_PANEL_WINTER_ORNAMENTS))
+		return PLUGIN_HANDLED
+
+	return OrnMenu(id, 0)
+}
+
+OrnMenu(id, page)
+{
+	if (!WfPlayer(id))
+		return PLUGIN_HANDLED
+
+	ornPage(id, page)
 	return PLUGIN_HANDLED
 }
 
@@ -494,13 +592,13 @@ public ornHandler(id, menu, item)
 		new setname[48], title[64]
 		wf_set_name(setid, setname, charsmax(setname))
 		wf_set_title(setid, title, charsmax(title))
-		client_print_color(id, print_team_default,
-			"^4[WF]^1 %s \d(%s)\w - set ^3%s^1 %d/%d, unlocks ^3%s^1.",
+		WfSayFmt(id,
+			"%s ^3(%s)^1 - set ^3%s^1 %d/%d, unlocks ^3%s^1.",
 			oname, rname, setname, wf_set_owned(id, setid), wf_set_total(setid), title)
 	}
 	else
 	{
-		client_print_color(id, print_team_default, "^4[WF]^1 %s \d(%s)\w - no set.", oname, rname)
+		WfSayFmt(id, "%s ^3(%s)^1 - no set.", oname, rname)
 	}
 
 	ornPage(id, 0)
@@ -519,7 +617,19 @@ public cmdAdvent(id)
 		WfClosedLine(id)
 		return PLUGIN_HANDLED
 	}
-	adventPage(id, 0)
+
+	if (fn_open_panel(id, FN_PANEL_WINTER_ADVENT))
+		return PLUGIN_HANDLED
+
+	return AdventMenu(id, 0)
+}
+
+AdventMenu(id, page)
+{
+	if (!WfPlayer(id))
+		return PLUGIN_HANDLED
+
+	adventPage(id, page)
 	return PLUGIN_HANDLED
 }
 
@@ -648,16 +758,27 @@ public cmdPass(id)
 		return PLUGIN_HANDLED
 	}
 
+	if (fn_open_panel(id, FN_PANEL_WINTER_PASS))
+		return PLUGIN_HANDLED
+
+	return PassSummary(id)
+}
+
+PassSummary(id)
+{
+	if (!WfPlayer(id))
+		return PLUGIN_HANDLED
+
 	new tier = wf_get_pass_tier(id)
 	new max_tier = wf_pass_max_tier()
 	new xp = wf_get_pass_xp(id)
 	new next = wf_pass_next_xp(id)
 
-	client_print_color(id, print_team_default, "^4[WF]^1 Winter pass: tier ^3%d^1 of %d \d(free track)", tier, max_tier)
+	WfSayFmt(id, "Winter pass: tier ^3%d^1 of %d (free track)", tier, max_tier)
 	if (tier >= max_tier)
-		client_print_color(id, print_team_default, "^4[WF]^1 ^3%d^1 XP - every tier reached this season.", xp)
+		WfSayFmt(id, "^3%d^1 XP - every tier reached this season.", xp)
 	else
-		client_print_color(id, print_team_default, "^4[WF]^1 ^3%d^1 / %d XP to tier ^3%d^1.", xp, next, tier + 1)
+		WfSayFmt(id, "^3%d^1 / %d XP to tier ^3%d^1.", xp, next, tier + 1)
 
 	// The next three tier rewards, so the pass is not just a number.
 	new shown = 0
@@ -668,17 +789,17 @@ public cmdPass(id)
 		if (!rtext[0])
 			continue
 		formatex(row, charsmax(row), "tier %d at %d XP: %s", t, wf_pass_tier_xp(t), rtext)
-		client_print_color(id, print_team_default, "^4[WF]^1 %s", row)
+		WfSayFmt(id, "%s", row)
 		shown++
 	}
 	if (!shown)
-		client_print_color(id, print_team_default, "^4[WF]^1 Nothing left to unlock - nice.")
+		WfSayFmt(id, "Nothing left to unlock - nice.")
 
 	// The premium track is an entitlement, never a grant: without it the rows are
 	// refused, with it they pay for every tier already reached.
 	if (wf_pass_premium_unlocked(id))
 	{
-		client_print_color(id, print_team_default, "^4[WF]^1 Premium track: ^3owned^1 - its rewards are paid tier by tier.")
+		WfSayFmt(id, "Premium track: ^3owned^1 - its rewards are paid tier by tier.")
 		shown = 0
 		for (new t = tier + 1; t <= max_tier && shown < 3; t++)
 		{
@@ -686,14 +807,14 @@ public cmdPass(id)
 			if (!rtext[0])
 				continue
 			formatex(row, charsmax(row), "premium tier %d at %d XP: %s", t, wf_pass_tier_xp(t), rtext)
-			client_print_color(id, print_team_default, "^4[WF]^1 %s", row)
+			WfSayFmt(id, "%s", row)
 			shown++
 		}
 	}
 	else
 	{
-		client_print_color(id, print_team_default,
-			"^4[WF]^1 Premium track: \dnot owned\w - the shop sells it; your free tiers are unaffected.")
+		WfSayFmt(id,
+			"Premium track: ^3not owned^1 - the shop sells it; your free tiers are unaffected.")
 	}
 	return PLUGIN_HANDLED
 }

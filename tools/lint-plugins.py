@@ -38,6 +38,15 @@ Rules
 7. ``bp-ledger``      the BattlePass XP grant path in ``battlepass_core.sma``
    calls ``crxranks_give_user_xp``. BattlePass XP is its own ledger since
    REVIEW.md 9d (28a18cf); a grant that also moves rank XP is the H1 bug.
+8. ``chat-escape``    a GoldSrc MENU escape (``\\y`` ``\\w`` ``\\r`` ``\\d``) or a
+   caret colour code (``^1``..``^4``) inside a string that no menu renders:
+   ``client_print`` / ``client_print_color`` / ``console_print`` /
+   ``show_hudmessage`` text or a ``show_motd`` title. Those codes are not
+   escapes to the compiler - they are printed character for character, which is
+   the "raw color codes in chat" report. Chat renders ``^1``..``^4`` only; HUD
+   text and the console render neither style (HUD understands ``^n``); a MOTD
+   title is HTML. Menus are NOT police: ``menu_additem()`` and menu titles are
+   exactly where ``\\y\\w\\r\\d`` belong.
 
 ``set_hudmessage()`` is deliberately not treated as a format call: its eleven
 arguments are colour/position/timing and it takes no format string at all. The
@@ -85,6 +94,7 @@ RULES = {
     "library-missing": "LibraryExists() for a library no .sma registers",
     "sql-serverid": "server_id = 0 hardcoded in SQL",
     "bp-ledger": "BattlePass XP grant path calls crxranks_give_user_xp",
+    "chat-escape": "menu escape or colour code in a string no menu renders",
 }
 
 DEFAULT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -130,6 +140,42 @@ PRINT_FAMILY = {
     "show_hudmessage": 1,
 }
 
+# Rule 8: the two escape styles, and who understands them.
+#   GoldSrc MENUS interpret \y (yellow) \w (white) \r (red) \d (dim).
+#   CHAT (client_print_color) interprets ^1 (default) ^3 (team) ^4 (green).
+#   HUD text interprets neither, only ^n; the server console interprets none,
+#   and a show_motd title is HTML.
+MENU_ESCAPE_RE = re.compile(r"\\[dwry]")
+CARET_CODE_RE = re.compile(r"\^[0-9]")
+
+# call -> (format-argument index or the (2-arg, 3-arg) pair, loses caret codes too)
+CHAT_TEXT_CALLS = {
+    "client_print": (2, False),          # chat: ^1..^4 are real, menus are not
+    "client_print_color": ((1, 2), False),
+    "client_printcolor": (1, False),
+    "console_print": (1, True),          # console renders neither style
+    "show_hudmessage": (1, True),        # HUD: only ^n, no colour codes at all
+    # The house chat service (freenova_chat.inc) and Winterfest's own one-line
+    # helper (winterfest.inc). Both prepend their prefix and print through
+    # client_print_color, so ^1..^4 are legal and menu escapes are not.
+    "fn_chat_info": (1, False),
+    "fn_chat_error": (1, False),
+    "fn_chat_success": (1, False),
+    "fn_chat_warning": (1, False),
+    "fn_chat_usage": (1, False),
+    "fn_chat_permission": (1, False),
+    "fn_chat_raw": (2, False),
+    "WfSay": (1, False),
+    "WfSayFmt": (1, False),
+}
+
+# Rule 8 also follows one variable: the classic bug is
+#   formatex(buf, n, "ornament:\d %s", x) ... WfSay(id, buf)
+# where the format string is a line above the print, so no literal check sees it.
+# When a chat sink's argument is a bare buffer, the enclosing function's
+# formatex()/format()/add() calls that target that buffer are inspected too.
+BUFFER_FORMAT_CALLS = {"formatex": 2, "format": 2, "add": 1, "fmt": 0}
+
 # AMXX format specifiers: %s %d %i %u %f %x %X %c %b %e %E %g %G plus the
 # language-key family %L (client id + phrase) / %t %T (inline phrase) and %%.
 # The lowercase %l is accepted as well: it is the same translation path and this
@@ -164,6 +210,19 @@ ALLOW_LIST = [
      "pristine AMXX 1.10 upstream (verified against the vendored tarball) and "
      "restmenu.amxx is not in plugins.ini, so the %n crash path is unreachable; "
      "fix + rebuild together if an operator ever loads it"),
+    # Findings found by this batch that belong to another workstream's file: the
+    # rule stays armed, the finding is acknowledged here and reported with a
+    # line number in docs/WINTERFEST-PLAYTEST-FIXES.md §7 so its owner can see
+    # the whole list in one place.
+    ("winterfest_progress.sma", "chat-escape",
+     "not this batch's file (its owner is active on docs/WINTERFEST-PROGRESS.md); "
+     "3 chat lines still carry a menu escape - listed in the playtest report §7"),
+    ("freenova_calladmin.sma", "chat-escape",
+     "not this batch's file; 2 client_print_color lines carry \\y - listed in "
+     "the playtest report §7 for its owner"),
+    ("winterfest_spin.sma", "chat-escape",
+     "not this batch's file (its owner is active on docs/WINTERFEST-SPIN.md); "
+     "the report §7 lists what to check there"),
 ]
 
 
@@ -379,6 +438,36 @@ def function_body(masked: str, name: str):
     return None, None
 
 
+def enclosing_block(masked: str, offset: int):
+    """(start, body) of the outermost `{}` block that contains `offset`.
+
+    Plugin functions are top-level in this tree, so the outermost block is the
+    function body - which is the scope a buffer cannot escape, and therefore the
+    right place to look for the formatex() that filled a printed buffer.
+    """
+    depth = 0
+    start = None
+    for i in range(offset):
+        c = masked[i]
+        if c == "{":
+            depth += 1
+            if depth == 1:
+                start = i
+        elif c == "}":
+            depth -= 1
+    if start is None:
+        return None, None
+    depth = 0
+    for j in range(start, len(masked)):
+        if masked[j] == "{":
+            depth += 1
+        elif masked[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return start, masked[start:j + 1]
+    return start, masked[start:]
+
+
 # ------------------------------------------------------------------- linter ---
 class Linter:
     def __init__(self, root: str, only_rules=None):
@@ -386,6 +475,7 @@ class Linter:
         self.only = set(only_rules or RULES)
         self.findings = []
         self.files = []
+        self.masked_now = ""
         self.registered_libraries = set()
 
     # -- helpers ------------------------------------------------------------
@@ -393,8 +483,15 @@ class Linter:
         if rule not in self.only:
             return
         line = line_of(text, offset)
+        # One finding per (file, line, rule, message): rule 8 walks the same
+        # buffer for every chat sink in a function and would otherwise repeat
+        # itself once per sink.
+        rel = self.rel(path)
+        for f in self.findings:
+            if f.path == rel and f.line == line and f.rule == rule and f.message == message:
+                return
         allowed = forced_allow or (allow_check and self.is_allowed(path, line, rule))
-        self.findings.append(Finding(self.rel(path), line, rule, message, allowed))
+        self.findings.append(Finding(rel, line, rule, message, allowed))
 
     def is_allowed(self, path, line, rule):
         """`lint:allow <rule>` inline, or a file entry in ALLOW_LIST."""
@@ -613,6 +710,66 @@ class Linter:
                      f"LibraryExists(\"{lib}\") but no .sma in this tree registers "
                      f"\"{lib}\"")
 
+    def check_chat_escape(self, masked, path, text):
+        names = set(CHAT_TEXT_CALLS) | {"show_motd"}
+        for name, args, offset in find_calls(masked, names):
+            if name == "show_motd":
+                # show_motd(id, body, "Title"): the title is HTML, so a code in
+                # it is shown raw in the window header. The body is URL/file/HTML
+                # and is not inspected.
+                if len(args) > 2:
+                    self.chat_escape_literal(args[2], path, text, offset,
+                                             "show_motd() title", True)
+                continue
+            idx, caret_too = CHAT_TEXT_CALLS[name]
+            if isinstance(idx, tuple):
+                idx = idx[1] if len(args) > 2 else idx[0]
+            if len(args) <= idx:
+                continue
+            what = "HUD text" if name == "show_hudmessage" else (
+                "console text" if name == "console_print" else "chat text")
+            where = f"{name}() {what}"
+            if self.chat_escape_literal(args[idx], path, text, offset, where, caret_too):
+                continue
+            # Not a literal: follow the buffer it names.
+            self.chat_escape_buffer(args[idx], path, text, offset, where, caret_too)
+
+    def chat_escape_buffer(self, arg, path, text, offset, where, caret_too):
+        buf = root_ident(arg)
+        if not buf:
+            return
+        start, body = enclosing_block(masked=self.masked_now, offset=offset)
+        if start is None:
+            return
+        for name, args, off in find_calls(body, BUFFER_FORMAT_CALLS):
+            fdx = BUFFER_FORMAT_CALLS[name]
+            if len(args) <= max(fdx, 0) or root_ident(args[0]) != buf:
+                continue
+            if self.chat_escape_literal(args[fdx], path, text, start + off,
+                                        f"{where} (built by {name}() at line "
+                                        f"{line_of(text, start + off)})", caret_too):
+                continue
+
+    def chat_escape_literal(self, arg, path, text, offset, where, caret_too):
+        """Report escapes in one literal. True when `arg` WAS a literal."""
+        lit = is_string_literal(arg)
+        if lit is None:
+            return False
+        m = MENU_ESCAPE_RE.search(lit)
+        if m:
+            self.add(path, text, offset, "chat-escape",
+                     f"{where} contains the menu-only escape '{m.group(0)}'; only "
+                     f"menus render it - chat shows it literally (use ^1/^3/^4)")
+        if caret_too:
+            m = CARET_CODE_RE.search(lit)
+            if m:
+                style = ("HUD text renders no colour code at all (^n only)"
+                         if "HUD" in where else
+                         "the server console renders no colour code")
+                self.add(path, text, offset, "chat-escape",
+                         f"{where} contains the colour code '{m.group(0)}'; {style}")
+        return True
+
     def check_bp_ledger(self, masked, path, text):
         if os.path.basename(path) != BP_PROVIDER:
             return
@@ -639,6 +796,7 @@ class Linter:
         # Pass 2: every rule.
         for path in files:
             text, masked = masked_cache[path]
+            self.masked_now = masked
             self.check_format_alias(masked, path, text)
             self.check_invalid_specs(masked, path, text)
             self.check_give_item(masked, path, text)
@@ -646,6 +804,7 @@ class Linter:
             self.check_sql_serverid(masked, path, text)
             self.check_library_missing(masked, path, text)
             self.check_bp_ledger(masked, path, text)
+            self.check_chat_escape(masked, path, text)
         return self.findings
 
 
@@ -690,13 +849,13 @@ def self_test(root):
     if not allowed:
         failures.append("allowed: no findings at all - the fixture stopped exercising the markers")
 
-    print(f"self-test: bad={len(bad)} findings ({len(bad_errors)} rules), "
+    print(f"self-test: bad={len(bad)} findings ({len(bad_errors)} of {len(RULES)} rules), "
           f"clean={len(clean)}, allowed={len(allowed)}")
     for msg in failures:
         print("FAIL " + msg)
     if failures:
         return 1
-    print("self-test OK (7 rules, acknowledge path, clean path)")
+    print(f"self-test OK ({len(RULES)} rules, acknowledge path, clean path)")
     return 0
 
 

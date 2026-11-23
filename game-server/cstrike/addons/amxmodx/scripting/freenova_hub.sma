@@ -6,6 +6,7 @@
 #include <freenova_prefs>
 #include <freenova_ui>
 #include <freenova_web>
+#include <freenova_chat>   // fn_chat_info: the house chat service (/lpm answers through it)
 #include <fn_common>
 
 // FreeNova Hub — single player navigation surface.
@@ -75,6 +76,15 @@ public plugin_init()
     register_clcmd("say_team /hub", "Cmd_Hub")
     register_clcmd("say /settings", "Cmd_SettingsDirect")
     register_clcmd("say_team /settings", "Cmd_SettingsDirect")
+    register_clcmd("say /lpm", "Cmd_Lpm", _, "low performance mode: in-game menus instead of web panels")
+    register_clcmd("say_team /lpm", "Cmd_Lpm")
+    register_clcmd("say /lowperf", "Cmd_Lpm")
+    register_clcmd("say_team /lowperf", "Cmd_Lpm")
+
+    // fn_chat_debug 1 logs every line the house chat service sends (see
+    // fn_chat_raw in freenova_chat.inc). Registered here because this plugin is
+    // always loaded and it is the service's most frequent caller.
+    register_cvar("fn_chat_debug", "0")
     register_clcmd("say /help", "Cmd_Help")
     register_clcmd("say_team /help", "Cmd_Help")
     // /commands is owned by fn_commands.amxx: it builds the list from the
@@ -176,7 +186,7 @@ public Hub_Handler(id, menu, item)
 
     switch (str_to_num(szData))
     {
-        case 0: OpenOrSay(id, "profile", "/rankstats")
+        case 0: OpenOrSay(id, FN_PANEL_PROFILE, "/rankstats")
         case 1:
         {
             if (HubMenabpReady(id))
@@ -204,9 +214,9 @@ public Hub_Handler(id, menu, item)
     return PLUGIN_HANDLED
 }
 
-OpenOrSay(id, const szPage[], const szFallback[])
+OpenOrSay(id, iKind, const szFallback[])
 {
-    if (FNWeb_OpenPage(id, szPage))
+    if (fn_open_panel(id, iKind))
         return
     if (szFallback[0])
         client_cmd(id, "say %s", szFallback)
@@ -275,6 +285,53 @@ public Cmd_SettingsDirect(id)
     return Cmd_Settings(id)
 }
 
+// ---------------------------------------------------------------- low perf mode
+// /lpm - the switch behind every panel command. One preference slot
+// (FNPREF_LOW_PERF) that freenova_prefs persists per SteamID in nvault
+// (key pref#<steamid>, default off), so it survives a reconnect and a server
+// restart. What it DOES is decided in one place: fn_open_panel() in
+// freenova_web.inc refuses every MOTD while it is on, and each command opens its
+// in-game surface instead. This file only owns the switch and the confirmation.
+public Cmd_Lpm(id)
+{
+    if (!is_user_connected(id))
+        return PLUGIN_HANDLED
+
+    if (!fnpref_is_loaded(id))
+    {
+        client_print_color(id, print_team_default, "%s Still loading your profile - say /lpm again in a moment.", FN_CHAT_PREFIX)
+        return PLUGIN_HANDLED
+    }
+
+    HubToggleLowPerf(id)
+    return PLUGIN_HANDLED
+}
+
+stock HubToggleLowPerf(id)
+{
+    new iOn = fnpref_get(id, FNPREF_LOW_PERF) ? 0 : 1
+    fnpref_set(id, FNPREF_LOW_PERF, iOn)
+
+    // Through the house chat service (fn_chat_*, FN_CHAT_PREFIX) like every other
+    // user-triggered answer, so the look and the log line match the rest.
+    if (iOn)
+    {
+        // Say what changed, not only that something did.
+        fn_chat_info(id,
+            "Low performance mode ^3ON^1 - web panels are off: /christmas, /gifts, /tree, /ornaments, /advent, /winterpass, /profile, /vip and /rules open in game instead. Saved for your SteamID.")
+    }
+    else
+    {
+        fn_chat_info(id,
+            "Low performance mode ^1OFF^1 - web panels are back for /christmas, /gifts, /tree, /profile and the rest. Saved for your SteamID.")
+    }
+
+    new szAuth[40]
+    get_user_authid(id, szAuth, charsmax(szAuth))
+    log_amx("[HUB] low performance mode %s for id=%d (%s)", iOn ? "ON" : "OFF", id, szAuth)
+    return iOn
+}
+
 FormatToggle(const szLabel[], iValue)
 {
     static szItem[48]
@@ -318,9 +375,8 @@ public Settings_Handler(id, menu, item)
         }
         case 3:
         {
-            fnpref_set(id, FNPREF_LOW_PERF, fnpref_get(id, FNPREF_LOW_PERF) ? 0 : 1)
-            client_print_color(id, print_team_default, "%s Low performance mode > %s",
-                FN_CHAT_PREFIX, fnpref_get(id, FNPREF_LOW_PERF) ? "ENABLED - using in-game panels" : "DISABLED - using rich web panels")
+            // One switch, one message: /lpm and this row do the same thing.
+            HubToggleLowPerf(id)
         }
     }
     Cmd_Settings(id)
@@ -372,7 +428,7 @@ public Help_Handler(id, menu, item)
 
     switch (str_to_num(szData))
     {
-        case 0: OpenOrSay(id, "profile", "/rankstats")
+        case 0: OpenOrSay(id, FN_PANEL_PROFILE, "/rankstats")
         case 1:
         {
             if (HubMenabpReady(id))
@@ -397,7 +453,7 @@ public Help_Handler(id, menu, item)
         case 6: client_cmd(id, "say /models")
         case 7: client_cmd(id, "say /cosmetics")
         case 8: fnvip_show_vip_motd(id)
-        case 9: OpenOrSay(id, "top", "/top15")
+        case 9: OpenOrSay(id, FN_PANEL_TOP, "/top15")
         case 10: client_cmd(id, "say /rules")
         case 11:
         {

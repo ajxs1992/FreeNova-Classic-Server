@@ -48,6 +48,33 @@ stock _fn_strip_colors(szMsg[], iLen)
 // Core sender. Team selects the ^3 tint; body carries its own ^ codes.
 stock fn_chat_raw(id, iTeam, const szBody[])
 {
+    // fn_chat_debug 1 writes the exact line (prefix and colour codes included) to
+    // the server log: one switch for "what did this player actually receive?".
+    // The colours are control bytes (0x01..0x04), and a log file drops them, so
+    // they are re-escaped to the readable ^1..^4 form.
+    if (get_cvar_num("fn_chat_debug"))
+    {
+        new szLine[224], szShow[256], j
+        formatex(szLine, charsmax(szLine), "%s %s", FN_CHAT_PREFIX, szBody)
+        for (new i = 0; szLine[i] && j < charsmax(szShow) - 2; i++)
+        {
+            if (szLine[i] >= 1 && szLine[i] <= 4)
+            {
+                szShow[j++] = 94   // '^' is the Pawn escape character, so its code
+                szShow[j++] = '0' + szLine[i]
+            }
+            else if (szLine[i] == 94)
+            {
+                szShow[j++] = 94   // '^' is the Pawn escape character, so its code
+                szShow[j++] = 94   // '^' is the Pawn escape character, so its code
+            }
+            else
+                szShow[j++] = szLine[i]
+        }
+        szShow[j] = 0
+        log_amx("[FN-CHAT] id=%d team=%d %s", id, iTeam, szShow)
+    }
+
     if (id <= 0)
     {
         new szPlain[192]

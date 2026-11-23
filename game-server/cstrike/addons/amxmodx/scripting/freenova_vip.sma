@@ -105,6 +105,7 @@ new bool:g_bValid[MAX_PLAYERS + 1]; // human with a usable authid
 new g_JumpNum[MAX_PLAYERS + 1];
 new bool:g_DoJump[MAX_PLAYERS + 1];
 new bool:g_Use[MAX_PLAYERS + 1];             // armory used this round
+new bool:g_bArmoryAnnounced[MAX_PLAYERS + 1];  // the once-per-round armory line
 new bool:g_MenuOK[MAX_PLAYERS + 1];          // armory available on this map
 new g_iPrimaryChoice[MAX_PLAYERS + 1];
 new g_iSavedPistol[MAX_PLAYERS + 1];
@@ -131,6 +132,7 @@ new g_pDebug;
 // --- merged classic cvars (same names as vip_ajxs_classic, so an
 // existing vipConfig.cfg keeps working) ---
 new g_pMode;          // vip_mode
+new g_pSpawnDelay;    // vip_spawn_delay (seconds after a spawn before the armory opens)
 new g_pTag;           // vip_tag
 new g_pTierTags;      // vip_tier_tags
 new g_pStartHP;       // vip_start_hp
@@ -254,7 +256,14 @@ public plugin_init()
     g_pMultCoin[3] = register_cvar("fnvip_mult_coin_3", "2.50");
 
     // Merged classic cvars (vip_model was registered in plugin_precache)
-    g_pMode          = register_cvar("vip_mode", "1"); // 2 = auto-open armory on spawn (collides with weaponmenu round-start menu - user report)
+    // vip_mode 2 (default since the 2026-11 playtest): the armory opens by itself
+    // on every spawn, AFTER any round-start menu (vip_spawn_delay), so it is the
+    // menu the player is looking at. 1 = /vmenu only, 0 = off.
+    g_pMode          = register_cvar("vip_mode", "2");
+    // Seconds after a spawn before the armory opens. The legacy weaponmenu
+    // displays 0.2 s after the round starts, so anything above that wins the
+    // focus; 0.7 also clears the freeze-time respawn flicker.
+    g_pSpawnDelay    = register_cvar("vip_spawn_delay", "0.7");
     g_pTag           = register_cvar("vip_tag", "VIP");
     g_pTierTags      = register_cvar("vip_tier_tags", "1");
     g_pStartHP       = register_cvar("vip_start_hp", "100");
@@ -342,6 +351,7 @@ public plugin_natives()
     register_native("fnvip_resync", "_resync");
     register_native("fnvip_show_vip_motd", "_show_vip_motd");
     register_native("fnvip_show_vips_list", "_show_vips_list");
+    register_native("fnvip_armory_pending", "_armory_pending");
     set_native_filter("NativeFilter");
 }
 
@@ -398,9 +408,12 @@ WriteDefaultVipConfig()
     write_file(f, "; ===============================================");
     write_file(f, "");
     write_file(f, "//// VIP Mode (armory menu)");
-    write_file(f, "// 0 - disabled | 1 - via /vmenu only | 2 - auto menu on spawn");
+    write_file(f, "// 0 - disabled | 1 - via /vmenu only | 2 - auto menu on every spawn");
     write_file(f, "// Requires VIP+ (tier 2).");
-    write_file(f, "vip_mode ^"1^"");
+    write_file(f, "vip_mode ^"2^"");
+    write_file(f, "// Seconds after a spawn before the armory opens. It runs AFTER any");
+    write_file(f, "// round-start menu so the armory is the one the player sees.");
+    write_file(f, "vip_spawn_delay ^"0.7^"");
     write_file(f, "");
     write_file(f, "//// VIP Tag (VIP)");
     write_file(f, "// Chat prefix. With vip_tier_tags 1 the tier name is used instead.");
@@ -583,6 +596,7 @@ public client_putinserver(id)
     g_JumpNum[id] = 0;
     g_DoJump[id] = false;
     g_Use[id] = false;
+    g_bArmoryAnnounced[id] = false;
     g_MenuOK[id] = !g_bMapRestricted;
     g_iPrimaryChoice[id] = 0;
     g_iSavedPistol[id] = 0;
@@ -666,6 +680,7 @@ public client_disconnected(id)
     g_JumpNum[id] = 0;
     g_DoJump[id] = false;
     g_Use[id] = false;
+    g_bArmoryAnnounced[id] = false;
     g_MenuOK[id] = !g_bMapRestricted;
     g_iPrimaryChoice[id] = 0;
     g_iSavedPistol[id] = 0;
@@ -1379,9 +1394,20 @@ public Cmd_VipList(id, level, cid)
 // ============================================================
 ShowVipMotd(id)
 {
-    if (FNWeb_OpenPage(id, "vip"))
+    // One decision point for every MOTD in the stack (freenova_web.inc).
+    if (fn_open_panel(id, FN_PANEL_VIP))
         return;
 
+    // Low performance mode: no web panel AND no HTML page - the in-game VIP
+    // centre is the equivalent surface, and it is where the armory lives.
+    if (fn_panel_denied() == FN_PANEL_DENY_LPM)
+    {
+        ShowVipCenter(id);
+        return;
+    }
+
+    // No panel configured on this server (or the bridge said no): the local page
+    // below needs no browser and no network, so it is still the right answer.
     static szMotd[4096];
     new iLen = FN_MotdHeader(szMotd, charsmax(szMotd), "VIP");
     iLen += copy(szMotd[iLen], charsmax(szMotd) - iLen, "<table class='fnt'>");
@@ -1608,7 +1634,10 @@ public Event_NewRound()
     CurrentRound++;
 
     for (new i = 1; i <= MaxClients; i++)
+    {
         g_Use[i] = false;
+        g_bArmoryAnnounced[i] = false;
+    }
 }
 
 public Event_RoundRestart()
@@ -1616,7 +1645,10 @@ public Event_RoundRestart()
     CurrentRound = 0;
 
     for (new i = 1; i <= MaxClients; i++)
+    {
         g_Use[i] = false;
+        g_bArmoryAnnounced[i] = false;
+    }
 }
 
 public Event_RoundEnd()
@@ -1657,8 +1689,21 @@ public OnPlayerSpawn(id)
 
     g_MenuOK[id] = !g_bMapRestricted;
 
+    // The armory opens on EVERY spawn - a mid-round respawn included - as long
+    // as the player has not already spent it this round. It is queued, not shown
+    // here: any round-start menu (the legacy weaponmenu displays 0.2 s after the
+    // round starts) gets the focus first, and Task_AutoOpenMenu then closes
+    // whatever is up before it shows the armory, so exactly one menu wins.
     if (get_pcvar_num(g_pMode) == 2 && g_MenuOK[id] && !g_Use[id] && ArmoryAccess(id))
-        set_task(0.5, "Task_AutoOpenMenu", id + TASK_MENU);
+    {
+        remove_task(id + TASK_MENU);
+        new Float:fDelay = get_pcvar_float(g_pSpawnDelay);
+        if (fDelay < 0.2)
+            fDelay = 0.2;
+        if (fDelay > 5.0)
+            fDelay = 5.0;
+        set_task(fDelay, "Task_AutoOpenMenu", id + TASK_MENU);
+    }
 
     // BattlePass owns spawn armor (it applies 0.2s after spawn for any VIP).
     // Do not give_item assaultsuit / set_user_armor here - that overwrites BP.
@@ -1684,7 +1729,39 @@ public Task_AutoOpenMenu(taskid)
     if (!g_MenuOK[id] || g_Use[id])
         return;
 
+    if (get_pcvar_num(g_pMode) != 2)
+        return;
+
+    // The armory has to WIN the focus, not share it: AMXX has no "is a menu
+    // open?" query, so we dismiss whatever is displayed right before showing
+    // ours (the same call CloseAllPlayerMenus uses). A weaponmenu that opened at
+    // round start is therefore replaced, never stacked on top of.
+    VipCloseAnyMenu(id);
+
+    // One line per round, not per spawn: a player who dies and respawns three
+    // times in a round reads it once.
+    if (!g_bArmoryAnnounced[id])
+    {
+        g_bArmoryAnnounced[id] = true;
+        new szTag[16];
+        GetVipTag(szTag, charsmax(szTag));
+        VipChat(id, "^3[%s] ^1Your ^3armory^1 is open - one weapon set per round.", szTag);
+    }
+
+    if (get_pcvar_num(g_pDebug))
+        log_amx("[VIP] armory auto-open id=%d round=%d (queued %.1fs after spawn, after any round-start menu)",
+            id, CurrentRound, get_pcvar_float(g_pSpawnDelay));
+
     Cmd_VMenu(id);
+}
+
+// There is no AMXX API for "does this player have a menu on screen", so the
+// close is unconditional: dismissing an empty menu is a no-op, and dismissing a
+// real one is exactly what "the VIP menu wins the focus" means.
+VipCloseAnyMenu(id)
+{
+    show_menu(id, 0, "^n", 1);
+    menu_cancel(id);
 }
 
 public OnResetHud(id)
@@ -2307,6 +2384,31 @@ stock VipChat(id, const szMessage[], any:...)
     static szBuffer[192];
     vformat(szBuffer, charsmax(szBuffer), szMessage, 3);
     client_print_color(id, print_team_default, "%s", szBuffer);
+    // fnvip_debug 1: what the player was actually sent. The colours are control
+    // bytes (0x01..0x04) and a log file drops them, so they are re-escaped to the
+    // readable ^1..^4 form - and a stray literal "\d" would show up as itself.
+    if (get_pcvar_num(g_pDebug))
+    {
+        static szShow[256];
+        new j;
+        for (new i = 0; szBuffer[i] && j < charsmax(szShow) - 2; i++)
+        {
+            if (szBuffer[i] >= 1 && szBuffer[i] <= 4)
+            {
+                szShow[j++] = 94;   // '^' is the Pawn escape character, so its code
+                szShow[j++] = '0' + szBuffer[i];
+            }
+            else if (szBuffer[i] == 94)
+            {
+                szShow[j++] = 94;   // '^' is the Pawn escape character, so its code
+                szShow[j++] = 94;   // '^' is the Pawn escape character, so its code
+            }
+            else
+                szShow[j++] = szBuffer[i];
+        }
+        szShow[j] = 0;
+        log_amx("[VIP-CHAT] id=%d %s", id, szShow);
+    }
 }
 
 // ============================================================
@@ -2565,6 +2667,21 @@ public _show_vip_motd(plugin, params)
 {
     ShowVipMotd(get_param(1));
     return 1;
+}
+
+// 1 while an armory menu is queued for this player. Exposed so a round-start
+// menu owner (weaponmenu.sma, or a future mode) can skip its own display and
+// let the armory be the one menu that opens.
+public _armory_pending(plugin, params)
+{
+    new id = get_param(1);
+    if (!IsReady(id))
+        return 0;
+    if (get_pcvar_num(g_pMode) != 2)
+        return 0;
+    if (!ArmoryAccess(id) || g_Use[id] || !g_MenuOK[id])
+        return 0;
+    return task_exists(id + TASK_MENU) ? 1 : 0;
 }
 
 public _show_vips_list(plugin, params)

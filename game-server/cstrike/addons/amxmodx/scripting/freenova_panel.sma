@@ -21,6 +21,7 @@
 #include <freenova_chat>
 #include <freenova_admin>
 #include <fn_common>
+#include <freenova_web>   // fn_open_panel(): the one MOTD-vs-menu decision
 
 // Natives from other plugins (called server-side)
 native skins_open_menu(id)
@@ -362,6 +363,20 @@ public plugin_init()
 
     register_plugin(PLUGIN, "1.0", AUTHOR)
 
+    // Where the Winterfest pages live on the panel, used by fn_open_panel()
+    // (freenova_web.inc). The HOST is fnweb_url; this is only the path, so a
+    // panel that moves its pages is a config edit. EMPTY by default: the panel's
+    // Winterfest pages were removed in its 2026-11 rebuild, and a path that 404s
+    // is worse than the menu this leaves the player with. Set it (e.g.
+    // "/winter") the day the panel serves them again and every Winterfest
+    // command opens the page.
+    register_cvar("fnweb_winter_path", "")
+
+    // Diagnostic: which url (or file) would a player / a SteamID be sent to for a
+    // panel kind, and is Low Performance Mode in the way? Sends nothing. See
+    // Cmd_PanelProbe.
+    register_concmd("panel_probe", "Cmd_PanelProbe", ADMIN_CFG, "<player> <kind> [authid] - show the panel decision without sending it")
+
     // Panel commands
     register_clcmd("say /panel", "Cmd_OpenPanel")
     register_clcmd("say_team /panel", "Cmd_OpenPanel")
@@ -371,6 +386,13 @@ public plugin_init()
     register_clcmd("say_team /rules", "Cmd_Rules")
     register_clcmd("say /events", "Cmd_EventCatalog")
     register_clcmd("say_team /events", "Cmd_EventCatalog")
+    // The Winterfest dashboard as a MOTD: the panel serves the owner's own
+    // plate (web-panel/assets/dashboard.png) through /dashboard.html. /wfpanel
+    // is the short alias.
+    register_clcmd("say /dashboard", "Cmd_Dashboard")
+    register_clcmd("say_team /dashboard", "Cmd_Dashboard")
+    register_clcmd("say /wfpanel", "Cmd_Dashboard")
+    register_clcmd("say_team /wfpanel", "Cmd_Dashboard")
     // /top15 and /stats are handled by the original stats plugin
     // HUD stats are accessible through /panel only
     // /admins and /cam: no provider plugins exist (verified in repo + live
@@ -4784,12 +4806,122 @@ public QuickCmdHandler(id, menu, item)
 // ============================================================
 // QUICK COMMAND HANDLERS
 // ============================================================
+// ============================================================
+// PANEL DIAGNOSTIC
+// ============================================================
+// panel_probe <player> <kind> [authid]
+//
+// Answers "which url would this player get, and why not?" without sending
+// anything: the kind's page path / bridge code / local file, Low Performance
+// Mode state, and the exact url the identity would be sent to. An operator
+// debugging "the panel page will not open" gets every input in one line, and a
+// test can prove what fn_open_panel() would do for a SteamID the local server
+// does not have.
+public Cmd_PanelProbe(id, level, cid)
+{
+    if(!cmd_access(id, level, cid, 3))
+        return PLUGIN_HANDLED
+
+    new szArg[40]
+    read_argv(1, szArg, charsmax(szArg))
+    new iTarget = cmd_target(id, szArg, CMDTARGET_ALLOW_SELF)
+
+    new szKindName[24]
+    read_argv(2, szKindName, charsmax(szKindName))
+    new iKind = fn_panel_kind_from_name(szKindName)
+    if(iKind == FN_PANEL_NONE)
+    {
+        console_print(id, "[PANEL-PROBE] unknown kind '%s' (try winter, winter-tree, profile, vip, rules, motd, dashboard)", szKindName)
+        return PLUGIN_HANDLED
+    }
+
+    new szAuth[40]
+    read_argv(3, szAuth, charsmax(szAuth))
+    if(!szAuth[0] && iTarget)
+        get_user_authid(iTarget, szAuth, charsmax(szAuth))
+
+    new szKind[24], szPage[16], szPath[64], szFile[96], szUrl[FNWEB_MAX_URL + 32]
+    fn_panel_kind_name(iKind, szKind, charsmax(szKind))
+    fn_panel_target(iKind, szPage, charsmax(szPage), szPath, charsmax(szPath), szFile, charsmax(szFile))
+    new bool:bUrl = FNWeb_UrlForAuth(szAuth, iKind, szUrl, charsmax(szUrl))
+
+    new szLpm[16]
+    if(iTarget && fnpref_is_loaded(iTarget))
+        formatex(szLpm, charsmax(szLpm), "%d", fnpref_get(iTarget, FNPREF_LOW_PERF))
+    else
+        copy(szLpm, charsmax(szLpm), "unloaded")
+
+    new szTarget[96]
+    if(szFile[0])
+        formatex(szTarget, charsmax(szTarget), "file %s", szFile)
+    else if(szPage[0])
+        formatex(szTarget, charsmax(szTarget), "bridge /m/%s", szPage)
+    else
+        formatex(szTarget, charsmax(szTarget), "path %s", szPath)
+
+    console_print(id, "[PANEL-PROBE] kind=%s target=%s auth=%s lpm=%s url=%s",
+        szKind, szTarget, szAuth[0] ? szAuth : "-", szLpm,
+        bUrl ? szUrl : (szFile[0] ? "(local file)" : "none"))
+    log_amx("[PANEL-PROBE] target=%d kind=%s target_arg=%s auth=%s lpm=%s url=%s",
+        iTarget, szKind, szTarget, szAuth[0] ? szAuth : "-", szLpm,
+        bUrl ? szUrl : (szFile[0] ? "(local file)" : "none"))
+    return PLUGIN_HANDLED
+}
+
 public Cmd_Rules(id)
 {
     if(!is_user_connected(id)) return PLUGIN_HANDLED
+    // One decision point for every MOTD in the stack (freenova_web.inc).
+    if(fn_open_panel(id, FN_PANEL_RULES))
+        return PLUGIN_HANDLED
+
+    // Low performance mode: no HTML page, so the rules arrive as the same three
+    // sections in chat. No panel configured: keep the local page, it needs no
+    // browser and no network.
+    if(fn_panel_denied() == FN_PANEL_DENY_LPM)
+    {
+        client_print_color(id, print_team_default, "%s Rules (low performance mode, in chat):", FN_CHAT_PREFIX)
+        client_print_color(id, print_team_default, "%s 1. Respect every player - no insults, harassment or hate speech; no spam, no advertising other servers.", FN_CHAT_PREFIX)
+        client_print_color(id, print_team_default, "%s 2. No cheating (wallhack, aimbot, no-recoil, scripts), no bug exploiting, no team killing or team flashing.", FN_CHAT_PREFIX)
+        client_print_color(id, print_team_default, "%s 3. Admins decide edge cases - ask in chat or on Discord. The full page is on the panel.", FN_CHAT_PREFIX)
+        return PLUGIN_HANDLED
+    }
+
     show_motd(id, "addons/amxmodx/configs/freenova_rules.html", "FreeNova Rules")
     return PLUGIN_HANDLED
 }
+
+// ============================================================
+// /dashboard - the Winterfest dashboard as a MOTD
+// ============================================================
+// The page is the owner's plate: panel asset dashboard.png, served by asset
+// dashboard.html, one image at its own aspect ratio that the client letterboxes
+// to its window. Nothing is drawn and nothing is loaded here - fn_open_panel()
+// takes the decision it takes for every other panel, so Low Performance Mode
+// and "no panel configured" behave exactly as they do for /rules and /panel.
+public Cmd_Dashboard(id)
+{
+    if(!is_user_connected(id)) return PLUGIN_HANDLED
+
+    if(fn_open_panel(id, FN_PANEL_DASHBOARD))
+        return PLUGIN_HANDLED
+
+    // A picture cannot be redrawn in chat, so the fallback says why it is not
+    // on screen and where it lives instead.
+    if(fn_panel_denied() == FN_PANEL_DENY_LPM)
+    {
+        client_print_color(id, print_team_default, "%s Dashboard: Low Performance Mode is on, so no page is opened. Type ^3/fnprefs^1 to turn it off.", FN_CHAT_PREFIX)
+        return PLUGIN_HANDLED
+    }
+
+    new szBase[80]
+    if(FNWeb_BaseUrl(szBase, charsmax(szBase)))
+        client_print_color(id, print_team_default, "%s Dashboard: ^3%s/dashboard.html^1", FN_CHAT_PREFIX, szBase)
+    else
+        client_print_color(id, print_team_default, "%s Dashboard: no web panel is configured on this server.", FN_CHAT_PREFIX)
+    return PLUGIN_HANDLED
+}
+
 
 // ============================================================
 // STAT TRACKING

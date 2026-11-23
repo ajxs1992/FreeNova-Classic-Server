@@ -292,11 +292,17 @@ public plugin_init()
 	// gates below WITHOUT touching the ini, so a December config can be tested
 	// in November and a season can be kept open past its end date.
 	g_pForceOpen = register_cvar("wf_force_open", "0")
-	// Model visuals need a download, so they are off until fastdl works: while
-	// this is 0 every model prop resolves to its stock-sprite fallback. The
-	// gifts module reads the same cvar in plugin_precache to decide whether the
-	// model files go into the precache table at all.
-	register_cvar("wf_allow_models", "0")
+	// Model visuals are the DEFAULT since the 2026-11 playtest: the shipped
+	// present (models/winterfest/present.mdl, 41.8 KB, docs/MODELS.md) is what a
+	// present should look like. A model row is still usable only while its file
+	// is on disk, and every row names a sprite fallback, so a server without the
+	// file - or a client mid-download - gets the stock glow and never an ERROR.
+	// 0 = a hard "sprites only" switch for an operator who wants Phase 1 back.
+	register_cvar("wf_allow_models", "1")
+
+	// wf_chat_debug 1 logs every Winterfest chat line (see WfChatDebug in
+	// winterfest.inc). Off: a normal boot says nothing.
+	register_cvar("wf_chat_debug", "0")
 
 	register_concmd("wf_give", "cmdGive", ADMIN_CFG, "<target|all> <gingerbread|spins|ornament|gift> <id> <n> - grant Winterfest rewards")
 	register_concmd("wf_state", "cmdState", ADMIN_CFG, "<target|all> - print Winterfest state")
@@ -893,6 +899,18 @@ WfResolveAllVisuals()
 		if (!equali(g_szPropResolved[i], g_szPropVisual[i]))
 			log_amx("[WF] prop '%s': visual '%s' -> '%s' (the configured one needs a download)",
 				g_szPropSlot[i], g_szPropVisual[i], g_szPropResolved[i])
+		else
+		{
+			// The decision, said out loud per prop: a model was drawn (with the
+			// file that backs it) or a sprite was. Without this line an operator
+			// cannot tell "the model is on" from "the fallback happens to look
+			// identical in the log".
+			new idx = WfFindVisual(g_szPropResolved[i])
+			if (idx >= 0 && g_iVisKind[idx] == WF_VISUAL_MODEL)
+				log_amx("[WF] prop '%s': draws model '%s'", g_szPropSlot[i], g_szVisAsset[idx])
+			else if (idx >= 0)
+				log_amx("[WF] prop '%s': draws sprite '%s'", g_szPropSlot[i], g_szVisAsset[idx])
+		}
 	}
 
 	if (missing)
@@ -1457,7 +1475,7 @@ bool:WfApplyReward(id, type, rid, bool:announce)
 			if (rid <= 0)
 				return false
 			WfAddGb(id, rid)
-			formatex(text, charsmax(text), "+%d %s  \d(balance %d)", rid, WF_CURRENCY_NAME, g_iGb[id])
+			formatex(text, charsmax(text), "+%d %s  (balance %d)", rid, WF_CURRENCY_NAME, g_iGb[id])
 			changed = true
 		}
 		case WF_REWARD_ORNAMENT:
@@ -1471,7 +1489,7 @@ bool:WfApplyReward(id, type, rid, bool:announce)
 				log_amx("[WF] ornament list full for id %d - ornament %d not granted", id, rid)
 				return false
 			}
-			formatex(text, charsmax(text), "ornament:^3 %s\d (%s)",
+			formatex(text, charsmax(text), "ornament: ^3%s^1 (%s)",
 				g_szOrnName[rid], g_szRarName[clamp(g_iOrnRarity[rid], 0, WF_RARITY_MAX - 1)])
 			changed = true
 			// A new ornament can complete a set; that pays a title + snow and
@@ -1502,7 +1520,7 @@ bool:WfApplyReward(id, type, rid, bool:announce)
 				add(g_szGifts[id], charsmax(g_szGifts[]), ",")
 				add(g_szGifts[id], charsmax(g_szGifts[]), buf)
 			}
-			formatex(text, charsmax(text), "a^3 %s present\d (you carry %d)",
+			formatex(text, charsmax(text), "a ^3%s^1 present (you carry %d)",
 				g_szRarName[rid], WfGiftCount(id))
 			changed = true
 		}
@@ -1514,7 +1532,7 @@ bool:WfApplyReward(id, type, rid, bool:announce)
 			WfAddPassXp(id, rid)
 			if (g_iPassXp[id] == before)
 				return false
-			formatex(text, charsmax(text), "+%d winter pass XP  \d(total %d)", g_iPassXp[id] - before, g_iPassXp[id])
+			formatex(text, charsmax(text), "+%d winter pass XP  (total %d)", g_iPassXp[id] - before, g_iPassXp[id])
 			changed = true
 			if (announce)
 				WfSay(id, text)
@@ -1526,7 +1544,7 @@ bool:WfApplyReward(id, type, rid, bool:announce)
 			if (rid <= 0)
 				return false
 			WfAddSpins(id, rid)
-			formatex(text, charsmax(text), "+%d spin%s  \d(balance %d)", rid, (rid == 1) ? "" : "s", g_iSpins[id])
+			formatex(text, charsmax(text), "+%d spin%s  (balance %d)", rid, (rid == 1) ? "" : "s", g_iSpins[id])
 			changed = true
 		}
 		case WF_REWARD_COINS:
@@ -1547,7 +1565,7 @@ bool:WfApplyReward(id, type, rid, bool:announce)
 			else
 			{
 				WfAddGb(id, rid)
-				formatex(text, charsmax(text), "+%d %s \d(no BattlePass loaded - paid as the soft currency)", rid, WF_CURRENCY_NAME)
+				formatex(text, charsmax(text), "+%d %s (no BattlePass loaded - paid as the soft currency)", rid, WF_CURRENCY_NAME)
 			}
 			changed = true
 		}
@@ -1562,7 +1580,7 @@ bool:WfApplyReward(id, type, rid, bool:announce)
 				log_amx("[WF] title list full for id %d - set %d title not granted", id, rid)
 				return false
 			}
-			formatex(text, charsmax(text), "collector title unlocked:^3 %s", g_szSetTitle[rid])
+			formatex(text, charsmax(text), "collector title unlocked: ^3%s^1", g_szSetTitle[rid])
 			changed = true
 		}
 		default:

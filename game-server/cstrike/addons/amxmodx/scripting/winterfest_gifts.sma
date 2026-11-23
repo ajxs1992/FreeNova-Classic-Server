@@ -71,9 +71,10 @@ new g_sprGlow;
 new g_sprBeam;
 
 // The asset pack's models, in the owner's registry names
-// (thirdparty/winterfest-assets/README.md). They are only precached when
-// wf_allow_models is on; the [visual] rows name them, this table is what the
-// engine has to be told about. Adding a model = one line here + one [visual] row.
+// (thirdparty/winterfest-assets/README.md). They are client content this tree
+// does not carry, so they are only precached when an operator turns downloads
+// on; the [visual] rows name them, this table is what the engine has to be told
+// about. Adding a model = one line here + one [visual] row.
 new const g_szModelAssets[][] =
 {
 	"models/present1.mdl",
@@ -81,6 +82,13 @@ new const g_szModelAssets[][] =
 	"models/green_tree3.mdl",
 	"models/c4-christmastree.mdl"
 }
+
+// The present this build actually ships (docs/MODELS.md): 41.8 KB, one mesh,
+// proven to load in the engine. It is precached whenever the file is on disk,
+// whatever wf_allow_models says, because the core can resolve a prop to it at
+// any time (wf_gifts_reload) and an unprecached model is an ERROR entity.
+new const g_szShippedPresent[] = "models/winterfest/present.mdl"
+new bool:g_bPresentModelOnDisk
 // Visual names of the three present rarities, in rarity order.
 new const g_szPresentVisual[WF_RARITY_MAX][] =
 {
@@ -150,19 +158,19 @@ public WfNativeFilter(const name[], index, trap)
 
 public plugin_precache()
 {
-	// Phase 1: two stock sprites and nothing else. sprites/glow01.spr is the one
-	// new item the module spends out of the 512-item budget (docs/PRECACHE-BUDGET.md);
-	// sprites/laserbeam.spr is already in the table via freenova_cosmetics.
+	// The two stock sprites: the fallback every model row names, and the opening
+	// burst. sprites/glow01.spr is the module's own precache-slot spend
+	// (docs/PRECACHE-BUDGET.md); sprites/laserbeam.spr is already in the table
+	// through freenova_cosmetics.
 	g_sprGlow = precache_model("sprites/glow01.spr")
 	g_sprBeam = precache_model("sprites/laserbeam.spr")
 
-	// Phase 3 hook, off by default: the present/tree/c4 models from the owner's
-	// asset pack are client content, so they are only precached when an operator
-	// turns downloads on. The cvar is read HERE because a value that arrives
-	// after precaching cannot give the map its slots back - which is why the
-	// optional cfg is exec'd from plugin_precache, the way reapi_healthnade does
-	// it (docs/PRECACHE-BUDGET.md §5).
-	register_cvar("wf_allow_models", "0")
+	// wf_allow_models: the core decides what a prop LOOKS like (it resolves each
+	// [props] slot), but the precache decision has to be taken HERE, in
+	// plugin_precache, where there is still time to matter. The optional cfg is
+	// exec'd first so an operator's value is the one this boot uses - the same
+	// pattern reapi_healthnade uses (docs/PRECACHE-BUDGET.md §5).
+	register_cvar("wf_allow_models", "1")
 	new cfgdir[96], path[128]
 	get_configsdir(cfgdir, charsmax(cfgdir))
 	formatex(path, charsmax(path), "%s/plugins/wf_gifts.cfg", cfgdir)
@@ -171,11 +179,31 @@ public plugin_precache()
 		server_cmd("exec %s", path)
 		server_exec()
 	}
+
+	// (1) The shipped present, precached whenever the file is on disk - even
+	// with wf_allow_models 0, because that cvar can be flipped at runtime
+	// (wf_gifts_reload) and a model drawn without being precached is exactly the
+	// "invisible present" failure this batch is fixing.
+	g_bPresentModelOnDisk = file_exists(g_szShippedPresent) ? true : false
+	if (g_bPresentModelOnDisk)
+	{
+		precache_model(g_szShippedPresent)
+		log_amx("[WF-GIFTS] %s is on disk - precached; presents draw the MODEL while wf_allow_models=%d",
+			g_szShippedPresent, get_cvar_num("wf_allow_models"))
+	}
+	else
+		log_amx("[WF-GIFTS] %s is NOT on disk - presents draw their stock sprite (ship the .mdl to get the model)",
+			g_szShippedPresent)
+
+	// (2) The optional asset-pack models: not in this tree, so only precached when
+	// an operator has turned model downloads on.
 	if (get_cvar_num("wf_allow_models"))
 	{
 		new precached = 0
 		for (new i = 0; i < sizeof(g_szModelAssets); i++)
 		{
+			if (equal(g_szModelAssets[i], g_szShippedPresent))
+				continue
 			if (file_exists(g_szModelAssets[i]))
 			{
 				precache_model(g_szModelAssets[i])
@@ -184,7 +212,7 @@ public plugin_precache()
 			else
 				log_amx("[WF-GIFTS] wf_allow_models is on but %s is not on disk - not precached", g_szModelAssets[i])
 		}
-		log_amx("[WF-GIFTS] model visuals allowed: %d model(s) precached", precached)
+		log_amx("[WF-GIFTS] optional asset-pack models: %d precached", precached)
 	}
 }
 
@@ -679,16 +707,27 @@ public Task_SpawnSpots(taskid)
 		g_bSpotsLive = false
 		return
 	}
-	new spawned = 0
+	new spawned = 0, drawn_model = 0, drawn_sprite = 0
 	for (new s = 0; s < g_iSpotCount; s++)
 	{
 		if (g_iSpotEnt[s] > 0)
 			continue
 		spawnSpot(s)
 		spawned++
+		if (g_iSpotEnt[s] > 0)
+		{
+			if (WfPropIsModel(g_iSpotEnt[s]))
+				drawn_model++
+			else
+				drawn_sprite++
+		}
 	}
 	g_bSpotsLive = true
-	log_amx("[WF-GIFTS] spawned %d/%d present glow(s)", spawned, g_iSpotCount)
+	// Which decision each present took: a model prop (models/winterfest/present.mdl)
+	// or the stock-sprite fallback. The core logs the same choice per [props] slot
+	// at load; this line is the world-side count.
+	log_amx("[WF-GIFTS] spawned %d/%d present prop(s): %d model, %d sprite",
+		spawned, g_iSpotCount, drawn_model, drawn_sprite)
 }
 
 // The season window is a date, not an event: it opens and closes while the
@@ -702,16 +741,26 @@ public Task_SeasonWatch(taskid)
 
 	if (open && !g_bSpotsLive)
 	{
-		new spawned = 0
+		new spawned = 0, drawn_model = 0, drawn_sprite = 0
 		for (new s = 0; s < g_iSpotCount; s++)
 		{
 			if (g_iSpotEnt[s] > 0)
 				continue
 			spawnSpot(s)
 			spawned++
+			if (g_iSpotEnt[s] > 0)
+			{
+				if (WfPropIsModel(g_iSpotEnt[s]))
+					drawn_model++
+				else
+					drawn_sprite++
+			}
 		}
 		g_bSpotsLive = true
-		log_amx("[WF-GIFTS] season opened - spawned %d present glow(s)", spawned)
+		// One line, and it says which decision each prop took: a present that is
+		// a model prop vs one that fell back to its glow.
+		log_amx("[WF-GIFTS] season opened - spawned %d present prop(s): %d model, %d sprite",
+			spawned, drawn_model, drawn_sprite)
 	}
 	else if (!open && g_bSpotsLive)
 	{
@@ -760,7 +809,12 @@ stock WfCreateProp(const visual[], const Float:origin[3])
 	}
 
 	new bool:is_model = wf_visual_is_model(visual) ? true : false
-	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, is_model ? "info_target" : "env_sprite"))
+
+	// A model prop is a func_wall: that is the static-prop classname this engine
+	// renders a model on (an env_sprite would ignore the .mdl entirely, which is
+	// how "presents are just shining lights" happened). The sprite path keeps
+	// env_sprite, because a glow needs the render mode.
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, is_model ? "func_wall" : "env_sprite"))
 	if (!ent || !pev_valid(ent))
 		return 0
 
@@ -795,6 +849,21 @@ stock WfKillEntity(&ent)
 	if (ent > 0 && pev_valid(ent))
 		set_pev(ent, pev_flags, pev(ent, pev_flags) | FL_KILLME)
 	ent = 0
+}
+
+// Was this prop created as a model (func_wall) or as a sprite (env_sprite)? The
+// answer is the classname, which is the same thing a scenario or an admin noclip
+// sees in the world - no second bookkeeping array to drift out of sync.
+stock bool:WfPropIsModel(ent)
+{
+	if (ent <= 0 || !pev_valid(ent))
+		return false
+	new szClass[32]
+	// fakemeta's pev() with a string key, the idiom parachute.sma:529 uses.
+	// NOTE: the engine module's entity_get_string() makes amxxpc 1.10 git5481
+	// throw std::bad_alloc and abort the compile - do not use it here.
+	pev(ent, pev_classname, szClass, charsmax(szClass))
+	return bool:equali(szClass, "func_wall")
 }
 
 // ============================================================

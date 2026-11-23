@@ -287,6 +287,50 @@ native wf_gifts_open(id, instance);
 stock WfSay(id, const text[])
 {
 	client_print_color(id, print_team_default, "^4[WF]^1 %s", text)
+	WfChatDebug(text)
+}
+
+// Formatted variant: the literal is the call site, so the lint rule
+// (tools/lint-plugins.py rule `chat-escape`) can see it, and the [WF] prefix is
+// added in exactly one place instead of being retyped in every line.
+stock WfSayFmt(id, const fmt[], any:...)
+{
+	new text[192]
+	vformat(text, charsmax(text), fmt, 3)
+	client_print_color(id, print_team_default, "^4[WF]^1 %s", text)
+	WfChatDebug(text)
+}
+
+// wf_chat_debug 1 writes every Winterfest chat line to the server log, with its
+// colour codes, so "what did the player actually get?" is a log question instead
+// of a recompile. Off by default: a normal boot says nothing.
+//
+// The colours are CONTROL BYTES (^4 is 0x04 in Pawn - the client's chat renderer
+// reads 0x01..0x04, and a log file drops them), so they are re-escaped here as
+// the readable "^4" form. That is also what makes a stray "\d" (a literal
+// backslash the client prints as-is) obvious in the log.
+stock WfChatDebug(const text[])
+{
+	if (!get_cvar_num("wf_chat_debug"))
+		return
+	new szShow[256], j
+	for (new i = 0; text[i] && j < charsmax(szShow) - 2; i++)
+	{
+		if (text[i] >= 1 && text[i] <= 4)
+		{
+			szShow[j++] = 94   // '^' is the Pawn escape character, so its code
+			szShow[j++] = '0' + text[i]
+		}
+		else if (text[i] == 94)
+		{
+			szShow[j++] = 94   // '^' is the Pawn escape character, so its code
+			szShow[j++] = 94   // '^' is the Pawn escape character, so its code
+		}
+		else
+			szShow[j++] = text[i]
+	}
+	szShow[j] = 0
+	log_amx("[WF-CHAT] %s", szShow)
 }
 
 // Field `index` (0-based) of a "a | b | c" ini row. Returns false when the row

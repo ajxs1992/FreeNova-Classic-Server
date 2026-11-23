@@ -547,22 +547,33 @@ Two decisions keep this affordable on the owner's low-end boxes:
 Lifetimes (all reaped by the same table scan): kill sprite 0.9 s, spawn sprite
 0.7 s, death imprint 4-5 s, death prop 20 s.
 
-Measured on the local stack (`build/wf-local`, `de_dust2`, 5 bots) with
-`wf_cosmetics_fx` (the operator command of §10.7) as the trigger:
+Measured on the local stack (`build/wf-local`, `de_dust2`, 5 bots, fresh boot)
+with `wf_cosmetics_fx` (the operator command of §10.7) as the trigger, and
+`wf_fx_debug 1` writing one line per effect to
+`addons/amxmodx/logs/L<date>.log`:
 
 | what | live effect entities | engine `EngFunc_NumberOfEntities` | counters |
 | --- | --- | --- | --- |
-| idle, nothing playing | 0 | **140** | - |
-| one kill effect on every client (5) | 5 | **145** (+1 per effect, exactly) | played 5, refused 0 |
-| 6 tries on ONE client, 20 s prop | **2** (then flat) | 142 | played 6, **refused 4** |
-| + all 5 clients twice, per-player ceiling raised to 8 | **12** (the global ceiling, held) | 153 | played 16, **refused 6 more** |
-| 21 s later, past the 20 s prop lifetime | **0** | **142** (back to baseline) | - |
-| `wf_cosmetics 0` (the LPM early-return path) | 0 | unchanged | 15 tries, **15 downgraded**, 0 entities |
+| idle, nothing playing | 0 | **125** | - |
+| one `kill_bauble` on every client (5) | 5 | **130** (+1 per effect, exactly) | played 5, refused 0 |
+| two seconds later | **0** | 128 (baseline drifts with bots spawning) | - |
+| 6 tries on ONE client, 20 s prop | **2**, then flat | 130 | played 11, **refused 4** |
+| + two passes on all 5, per-player ceiling raised to 8 | **12** (the global ceiling, held; "room for 0 more") | 140 | played 21 |
+| 21 s later, past the 20 s prop lifetime | **0** | 128 | - |
+| `wf_cosmetics 0` (the same early return LPM uses) | 0 | unchanged | 15 tries, **15 downgraded**, 0 entities |
 
-So the worst case a busy round can add is 12 entities - and the plugin's own
-counts agree with the engine's (`140 → 145` for five effects is exactly one entity
-each). That is the number to watch on a real box: `wf_cosmetics_fxinfo` prints
-it live, in one line, with the engine's count beside it.
+The raw lines, one per effect, are the evidence - e.g.
+
+```
+[WF-COS] fx kill_bauble slot 3 at 5: 5 live entity(s), 1 for that player, 0 skipped, engine 130 entities
+[WF-COS] fx death_present slot 4 at 1: 1 live entity(s), 1 for that player, 0 skipped, engine 129 entities
+```
+
+So the worst case a busy round can add is **12 entities** - and the plugin's own
+counts agree with the engine's (`125 → 130` for five effects is exactly one entity
+each, and the count returns to the baseline once the reaper has run). That is the
+number to watch on a real box: `wf_cosmetics_fxinfo` prints it live, in one line,
+with the engine's count beside it.
 
 ### 10.5 Low Performance Mode
 

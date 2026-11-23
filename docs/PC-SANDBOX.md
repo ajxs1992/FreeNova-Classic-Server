@@ -67,3 +67,25 @@ the sandbox for a standalone client.
 - Snapshot the accessibility tree before clicking; coordinates break on any
   window move.
 - Stop the sandbox when done — an Xvfb at 1600×1000 costs a few hundred MB.
+
+## What was actually tested (2026-11-23) — and what it teaches
+
+Experiment: `Xwayland :99` (no root needed) + a private `dbus-daemon` + Brave inside it,
+then `agent-desktop` pointed at `DISPLAY=:99` and that bus.
+
+Measured, not assumed:
+- The nested display works — Brave started on `:99` and kept running.
+- `agent-desktop list-windows` with `DISPLAY=:99` returned **nothing**, and
+  `screenshot` answered **`PLATFORM_NOT_SUPPORTED — No display server configured`**.
+  Cause: agent-desktop discovers windows through **AT-SPI over the session D-Bus and
+  xdg-desktop-portal**, not by querying an X display. A bare X server has neither, so
+  the agent is blind to whatever runs there.
+- Therefore **a separate `DISPLAY` is not enough isolation for this tool.** A real
+  sandbox must also own an **at-spi2 registry and xdg-desktop-portal**.
+
+Two shapes actually work:
+1. **Container desktop** (Xvfb + portal + VNC, bytebot-style): the agent drives a
+   desktop that is not yours at all. Cost: a Docker image, a few GB, a VNC port.
+2. **Second user session** on this machine: a real KDE session for a dedicated user with
+   the game and the MCP server inside it. Cost: an account and a display-manager entry;
+   isolation is real because the processes belong to another user.

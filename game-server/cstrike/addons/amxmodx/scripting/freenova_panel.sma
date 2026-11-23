@@ -4910,7 +4910,7 @@ public Cmd_Dashboard(id)
     // on screen and where it lives instead.
     if(fn_panel_denied() == FN_PANEL_DENY_LPM)
     {
-        client_print_color(id, print_team_default, "%s Dashboard: Low Performance Mode is on, so no page is opened. Type ^3/fnprefs^1 to turn it off.", FN_CHAT_PREFIX)
+        client_print_color(id, print_team_default, "%s Dashboard: Low Performance Mode is on, so no page is opened. Say ^3/lpm^1 to turn it off.", FN_CHAT_PREFIX)
         return PLUGIN_HANDLED
     }
 

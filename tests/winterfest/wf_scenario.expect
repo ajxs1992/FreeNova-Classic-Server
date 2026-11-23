@@ -24,7 +24,7 @@
 \[WF-TEST\] PASS tree-slot-refused
 \[WF-TEST\] PASS tree-clear
 \[WF-TEST\] PASS visual-data
-\[WF-TEST\] PASS visual-model-gated
+\[WF-TEST\] PASS present-world-prop
 \[WF-TEST\] PASS gift-once
 \[WF-TEST\] PASS gift-instance
 \[WF-TEST\] PASS open-once

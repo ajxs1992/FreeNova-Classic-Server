@@ -581,19 +581,21 @@ stock fn_panel_denied()
 
 stock bool:fn_open_panel(id, iKind)
 {
-    if (!(1 <= id <= MaxClients) || !is_user_connected(id))
+    new szKind[24]
+    fn_panel_kind_name(iKind, szKind, charsmax(szKind))
+
+    if (!(1 <= id <= MaxClients) || !is_user_connected(id) || is_user_bot(id) || is_user_hltv(id))
     {
-        g_iFnPanelDenied = FN_PANEL_DENY_PLAYER
-        return false
-    }
-    if (is_user_bot(id) || is_user_hltv(id))
-    {
+        // A bot/HLTV slot has no browser: refuse silently for the player, but say
+        // so in the log under fnweb_debug, because "the panel did nothing" and
+        // "the panel was never asked" look identical from the outside.
+        if (get_cvar_num("fnweb_debug"))
+            log_amx("[FreeNova PANEL] id=%d kind=%s -> in-game menu (not a human client)", id, szKind)
         g_iFnPanelDenied = FN_PANEL_DENY_PLAYER
         return false
     }
 
-    new szKind[24], szPage[16], szPath[64], szFile[96]
-    fn_panel_kind_name(iKind, szKind, charsmax(szKind))
+    new szPage[16], szPath[64], szFile[96]
     if (!fn_panel_target(iKind, szPage, charsmax(szPage), szPath, charsmax(szPath), szFile, charsmax(szFile)))
     {
         // "No page" and "unknown kind" are the same thing to the caller (show the

@@ -132,7 +132,61 @@ public StepDiag()
 	log_amx("[PROBE] state: alive=%d knife_round=%d vip_tier=%d bp_weapon_menu=%d armory_task=%d",
 		is_user_alive(g_iId), get_cvar_num("amx_knife_round_active"), iTier, iMenu,
 		task_exists(g_iId + 54200))
-	next("StepChristmas", 1.0)
+	next("StepPanel", 1.0)
+}
+
+// 0b. The panel decision table, for an identity the local box does not have: the
+// bot's own authid is "BOT" (refused, correctly), so the url proof uses an
+// explicit STEAM_ id. Nothing is sent - panel_probe only reports.
+public StepPanel()
+{
+	log_amx("[PROBE] === 0b. panel_probe: winter / profile / rules, and with a page configured")
+	server_cmd("panel_probe #%d winter STEAM_0:0:12345", get_user_userid(g_iId))
+	next("StepPanel2", 1.5)
+}
+
+public StepPanel2()
+{
+	server_cmd("panel_probe #%d profile STEAM_0:0:12345", get_user_userid(g_iId))
+	next("StepPanel3", 1.5)
+}
+
+public StepPanel3()
+{
+	server_cmd("panel_probe #%d rules", get_user_userid(g_iId))
+	next("StepPanel4", 1.5)
+}
+
+// The old hardcoded default, to show why it is empty now: the panel answers 404
+// for it, so a MOTD pointed there would be a blank window.
+public StepPanel4()
+{
+	log_amx("[PROBE] === 0c. fnweb_winter_path /winter (what the old default built)")
+	server_cmd("fnweb_winter_path /winter")
+	next("StepPanel5", 1.0)
+}
+
+public StepPanel5()
+{
+	server_cmd("panel_probe #%d winter STEAM_0:0:12345", get_user_userid(g_iId))
+	next("StepPanel6", 1.5)
+}
+
+public StepPanel6()
+{
+	// Pawn escapes a quote with ^" (the caret is the escape character), so this
+	// sends: fnweb_winter_path ""
+	server_cmd("fnweb_winter_path ^"^"")
+	next("StepLpm", 1.0)
+}
+
+// 0d. /lpm for a client with no SteamID: the command must answer, and say why it
+// cannot store the preference (it is keyed per SteamID).
+public StepLpm()
+{
+	log_amx("[PROBE] === 0d. /lpm (identity gate)")
+	run_command("freenova_hub.amxx", "Cmd_Lpm")
+	next("StepChristmas", 1.5)
 }
 
 // 1. /christmas with the panel configured.

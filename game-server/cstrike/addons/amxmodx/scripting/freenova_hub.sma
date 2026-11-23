@@ -299,7 +299,16 @@ public Cmd_Lpm(id)
 
     if (!fnpref_is_loaded(id))
     {
-        client_print_color(id, print_team_default, "%s Still loading your profile - say /lpm again in a moment.", FN_CHAT_PREFIX)
+        // Distinguish "not loaded yet" from "cannot ever load here": the prefs
+        // layer keys on a stable SteamID, so a bot or a LAN (STEAM_ID_LAN)
+        // client has no row to save to. Saying "try again" forever is a lie.
+        new szAuth[40]
+        get_user_authid(id, szAuth, charsmax(szAuth))
+        if (equali(szAuth, "BOT") || equali(szAuth, "HLTV") || equali(szAuth, "STEAM_ID_LAN")
+            || equali(szAuth, "STEAM_ID_PENDING") || !szAuth[0])
+            fn_chat_error(id, "Low performance mode is stored per SteamID and your identity (%s) is not one, so it cannot be saved. Steam-authenticated players get the toggle.", szAuth[0] ? szAuth : "none")
+        else
+            fn_chat_info(id, "Still loading your profile - say /lpm again in a moment.")
         return PLUGIN_HANDLED
     }
 

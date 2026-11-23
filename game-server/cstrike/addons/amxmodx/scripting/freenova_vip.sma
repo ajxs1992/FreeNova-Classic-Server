@@ -1681,19 +1681,18 @@ public OnPlayerSpawn(id)
     if (g_Tier[id] >= TIER_DEFUSEKIT && get_pcvar_num(g_pDefuseKit) == 1 && cs_get_user_team(id) == CS_TEAM_CT)
         give_item(id, "item_thighpack");
 
-    if (g_Tier[id] < TIER_SPAWN)
-    {
-        ResetModel(id); // no-ops for non-model players; clears stale models
-        return HAM_IGNORED;
-    }
-
+    // ---- the armory queue (playtest fix 2026-11) -----------------------------
+    // Runs for EVERY spawn, and BEFORE the VIP-tier gate below. ArmoryAccess() is
+    // "VIP+ OR a BattlePass weapon menu", so a BattlePass holder without VIP used
+    // to fall through this function's tier check and never see a weapon menu at
+    // all - the owner's "the vip menu should open up on every spawn".
+    //
+    // It is queued, not shown here: any round-start menu (the legacy weaponmenu
+    // displays 0.2 s after the round starts) gets the focus first, and
+    // Task_AutoOpenMenu then closes whatever is up before it shows the armory, so
+    // exactly one menu wins. A mid-round respawn queues it again, as long as the
+    // player has not already spent the armory this round.
     g_MenuOK[id] = !g_bMapRestricted;
-
-    // The armory opens on EVERY spawn - a mid-round respawn included - as long
-    // as the player has not already spent it this round. It is queued, not shown
-    // here: any round-start menu (the legacy weaponmenu displays 0.2 s after the
-    // round starts) gets the focus first, and Task_AutoOpenMenu then closes
-    // whatever is up before it shows the armory, so exactly one menu wins.
     if (get_pcvar_num(g_pMode) == 2 && g_MenuOK[id] && !g_Use[id] && ArmoryAccess(id))
     {
         remove_task(id + TASK_MENU);
@@ -1703,6 +1702,18 @@ public OnPlayerSpawn(id)
         if (fDelay > 5.0)
             fDelay = 5.0;
         set_task(fDelay, "Task_AutoOpenMenu", id + TASK_MENU);
+        if (get_pcvar_num(g_pDebug))
+            log_amx("[VIP] armory queued id=%d in %.1fs (round %d, tier %d, menuok %d)",
+                id, fDelay, CurrentRound, g_Tier[id], g_MenuOK[id]);
+    }
+    else if (get_pcvar_num(g_pDebug))
+        log_amx("[VIP] armory not queued id=%d: mode=%d access=%d used=%d menuok=%d",
+            id, get_pcvar_num(g_pMode), ArmoryAccess(id) ? 1 : 0, g_Use[id] ? 1 : 0, g_MenuOK[id] ? 1 : 0);
+
+    if (g_Tier[id] < TIER_SPAWN)
+    {
+        ResetModel(id); // no-ops for non-model players; clears stale models
+        return HAM_IGNORED;
     }
 
     // BattlePass owns spawn armor (it applies 0.2s after spawn for any VIP).

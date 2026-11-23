@@ -50,7 +50,7 @@ between them: it is the operator half (`wf_force_open`, `wf_give`, `wf_state`,
 | `snow-add`, `grant-once`, `grant-second-key` | the same claim key pays once, a different one still pays |
 | `ornament-once` | an ornament is granted once |
 | `tree-slot`, `tree-slot-refused`, `tree-clear` | the 24-slot grid: owned ornament in, unowned refused, slot cleared |
-| `visual-data`, `visual-model-gated` | the look of a prop is config data and no model is drawn while `wf_allow_models` is 0 |
+| `visual-data`, `present-world-prop` | the look of a prop is config data: with `wf_allow_models` on the present is a `func_wall` drawing `models/winterfest/present.mdl`, with it off there is no model prop and the stock-sprite glow is what the world holds |
 | `gift-once`, `gift-instance` | a present is added once and keeps its rarity |
 | `open-once`, `open-second-pays` | **anti-dupe**: one present opened twice in the same tick pays once; another present still opens |
 | `advent-today/late/locked` | today pays, a missed day is claimable late, a future day is refused |

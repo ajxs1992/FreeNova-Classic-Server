@@ -29,6 +29,8 @@
  */
 
 #include <amxmodx>
+#include <engine>     // engfunc(EngFunc_FindEntityByString) - the world-side assertion
+#include <fakemeta>   // pev(ent, pev_classname / pev_model)
 #include <winterfest>
 
 #define PLUGIN  "WF Scenario"
@@ -194,23 +196,54 @@ run(bot)
 	// Put it back so the fill count in the log is the interesting one.
 	wf_tree_set_slot(bot, 1, 1)
 
-	// ---- 2b. visuals: the look is data, and Phase 1 ships no client asset ----
+	// ---- 2b. visuals: the look is data, and a model needs its file ----------
 	// The owner's hand-over (thirdparty/winterfest-assets/README.md) asks for the
-	// present to be a visual_id in the config, not a hardcoded sprite. With
-	// wf_allow_models at its default 0, every model visual must resolve down its
-	// fallback chain to the stock sprite.
+	// present to be a visual_id in the config, not a hardcoded sprite. The
+	// playtest batch made the shipped model the default, so what is asserted here
+	// is the RULE, whatever the server is configured to do:
+	//   wf_allow_models on  -> the prop resolves to the model, and that file is
+	//                          the shipped one (models/winterfest/present.mdl);
+	//   wf_allow_models off -> the same prop resolves down to its stock sprite.
+	// A run with the model file missing is the first branch with the gate on,
+	// where the core falls back to the sprite exactly like the second branch.
+	new bool:bModels = (get_cvar_num("wf_allow_models") != 0) ? true : false
 	new vis[32], asset[64]
 	wf_visual_id(WF_PROP_PRESENT_RARE, vis, charsmax(vis))
 	wf_visual_asset(vis, asset, charsmax(asset))
-	report("visual-data",
-		(vis[0] != 0 && wf_visual_is_model(vis) == 0 && containi(asset, "sprites/glow01.spr") >= 0) ? true : false,
-		"the rare present must resolve to its stock-sprite fallback while models are gated")
+	new bool:bVisOk
+	if (bModels)
+		bVisOk = (vis[0] != 0 && wf_visual_is_model(vis) == 1 && containi(asset, "models/winterfest/present.mdl") >= 0) ? true : false
+	else
+		bVisOk = (vis[0] != 0 && wf_visual_is_model(vis) == 0 && containi(asset, "sprites/glow01.spr") >= 0) ? true : false
+	report("visual-data", bVisOk,
+		bModels ? "the rare present must draw models/winterfest/present.mdl while wf_allow_models is on"
+		        : "the rare present must resolve to its stock-sprite fallback while models are gated")
 
-	new treevis[32]
-	wf_visual_id(WF_PROP_TREE, treevis, charsmax(treevis))
-	report("visual-model-gated",
-		(treevis[0] == 0 || wf_visual_is_model(treevis) == 0) ? true : false,
-		"a model visual must never resolve while wf_allow_models is 0")
+	// The world, not just the config: with the gate on, a present is a func_wall
+	// drawing the shipped model. With the gate off there must be none of those and
+	// the props are env_sprites - the "presents are just shining lights" report,
+	// asserted in both directions.
+	new iModelProps = 0, iSpriteProps = 0
+	new ent = -1
+	while ((ent = engfunc(EngFunc_FindEntityByString, ent, "model", "models/winterfest/present.mdl")) > 0)
+	{
+		new szClass[32]
+		pev(ent, pev_classname, szClass, charsmax(szClass))
+		if (equali(szClass, "func_wall"))
+			iModelProps++
+	}
+	ent = -1
+	while ((ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "env_sprite")) > 0)
+	{
+		new szModel[64]
+		pev(ent, pev_model, szModel, charsmax(szModel))
+		if (containi(szModel, "sprites/glow01.spr") >= 0)
+			iSpriteProps++
+	}
+	report("present-world-prop",
+		bModels ? (iModelProps > 0) : (iModelProps == 0 && iSpriteProps > 0),
+		bModels ? "no func_wall present drawing models/winterfest/present.mdl is in the world"
+		        : "with models gated there must be no model prop and the glows must still be there")
 
 	// ---- 3. presents: granted once, opened once ---------------------------
 	new c0 = wf_gift_count(bot)

@@ -314,6 +314,8 @@ stock WfChatDebug(const text[])
 	if (!get_cvar_num("wf_chat_debug"))
 		return
 	new szShow[256], j
+	copy(szShow, charsmax(szShow), "^^4[WF]^^1 ")
+	j = strlen(szShow)
 	for (new i = 0; text[i] && j < charsmax(szShow) - 2; i++)
 	{
 		if (text[i] >= 1 && text[i] <= 4)

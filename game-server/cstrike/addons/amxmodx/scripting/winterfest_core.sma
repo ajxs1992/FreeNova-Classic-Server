@@ -1585,19 +1585,45 @@ bool:WfApplyReward(id, type, rid, bool:announce)
 				return false
 			if (WfGiftCount(id) >= WF_MAX_GIFTS)
 			{
-				if (announce)
-					WfSay(id, "you are carrying too many presents - open one first")
-				return false
+				// A full bag used to SWALLOW the present, and the caller was told
+				// "false" - so a wheel sector, an advent day or a killed reindeer
+				// paid nothing and the claim key had already been written: the
+				// reward was gone for good. Pay the present's GingerBread value
+				// instead (the same substitution the ornament branch already makes
+				// when the collection is complete), so a full bag can never make a
+				// reward a dud.
+				new alt = 25 + rid * 25
+				WfAddGb(id, alt)
+				formatex(text, charsmax(text),
+					"bag full - your ^3%s^1 present was paid as +%d %s (balance %d)",
+					g_szRarName[clamp(rid, 0, WF_RARITY_MAX - 1)], alt, WF_CURRENCY_NAME, g_iGb[id])
+				WfSay(id, text)
+				log_amx("[WF] id %d bag full (%d) - present rarity %d paid as %d gb",
+					id, WfGiftCount(id), rid, alt)
+				return true
 			}
 			g_iGiftSeq[id]++
 			new buf[16]
 			formatex(buf, charsmax(buf), "%d:%d", g_iGiftSeq[id], rid)
+			new len_before = strlen(g_szGifts[id])
 			if (!g_szGifts[id][0])
+			{
 				copy(g_szGifts[id], charsmax(g_szGifts[]), buf)
+			}
 			else
 			{
 				add(g_szGifts[id], charsmax(g_szGifts[]), ",")
 				add(g_szGifts[id], charsmax(g_szGifts[]), buf)
+			}
+			if (strlen(g_szGifts[id]) == len_before)
+			{
+				// The bag has room by COUNT but not by BYTES: one more entry would
+				// have been truncated off the end, which reads back as a present
+				// that never existed. Pay it as GingerBread instead of losing it.
+				new alt = 25 + clamp(rid, 0, WF_RARITY_MAX - 1) * 25
+				WfAddGb(id, alt)
+				log_amx("[WF] id %d bag string full - present rarity %d paid as %d gb", id, rid, alt)
+				return true
 			}
 			formatex(text, charsmax(text), "a ^3%s^1 present (you carry %d)",
 				g_szRarName[rid], WfGiftCount(id))

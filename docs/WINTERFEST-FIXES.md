@@ -218,6 +218,57 @@ reports a stale "accepted".
 **Revert.** Drop the two globals and `fn_panel_last_answer()`; nothing shipped
 calls them.
 
+
+## F6 — a reward that did not fit in the bag was destroyed
+
+**Symptom.** A wheel sector, an advent day or a killed reindeer that pays a
+present paid **nothing** once the player was carrying 16 — and could never pay
+again for that intention, because the claim key had already been written.
+Nothing crashes; the reward simply vanishes. Found by reading the grant path
+and proved on the stack with `tools/probes/zz_test_giftpay.sma`:
+
+```
+[WF-GIFTPAY] after fill: gb=540 bag=16 (bag must now be 16 = WF_MAX_GIFTS)
+[WF-GIFTPAY] wf_grant(gift) returned 0 (WF_GRANT_OK=1 DUPLICATE=0 INVALID=-1)
+```
+
+`0` is `WF_GRANT_DUPLICATE` — the caller's claim key was spent and the reward
+never landed.
+
+**Root cause.** `winterfest_core.sma` `WfGrantIdem()` writes the claim key
+**before** it applies the reward ("written first: a reconnect, a retry or a
+second code path can no longer reach the apply below"). `WfApplyReward()`'s
+`WF_REWARD_GIFT` branch then refused with `WfGiftCount(id) >= WF_MAX_GIFTS` and
+returned `false`, which `WfGrantIdem()` reports as `WF_GRANT_DUPLICATE`. The
+ornament branch had already made the opposite decision for the same situation
+("pay snow instead of nothing, so a present is never a dud once the collection
+is complete"); the present branch had not.
+
+**Change.** `winterfest_core.sma`, `WF_REWARD_GIFT`: when the bag is full the
+present is paid as its GingerBread value (`25 + rarity * 25`, the same slope the
+wheel's own GingerBread sectors use) in the same ledger path, logged, and the
+grant returns "applied". A second, narrower hole in the same branch is closed
+too: the bag is a **string**, so it can be full by bytes while it still has room
+by count — an append that changed nothing is now paid the same way instead of
+being silently truncated off the end.
+
+**Verification (after).**
+
+```
+[WF-GIFTPAY] after fill: gb=540 bag=16 (bag must now be 16 = WF_MAX_GIFTS)
+[WF-GIFTPAY] wf_grant(gift) returned 1 (WF_GRANT_OK=1 DUPLICATE=0 INVALID=-1)
+[winterfest_core.amxx] [WF] id 1 bag full (16) - present rarity 2 paid as 75 gb
+[WF-GIFTPAY] after overflow: gb=615 bag=16
+[WF-GIFTPAY] VERDICT: the reward was converted (or added) - nothing lost
+```
+
+540 + 75 = 615, exactly the substitution, and the player still carries the 16
+presents they had.
+
+**Revert.** Restore the `if (announce) WfSay(id, "you are carrying too many
+presents - open one first"); return false` block; the bag-full reward is lost
+again.
+
 <!-- FIXES CONTINUE BELOW -->
 
 ---

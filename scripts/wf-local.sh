@@ -312,7 +312,7 @@ sync_plugins() {
   local ini="$TREE/cstrike/addons/amxmodx/configs/plugins.ini"
   mkdir -p "$plugins_dir" "$(dirname "$ini")" "$RUN"
 
-  local installed=() missing=() name src
+  local installed=() missing=() refreshed=() name src
   for name in "${WF_CORE_PLUGINS[@]}" "${WF_OPTIONAL_PLUGINS[@]}"; do
     src="$REPO_AMXX/plugins/$name.amxx"
     if [ -f "$src" ]; then
@@ -340,6 +340,26 @@ sync_plugins() {
     printf '\n; --- Winterfest (local test tree, scripts/wf-local.sh) ---\n'
     local p
     for p in "${installed[@]}"; do printf '%s.amxx\n' "$p"; done
+    # An extra probe/driver plugin for one session:
+    #   WF_EXTRA_PLUGINS="zz_test_matrix" bash scripts/wf-local.sh restart
+    # Its .amxx must already be in the repo's plugins/ directory (they are
+    # gitignored there). Appended after the Winterfest block on purpose - a
+    # probe that needs the core must load after it.
+    local extra
+    for extra in ${WF_EXTRA_PLUGINS:-}; do
+      local src="$REPO_AMXX/plugins/$extra.amxx"
+      if [ -f "$src" ]; then
+        cp -f "$src" "$plugins_dir/$extra.amxx"
+        printf '%s.amxx\n' "$extra"
+        # note() writes to STDOUT and this block is redirected into plugins.ini:
+        # four boots ago it printed human text straight into the plugin list,
+        # which AMXX then reported as `bad load: Plugin file open error (plugin
+        # "extra")`. Report on stderr instead.
+        note "extra plugin for this session: $extra.amxx" >&2
+      else
+        warn "WF_EXTRA_PLUGINS names $extra but $REPO_AMXX/plugins/$extra.amxx is missing - skipped"
+      fi
+    done
   } >> "$ini"
   printf '%s\n' "${installed[@]}" > "$PLUGIN_LIST"
 
@@ -348,6 +368,24 @@ sync_plugins() {
     warn "not built yet, so not loaded: ${missing[*]}"
     note "(a missing module is skipped, never fatal - the core and the rest still load)"
   fi
+  # The copied tree carries ITS OWN builds of the core FreeNova plugins (the
+  # harness image ships them). A tree build older than a plugin this repo just
+  # changed is a silent failure: AMXX loads the stale binary, the console says
+  # `bad load` or the behaviour stays wrong while the log looks healthy. Only the
+  # plugins this repo actually rebuilt are refreshed, and only when this repo's
+  # own plugins/ directory holds them.
+  local p src
+  for p in freenova_panel freenova_sync; do
+    src="$REPO_AMXX/plugins/$p.amxx"
+    if [ -f "$src" ]; then
+      cp -f "$src" "$plugins_dir/$p.amxx"
+      refreshed+=("$p")
+    fi
+  done
+  if [ "${#refreshed[@]}" -gt 0 ]; then
+    note "refreshed from this repo: ${refreshed[*]}"
+  fi
+
   if [ ! -f "$plugins_dir/winterfest_core.amxx" ]; then
     warn "winterfest_core.amxx is missing: every other module will pause itself (LibraryExists)"
   fi
@@ -447,6 +485,18 @@ EOF
 fnweb_enabled 0
 fnweb_secret ""
 EOF
+  fi
+
+  # An operator's live switch beats the generated file, so `wf_allow_models 0`
+  # typed on the console survives until the next boot. Written AFTER the
+  # generated keys so cvars.cfg (exec'd from here, last) wins over them.
+  cat >> "$cfg" <<EOF
+// An operator's own overrides, re-applied last on every boot. Edit freely; this
+// file is regenerated, not owned.
+exec wf-local-operator.cfg
+EOF
+  if [ ! -f "$TREE/cstrike/wf-local-operator.cfg" ]; then
+    printf '%s\n' "// wf-local operator overrides (applied last on every boot)" > "$TREE/cstrike/wf-local-operator.cfg"
   fi
 
   local test_cfg="$TREE/cstrike/cs16-test.cfg"

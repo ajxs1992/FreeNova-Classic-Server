@@ -572,6 +572,11 @@ enum
 }
 
 new g_iFnPanelDenied = FN_PANEL_OK
+// Which kind the last call was for, so "nothing ran yet" (FN_PANEL_OK from an
+// older call) can never be mistaken for "this call succeeded". fn_open_panel()
+// with id 0 (a probe asking a question) does not overwrite the two below.
+new g_iFnPanelLastKind = -1
+new g_iFnPanelLastAnswer = 0
 
 // Read it immediately after fn_open_panel() returned false.
 stock fn_panel_denied()
@@ -579,16 +584,35 @@ stock fn_panel_denied()
     return g_iFnPanelDenied
 }
 
+// What fn_open_panel() decided for `iKind` on its LAST call - the pair a caller
+// cannot get by re-asking, because re-asking changes the answer. `accepted` is 1
+// when a MOTD went out for that kind, 0 when it was refused, and -1 when the
+// last call was for a different kind (or there was none).
+stock fn_panel_last_answer(iKind)
+{
+    if (g_iFnPanelLastKind != iKind)
+        return -1
+    return g_iFnPanelLastAnswer
+}
+
 stock bool:fn_open_panel(id, iKind)
 {
     new szKind[24]
     fn_panel_kind_name(iKind, szKind, charsmax(szKind))
 
-    if (!(1 <= id <= MaxClients) || !is_user_connected(id) || is_user_bot(id) || is_user_hltv(id))
+    new bool:asked = (1 <= id <= MaxClients) ? true : false
+    g_iFnPanelLastKind = iKind
+    g_iFnPanelLastAnswer = 0
+
+    if (!asked || !is_user_connected(id) || is_user_bot(id) || is_user_hltv(id))
     {
         // A bot/HLTV slot has no browser: refuse silently for the player, but say
         // so in the log under fnweb_debug, because "the panel did nothing" and
         // "the panel was never asked" look identical from the outside.
+        //
+        // id 0 is not a refusal miss: it is a caller (a probe, a diagnostic)
+        // asking "would this kind get a MOTD?" - there is no client to send to,
+        // and the answer is no. g_iFnPanelLastAnswer stays 0 either way.
         if (get_cvar_num("fnweb_debug"))
             log_amx("[FreeNova PANEL] id=%d kind=%s -> in-game menu (not a human client)", id, szKind)
         g_iFnPanelDenied = FN_PANEL_DENY_PLAYER
@@ -629,6 +653,7 @@ stock bool:fn_open_panel(id, iKind)
         show_motd(id, szFile, "FreeNova")
         if (get_cvar_num("fnweb_debug"))
             log_amx("[FreeNova PANEL] id=%d kind=%s lpm=0 -> MOTD file %s", id, szKind, szFile)
+        g_iFnPanelLastAnswer = 1
         return true
     }
 
@@ -640,6 +665,7 @@ stock bool:fn_open_panel(id, iKind)
             g_iFnPanelDenied = FN_PANEL_DENY_NOPANEL
             return false
         }
+        g_iFnPanelLastAnswer = 1
         return true
     }
 
@@ -656,5 +682,6 @@ stock bool:fn_open_panel(id, iKind)
         g_iFnPanelDenied = FN_PANEL_DENY_NOPANEL
         return false
     }
+    g_iFnPanelLastAnswer = 1
     return true
 }

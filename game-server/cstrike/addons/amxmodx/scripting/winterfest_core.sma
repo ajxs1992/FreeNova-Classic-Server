@@ -897,8 +897,12 @@ WfResolveAllVisuals()
 
 		drawn++
 		if (!equali(g_szPropResolved[i], g_szPropVisual[i]))
-			log_amx("[WF] prop '%s': visual '%s' -> '%s' (the configured one needs a download)",
-				g_szPropSlot[i], g_szPropVisual[i], g_szPropResolved[i])
+		{
+			new why[40]
+			WfWhyFallback(g_szPropVisual[i], why, charsmax(why))
+			log_amx("[WF] prop '%s': visual '%s' -> '%s' (%s)",
+				g_szPropSlot[i], g_szPropVisual[i], g_szPropResolved[i], why)
+		}
 		else
 		{
 			// The decision, said out loud per prop: a model was drawn (with the
@@ -948,6 +952,44 @@ stock WfFindVisual(const name[])
 		if (equali(g_szVisName[i], name))
 			return i
 	return -1
+}
+
+// Why a configured visual did not draw, in the operator's words.
+//
+// The old message said "the configured one needs a download" for every reason,
+// and that sentence is what hid the real bug for two playtests: with
+// wf_allow_models 0, or with a file on disk that the working directory could not
+// see, the log told the reader the model simply had to be shipped.
+stock WfWhyFallback(const name[], out[], len)
+{
+	if (len > 0)
+		out[0] = 0
+
+	new idx = WfFindVisual(name)
+	if (idx < 0)
+	{
+		copy(out, len, "not defined in [visual]")
+		return
+	}
+	if (!g_szVisAsset[idx][0])
+	{
+		copy(out, len, "no asset column")
+		return
+	}
+	if (g_iVisKind[idx] == WF_VISUAL_MODEL)
+	{
+		if (!WfModelsAllowed())
+		{
+			copy(out, len, "wf_allow_models is 0")
+			return
+		}
+		if (!WfFileCstrike(g_szVisAsset[idx]))
+		{
+			copy(out, len, "the file is not on this host")
+			return
+		}
+	}
+	copy(out, len, "unusable")
 }
 
 // Every root a model visual may live under, in test order. The working

@@ -21,6 +21,7 @@
 #include <freenova_chat>
 #include <freenova_admin>
 #include <fn_common>
+#include <fn_core>     // fn_resolve_target(): a console-safe target resolver
 #include <freenova_web>   // fn_open_panel(): the one MOTD-vs-menu decision
 
 // Natives from other plugins (called server-side)
@@ -4819,12 +4820,19 @@ public QuickCmdHandler(id, menu, item)
 // does not have.
 public Cmd_PanelProbe(id, level, cid)
 {
-    if(!cmd_access(id, level, cid, 3))
+    // 2 arguments, not 3: read_argv(3) below is the OPTIONAL authid override and
+    // cmd_access() with 3 made the documented `<player> <kind>` form unreachable -
+    // the command only ever printed its own usage line.
+    if(!cmd_access(id, level, cid, 2))
         return PLUGIN_HANDLED
 
     new szArg[40]
     read_argv(1, szArg, charsmax(szArg))
-    new iTarget = cmd_target(id, szArg, CMDTARGET_ALLOW_SELF)
+    // Not cmd_target(): from the CONSOLE (id 0) it fails for a name and for
+    // `#id` on this AMXX build, and this probe's whole purpose is being usable
+    // from the console (fn_core.inc:85 says the same). fn_resolve_target() takes
+    // the strings a player types and includes bots, which is what a lab wants.
+    new iTarget = fn_resolve_target(szArg)
 
     new szKindName[24]
     read_argv(2, szKindName, charsmax(szKindName))

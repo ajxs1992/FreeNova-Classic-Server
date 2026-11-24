@@ -950,6 +950,43 @@ stock WfFindVisual(const name[])
 	return -1
 }
 
+// Every root a model visual may live under, in test order. The working
+// directory differs by host: the shipped harness starts hlds from the GAME ROOT
+// (`cd $SERVER`, cs16-linux-base docker/harness/boot.sh), which is why every
+// other file these plugins open is spelled "addons/amxmodx/...". A model visual
+// is spelled mod-relative ("models/winterfest/present.mdl"), so BOTH have to be
+// tested - testing only the mod-relative one answered "no" on the harness and
+// silently turned every present into its glow (the owner's report).
+new const g_szCstrikeRoots[][] =
+{
+	"",
+	"cstrike/"
+}
+
+stock bool:WfFileCstrike(const relPath[])
+{
+	new path[128]
+	for (new i = 0; i < sizeof(g_szCstrikeRoots); i++)
+	{
+		formatex(path, charsmax(path), "%s%s", g_szCstrikeRoots[i], relPath)
+		if (file_exists(path))
+			return true
+	}
+	return false
+}
+
+// The model-usable decision: the cvar both plugins register, default 1.
+//
+// It is read live (never cached in plugin_cfg) on purpose: `wf_reload` and
+// `wf_gifts_reload` must be able to flip it without a map change, and the
+// startup resolve in plugin_cfg runs before the server has exec'd the .cfg that
+// sets it - which is why the boot log used to say "models gated" while
+// `wf_allow_models` answered 1 two seconds later.
+stock WfModelsAllowed()
+{
+	return get_cvar_num("wf_allow_models") ? true : false
+}
+
 // A sprite is assumed to be stock (every CS client and every server content
 // pack has sprites/glow01.spr, and the module precaches it unconditionally); a
 // model needs the cvar AND the file, because precaching a missing model is how a
@@ -962,15 +999,9 @@ stock bool:WfVisualUsable(idx)
 		return false
 	if (g_iVisKind[idx] == WF_VISUAL_MODEL)
 	{
-		if (get_cvar_num("wf_allow_models") == 0)
+		if (!WfModelsAllowed())
 			return false
-		// The asset path in [visual] is relative to the GAME ROOT ("models/..."),
-		// which is the cstrike/ directory - and the process' working directory is
-		// exactly that, so a bare file_exists() is the right test. Testing a
-		// re-prefixed path ("cstrike/models/...") answered no for a file that was
-		// on disk (proved by tools/wf-model-probe), which silently turned every
-		// present into its glow fallback.
-		return file_exists(g_szVisAsset[idx]) ? true : false
+		return WfFileCstrike(g_szVisAsset[idx]) ? true : false
 	}
 	return true
 }

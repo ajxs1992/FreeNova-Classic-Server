@@ -87,7 +87,20 @@ new const g_szModelAssets[][] =
 // proven to load in the engine. It is precached whenever the file is on disk,
 // whatever wf_allow_models says, because the core can resolve a prop to it at
 // any time (wf_gifts_reload) and an unprecached model is an ERROR entity.
-new const g_szShippedPresent[] = "models/winterfest/present.mdl"
+//
+// Two spellings, because the working directory is not the same on every host.
+// The shipped harness runs hlds from the GAME ROOT (`cd $SERVER`, see
+// cs16-linux-base docker/harness/boot.sh) while every other file this module
+// opens is addons/amxmodx/... (mod-relative). Testing only the plain spelling
+// answered "no" on the harness and every present fell back to its glow - the
+// owner's report. plugin_precache() keeps the first spelling that exists in
+// g_szShippedPresent, and that one string is both precached and drawn.
+new g_szShippedPresent[64] = "models/winterfest/present.mdl"
+new const g_szPresentRoots[][] =
+{
+	"models/winterfest/present.mdl",
+	"cstrike/models/winterfest/present.mdl"
+}
 new bool:g_bPresentModelOnDisk
 // Visual names of the three present rarities, in rarity order.
 new const g_szPresentVisual[WF_RARITY_MAX][] =
@@ -184,7 +197,24 @@ public plugin_precache()
 	// with wf_allow_models 0, because that cvar can be flipped at runtime
 	// (wf_gifts_reload) and a model drawn without being precached is exactly the
 	// "invisible present" failure this batch is fixing.
-	g_bPresentModelOnDisk = file_exists(g_szShippedPresent) ? true : false
+	//
+	// WHERE THE PATH POINTS. The community harness (cs16-linux-base
+	// docker/harness/boot.sh) does `cd $SERVER` and runs hlds from the GAME ROOT,
+	// so a cstrike-relative test like `models/winterfest/present.mdl` answers no
+	// while the file sits in cstrike/models/. The core draws whatever this flag
+	// says, and previously it said no, so every present fell back to its glow -
+	// the owner's "presents are a glow" report. Test both roots, and draw
+	// whichever one exists.
+	g_bPresentModelOnDisk = false
+	for (new i = 0; i < sizeof(g_szPresentRoots); i++)
+	{
+		if (file_exists(g_szPresentRoots[i]))
+		{
+			copy(g_szShippedPresent, charsmax(g_szShippedPresent), g_szPresentRoots[i])
+			g_bPresentModelOnDisk = true
+			break
+		}
+	}
 	if (g_bPresentModelOnDisk)
 	{
 		precache_model(g_szShippedPresent)

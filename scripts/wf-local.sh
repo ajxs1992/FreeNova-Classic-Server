@@ -421,7 +421,11 @@ wf_killfeed 1
 wf_killfeed_force 1
 wf_snow 1
 wf_bombfx 1
-wf_allow_models 0
+// The present model (models/winterfest/present.mdl) is in this tree from the
+// content pack. Leaving this at 0 was the whole of the "presents are a glow"
+// report: the cvar gates every model prop, and nothing on the local stack set
+// it. 1 = draw the model, 0 = the glow fallback (one-line revert).
+wf_allow_models 1
 wf_panel_url "http://$PANEL_HOST:$PANEL_PORT/winter"
 mp_timelimit 0
 mp_maxrounds 0
@@ -551,7 +555,14 @@ send_cmd() {
 
 try_cmd() {
   [ -p "$FIFO" ] || return 1
-  timeout 5 sh -c 'printf "%s\n" "$1" > "$2"' _ "$*" "$FIFO" 2>/dev/null
+  # One console line per argument, order preserved. "$*" joined them with
+  # spaces, so `cmd wf_give X gingerbread 0 10` reached the server as four
+  # separate commands and only the first one quoted its own argument.
+  local a rc=0
+  for a in "$@"; do
+    printf '%s\n' "$a" > "$FIFO" 2>/dev/null || rc=1
+  done
+  return $rc
 }
 
 stop_game() {
@@ -800,9 +811,11 @@ cmd_logs() {
 }
 
 cmd_cmd() {
-  [ "$#" -gt 0 ] || die "usage: bash scripts/wf-local.sh cmd <console line>"
+  [ "$#" -gt 0 ] || die "usage: bash scripts/wf-local.sh cmd <console line> ..."
   game_running || die "the game server is not running"
-  send_cmd "$*"
+  # Each argument is its own console line, so `cmd wf_give "Ranger" gingerbread 0 10`
+  # and `cmd wf_state Ranger wf_force_open` both do what they look like.
+  send_cmd "$@"
   note "> $*"
 }
 

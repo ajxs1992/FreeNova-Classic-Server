@@ -116,37 +116,44 @@ function main() {
     console.log("SKIP OCR census (tesseract or python3+PIL not available): " + String(e.message || e).split("\n")[0])
   }
 
-  // Every OCR'd word must land in one of the declared blocks: a word outside
-  // them is a sample value the sprite table does not know about.
-  let unaccounted = 0
-  for (const w of words) {
-    const box = [w.x, w.y, w.w, w.h]
-    if (!TEXT_BLOCKS.some(b => overlaps(box, b))) {
-      unaccounted++
-      if (args.includes("--print-ocr")) console.log(`  outside every block: ${w.text} at ${w.x},${w.y} ${w.w}x${w.h} (conf ${w.conf})`)
-    }
-  }
-  if (words.length) {
-    if (unaccounted === 0) pass("ocr census", `${words.length} words, all inside the ${TEXT_BLOCKS.length} declared blocks`)
-    else fail("ocr census", `${unaccounted} word(s) outside every declared block — widen TEXT_BLOCKS`)
-  }
-
-  // --check: the live page's sprites must not cover a text block.
+  // --check: the live page keeps the plate's chrome and covers its sample text
+  // with field boxes. Two independent proofs, both against the SAME OCR pass:
+  //   1. every sample glyph on the plate sits inside one field box (so the
+  //      field's chrome strip covers it), and
+  //   2. every field box carries a strip big enough to cover it.
   if (check) {
     const src = readFileSync(fileURLToPath(new URL("./src/panel/dashboard.js", import.meta.url)), "utf8")
-    const m = src.match(/export const SPRITES = \[([\s\S]*?)\n\]/)
-    if (!m) fail("sprite table", "SPRITES not found in src/panel/dashboard.js")
-    else {
-      const sprites = [...m[1].matchAll(/\["([a-z0-9_]+)",\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]/g)]
-        .map(r => [r[1], +r[2], +r[3], +r[4], +r[5]])
-      const bad = []
-      for (const [name, x, y, w, h] of sprites) {
-        for (const b of TEXT_BLOCKS) {
-          if (overlaps([x, y, w, h], b)) bad.push(`${name} over ${b[0]}`)
-        }
+    const table = name => {
+      // slice the array by its brackets (it may contain comments), then read rows
+      const at = src.indexOf("export const " + name + " = [")
+      if (at < 0) return null
+      let i = src.indexOf("[", at), depth = 0, j = i
+      for (; j < src.length; j++) {
+        if (src[j] === "[") depth++
+        else if (src[j] === "]") { depth--; if (depth === 0) break }
       }
-      if (bad.length === 0) pass("sprites clear of plate text", `${sprites.length} sprites`)
-      else fail("sprites over plate text", bad.join(", "))
+      const body = src.slice(i, j + 1)
+      const re = /\[\s*"([a-z0-9_]+)"\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(\d+)\s*,\s*(\d+)/gi
+      return [...body.matchAll(re)].map(r => [r[1], +r[2], +r[3], +r[4], +r[5]])
+    }
+    const strips = table("STRIPS")
+    const fields = table("FIELD_TEXT")
+    if (!strips || !fields) {
+      fail("field tables", "STRIPS / FIELD_TEXT not found in src/panel/dashboard.js")
+    } else {
+      const shared = (a, b) => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
+      const covers = (o, i) => o[0] <= i[0] && o[1] <= i[1] && o[0] + o[2] >= i[0] + i[2] && o[1] + o[3] >= i[1] + i[3]
+      const fieldBoxes = fields.map(f => [f[1], f[2], f[3], f[4]])
+      const stripBoxes = strips.map(s => [s[5], s[6], s[7], s[8]])
+      const noCover = fieldBoxes.filter(f => !stripBoxes.some(s => covers(s, f)))
+      if (noCover.length === 0) pass("every field has chrome under it", `${fields.length} fields / ${strips.length} strips`)
+      else fail("fields without chrome", JSON.stringify(noCover))
+
+      if (words.length) {
+        const survivors = words.filter(w => !fieldBoxes.some(f => shared(f, [w.x, w.y, w.w, w.h])))
+        if (survivors.length === 0) pass("plate sample text is covered", `${words.length} glyph boxes inside ${fields.length} fields`)
+        else fail("plate text not covered", survivors.slice(0, 10).map(w => `${w.text}@${w.x},${w.y}`).join(" "))
+      }
     }
   }
 

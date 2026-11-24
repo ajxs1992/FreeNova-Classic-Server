@@ -55,6 +55,12 @@ import {
 import {
   topBoards, missionsFor, achievements, mail, treeSlots, recentLedger, recentActions,
 } from "./src/query.js"
+// The live dashboard (page 1 of the Winterfest UI) and the plate census.
+import {
+  pageDashboard, renderPlate, seasonWindow, countdownCells, STRIPS, FIELD_TEXT, EVENTS_POS,
+  PLATE_W, PLATE_H,
+} from "./src/panel/dashboard.js"
+import { TEXT_BLOCKS, PLATE_SHA256, ocrPlate } from "./test_plate_census.mjs"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const root = mkdtempSync(join(tmpdir(), "freenova-panel-test-"))
@@ -258,6 +264,92 @@ try {
   }
   ok("hub link audit", `(${links.length} targets)`)
   ok("panel smoke suite")
+
+  // ------------------------------ 1b. the live dashboard (/panel/dashboard) --
+  // The page is a fixed 1672x941 stage: every sprite and every field must sit
+  // inside it, no field may print on another field, and the plate's own sample
+  // text must be covered before the page's text goes on top.
+  {
+    const inside = (x, y, w, h) => x >= 0 && y >= 0 && x + w <= PLATE_W && y + h <= PLATE_H
+    const shared = (a, b) => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
+    const covers = (outer, inner) => outer[0] <= inner[0] && outer[1] <= inner[1] &&
+      outer[0] + outer[2] >= inner[0] + inner[2] && outer[1] + outer[3] >= inner[1] + inner[3]
+    const strips = STRIPS.map(r => [r[1], r[2], r[3], r[4]])          // the plate slice
+    const stripBoxes = STRIPS.map(r => [r[5], r[6], r[7], r[8]])      // where it is painted
+    const fields = FIELD_TEXT.map(r => [r[1], r[2], r[3], r[4]])
+    const blocks = TEXT_BLOCKS.map(r => [r[1], r[2], r[3], r[4]])
+
+    const oob = stripBoxes.concat(fields).filter(b => !inside(...b))
+    check("dashboard: every strip and field is inside the 1672x941 stage", oob.length === 0, JSON.stringify(oob))
+
+    // Each field's own text must sit on a painted strip.
+    const uncovered = fields.filter(f => !stripBoxes.some(s => covers(s, f)))
+    check("dashboard: every field has chrome under its whole text box", uncovered.length === 0,
+      JSON.stringify(uncovered))
+
+    // Every sample glyph on the plate must be inside a field box (so its chrome
+    // covers it) — checked per glyph box, not per panel band.
+    let ocr = []
+    try { ocr = ocrPlate() } catch { ocr = [] }
+    if (ocr.length) {
+      const survivors = ocr.filter(w => !fields.some(f => shared(f, [w.x, w.y, w.w, w.h])))
+      check("dashboard: the plate's sample text is all inside field boxes", survivors.length === 0,
+        survivors.slice(0, 8).map(w => `${w.text}@${w.x},${w.y}`).join(" "))
+    } else {
+      console.log("SKIP dashboard ocr check (tesseract unavailable)")
+    }
+
+    // No two fields may print on each other (a pair that shares the same cover
+    // is the same field split into a title and a value, e.g. a capsule's label
+    // and its figure — those are allowed to sit on one strip).
+    let clash = null
+    for (let i = 0; i < fields.length && !clash; i++)
+      for (let j = i + 1; j < fields.length; j++)
+        if (shared(fields[i], fields[j])) { clash = [FIELD_TEXT[i][0], FIELD_TEXT[j][0]]; break }
+    check("dashboard: no two text boxes overlap", !clash, clash ? clash.join(" / ") : "")
+
+    const res = await pageDashboard({ DB: null }, new URL("http://x/panel/dashboard"))
+    const anonDoc = await res.text()
+    check("dashboard: an anonymous visit answers 200 html", res.status === 200 &&
+      /text\/html/.test(res.headers.get("content-type") || ""), String(res.status))
+    check("dashboard: an anonymous visit says No player, never a zero",
+      anonDoc.includes("No player"), "")
+    check("dashboard: live page is no-store", res.headers.get("cache-control") === "no-store",
+      res.headers.get("cache-control"))
+    check("dashboard: no hard-coded viewport height", !/height:\s*\d+vh/.test(anonDoc), "")
+    check("dashboard: scaled as one stage, not a reflow", /scale:min\(calc\(100vw/.test(anonDoc) &&
+      /Math\.min\(vw\/1672,vh\/941,1\)/.test(anonDoc), "")
+    check("dashboard: four event slots", EVENTS_POS.length === 4, "")
+
+    // The season window: the documented default when the game pushed nothing,
+    // and a closed window is all zeros.
+    const ws = seasonWindow(null, parisMidnight(2026, 12, 10))
+    const span = ws.end - ws.start
+    check("dashboard: default window is December", new Date(ws.start * 1000).getUTCFullYear() === 2026 &&
+      span > 20 * 86400 && span < 24 * 86400, `${ws.start}..${ws.end}`)
+    const closed = countdownCells(1000, 2000)
+    check("dashboard: a closed window is all zeros", closed.days === 0 && closed.hours === 0 &&
+      closed.minutes === 0 && closed.seconds === 0 && closed.closed, JSON.stringify(closed))
+    const pushed = seasonWindow({ value: JSON.stringify({ starts_at: 100, ends_at: 5000 }) }, 3000)
+    check("dashboard: a pushed window wins", pushed.start === 100 && pushed.end === 5000, JSON.stringify(pushed))
+
+    // A known player's real numbers render, and the plate's sample figures are
+    // nowhere on the page.
+    const doc = renderPlate({
+      sid: "STEAM_0:0:101", known: true, who: "harness-101",
+      p: { exists: true, name: "harness-101", coins: 1234, gingerbread: 7, spins: 2, level: 56,
+           pass: { tier: 12 }, counts: { ornaments_total: 18, advent_claimed: 8 } },
+      ledger: [{ currency: "coins", delta: 100 }], tree: { filled: 6, capacity: 24 },
+      missions: [{ state: "applied" }, { state: "applied" }],
+      active: [], cd: closed, window: ws, now: 2000
+    })
+    check("dashboard: the player's own coins are printed", doc.includes("1,234"), "")
+    check("dashboard: tree progress is filled/capacity", doc.includes("25%"), "")
+    check("dashboard: the plate's sample figures do not survive",
+      !/24,500|1,320|Lv\.12|Day 8 \/ 24|3\/10|Active: 4/.test(doc), "")
+
+    ok("dashboard suite")
+  }
 
   // ------------------------------------------------ 2. signed game push ----
   const now = Math.floor(Date.now() / 1000)

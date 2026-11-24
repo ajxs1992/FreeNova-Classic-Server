@@ -73,8 +73,8 @@ export const STRIPS = [
 ]
 
 // Text boxes: where the page's value is printed. [id, x, y, w, h, tint]
-// The COVER for each id is its strip in STRIPS above; a field's cover is always
-// at least as big as this box, so no plate glyph can poke out around the text.
+// The COVER for each id is its strip in STRIPS above; a cover is always at least
+// as big as this box, so no plate glyph can poke out around the text.
 export const FIELD_TEXT = [
   ["f_coins", 431, 22, 104, 26, "white"],
   ["f_coins_l", 431, 50, 62, 18, "white"],
@@ -91,16 +91,22 @@ export const FIELD_TEXT = [
   ["f_cd_2", 902, 300, 40, 34, "white"],
   ["f_cd_3", 996, 300, 40, 34, "white"],
   ["f_cd_4", 1092, 300, 40, 34, "white"],
-  ["f_cap_tree", 477, 388, 100, 18, "white"],
-  ["f_cap_tree_v", 477, 414, 40, 18, "green"],
-  ["f_cap_pass", 721, 388, 100, 18, "white"],
-  ["f_cap_pass_v", 724, 416, 56, 15, "gold"],
-  ["f_cap_adv", 971, 388, 100, 18, "white"],
-  ["f_cap_adv_v", 974, 416, 92, 18, "gold"],
-  ["f_cap_mis", 1221, 388, 100, 18, "white"],
-  ["f_cap_mis_v", 1224, 416, 54, 18, "gold"],
-  ["f_cap_evt", 1479, 388, 60, 18, "white"],
-  ["f_cap_evt_v", 1482, 416, 66, 18, "gold"],
+  ["f_cap_tree", 472, 388, 104, 18, "white"],
+  ["f_cap_tree_v", 472, 414, 44, 18, "green"],
+  ["f_cap_pass", 720, 388, 104, 18, "white"],
+  ["f_cap_pass_v", 720, 414, 60, 18, "gold"],
+  ["f_cap_adv", 968, 388, 104, 18, "white"],
+  ["f_cap_adv_v", 968, 414, 100, 18, "gold"],
+  ["f_cap_mis", 1218, 388, 104, 18, "white"],
+  ["f_cap_mis_v", 1218, 414, 60, 18, "gold"],
+  ["f_cap_evt", 1472, 388, 76, 18, "white"],
+  ["f_cap_evt_v", 1472, 414, 76, 18, "gold"],
+  ["f_card_hd", 408, 482, 196, 20, "white"],
+  ["f_card_cap", 408, 506, 300, 18, "white"],
+  ["f_prog_hd2", 857, 482, 150, 20, "white"],
+  ["f_prog_cap2", 857, 506, 300, 18, "white"],
+  ["f_rew_hd3", 1298, 482, 160, 20, "white"],
+  ["f_rew_cap3", 1298, 506, 190, 18, "white"],
   ["f_tree_hd", 408, 482, 196, 20, "white"],
   ["f_tree_sub", 408, 506, 300, 18, "white"],
   ["f_tree_lbl", 526, 541, 112, 20, "white"],
@@ -135,6 +141,9 @@ export const FONT_RULES = [
   ["f_cap_adv", 13.5, 600, "left"], ["f_cap_adv_v", 13, 700, "left"],
   ["f_cap_mis", 13.5, 600, "left"], ["f_cap_mis_v", 13, 700, "left"],
   ["f_cap_evt", 13.5, 600, "left"], ["f_cap_evt_v", 13, 700, "left"],
+  ["f_card_hd", 15.5, 800, "left"], ["f_card_cap", 10.5, 600, "left"],
+  ["f_prog_hd2", 15, 600, "left"], ["f_prog_cap2", 10.5, 400, "left"],
+  ["f_rew_hd3", 14, 600, "left"], ["f_rew_cap3", 10.5, 400, "left"],
   ["f_tree_hd", 15.5, 800, "left"], ["f_tree_sub", 10.5, 600, "left"],
   ["f_tree_lbl", 13.5, 700, "left"], ["f_tree_pct", 19, 700, "left"],
   ["f_prog_hd", 15, 600, "left"], ["f_prog_sub", 10.5, 400, "left"],
@@ -271,8 +280,10 @@ export async function pageDashboard(env, url) {
 // a known player getPlayer() (its own fixed set), the last four ledger lines,
 // the tree slots and the mission claims. Nothing runs inside a loop.
 export async function loadDashboard(env, sid, now) {
-  const schedule = await loadSchedule(env, now)
-  const seasonRow = await env.DB.prepare("SELECT value FROM winter_meta WHERE key='season'").first().catch(() => null)
+  const schedule = env.DB ? await loadSchedule(env, now) : []
+  // No DB bound (a static preview) is not an error: the schedule and the season
+  // window fall back to their documented defaults.
+  const seasonRow = env.DB ? await env.DB.prepare("SELECT value FROM winter_meta WHERE key='season'").first().catch(() => null) : null
   const window = seasonWindow(seasonRow, now)
   const cd = countdownCells(window.end, now)
   let p = null, ledger = [], tree = null, missions = []
@@ -332,8 +343,12 @@ export function renderPlate(d) {
     f_cap_mis_v: known ? `${done}/${total || 0}` : none,
     f_cap_evt: "Events",
     f_cap_evt_v: "Active: " + active.filter(e => e.state === "active").length,
-    f_tree_hd: "Your Christmas Tree",
-    f_tree_sub: "Collect ornaments and decorate your tree!",
+    f_card_hd: "Your Christmas Tree",
+    f_card_cap: "Collect ornaments and decorate your tree!",
+    f_prog_hd2: "Event Progress",
+    f_prog_cap2: "Complete Winterfest objectives for exclusive rewards!",
+    f_rew_hd3: "Recent Rewards",
+    f_rew_cap3: "Your latest Christmas rewards!",
     f_tree_lbl: "Tree Progress",
     f_tree_pct: treePct == null ? "—" : treePct + "%",
     f_prog_hd: "Event Progress",

@@ -65,3 +65,13 @@ What that unlocks, and what it still does not:
   `game-server/` backups, changing the timezone/DB decisions that are recorded as open.
   Those still wait for a word from the owner.
 - Every "did it my own way" decision goes into the doc with a one-line revert.
+
+## Watch duty (controller)
+- **`scripts/dev-watch.sh start`** keeps the local panel alive on `:18101`. It died
+  silently twice tonight; a dead panel makes every page agent read a 404 as a finished
+  page, which is the worst failure mode available. Watcher pid is in `/tmp/dev-watch/`.
+- **Honesty gate is mine, not theirs.** A page is done when *I* can see it: `curl` 200,
+  a screenshot at the plate's size **and** 800×600, no scrollbar, and no sample numbers
+  (`git grep '28,450\|999,862\|Lv. 12'`). Agents' own claims are only the start.
+- **Commit per page/per fix is enforced**; anything green and uncommitted gets committed
+  by me at the next sweep with a note saying so, rather than left as risk.

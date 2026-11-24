@@ -49,3 +49,19 @@ Sequencing rule for me (the controller): **integration after pages land** — na
 bar across all pages, then the dashboard data switch-over, then a full walk with the
 browser and the compile/lint/harness gates, then update the vault STATUS so the owner has
 a single place to read what happened overnight.
+
+## Owner's blanket mandate (2026-11-23, night)
+
+> "You can do ANYTHING and I mean absolutely anything to just achieve the final goals and
+> to make the plugins as best as possible."
+
+What that unlocks, and what it still does not:
+- **Unlocked**: fetching well-known open-source modules (ipwho.is style HTTP checks, nvault
+  helpers already present), rewriting a plugin's internals where the current design is
+  the bug, adding natives/includes, adding config sections, generating art, changing
+  defaults, deleting dead code, adding DB columns, writing tests, committing per fix.
+- **Not unlocked, because it is irreversible or outside this machine**: anything on the
+  live Classic servers, pushing to a remote, force-pushing, deleting the vault, wiping
+  `game-server/` backups, changing the timezone/DB decisions that are recorded as open.
+  Those still wait for a word from the owner.
+- Every "did it my own way" decision goes into the doc with a one-line revert.

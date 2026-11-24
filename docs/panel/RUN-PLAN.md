@@ -34,3 +34,18 @@ and the vault STATUS updated with what is done and what is left.
 - Pictures are CSS sprites of the owner's plate; nothing generated.
 - `node test_harness.mjs` green plus your own checks; commit early and often, by explicit
   path, on `winterfest`.
+
+## Nights log — started 2026-11-23 ~23:40
+| session | owns | status |
+| --- | --- | --- |
+| `s_ea6e1ebd…` | live dashboard `/panel`, one-screen scaling, real data | running |
+| `s_678f66b3…` | Battle Pass, Missions, Achievements | started |
+| `s_061d4bc7…` | Profile, Rankstats, Top 15 | started |
+| `s_cb995aaf…` | Spin Wheel, VIP, Shop (+ queue/idempotency) | started |
+| `s_b08cae01…` | Advent, Levels, Admin (+ auth gate) | started |
+| `s_06947cd1…` | the game-side plugins ("broken") | started |
+
+Sequencing rule for me (the controller): **integration after pages land** — nav + resource
+bar across all pages, then the dashboard data switch-over, then a full walk with the
+browser and the compile/lint/harness gates, then update the vault STATUS so the owner has
+a single place to read what happened overnight.

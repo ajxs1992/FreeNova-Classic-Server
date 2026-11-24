@@ -1,0 +1,32 @@
+FreeNova Winterfest dashboard MOTD - server log evidence
+tree: build/wf-local/server  game 127.0.0.1:27016  panel http://192.168.1.5:18101
+source: build/wf-local/server/cstrike/addons/amxmodx/logs/L20261123.log (log_amx, append-only)
+cvar: fnweb_debug 1 (the include logs the url immediately before show_motd)
+
+--- the MOTD dispatched to a connected client slot (boot of 2026-11-23 22:29, the final build) ---
+L 11/23/2026 - 22:29:29: [wf_playtest_probe.amxx] [PROBE] === 12. say /dashboard (slot 1, bot=1)
+L 11/23/2026 - 22:29:32: [wf_playtest_probe.amxx] [PROBE] === 13. FNWeb_Dispatch(slot 1) -> http://192.168.1.5:18101/dashboard.html
+L 11/23/2026 - 22:29:32: [wf_playtest_probe.amxx] [FreeNova MOTD] id=1 page=dashboard len=39 url=http://192.168.1.5:18101/dashboard.html
+
+--- the same three lines from the earlier boot (22:18), same url ---
+L 11/23/2026 - 22:18:01: [wf_playtest_probe.amxx] [PROBE] === 12. say /dashboard (slot 1, bot=1)
+L 11/23/2026 - 22:18:04: [wf_playtest_probe.amxx] [PROBE] === 13. FNWeb_Dispatch(slot 1) -> http://192.168.1.5:18101/dashboard.html
+L 11/23/2026 - 22:18:04: [wf_playtest_probe.amxx] [FreeNova MOTD] id=1 page=dashboard len=39 url=http://192.168.1.5:18101/dashboard.html
+
+--- what fn_open_panel() would send a HUMAN SteamID (panel_probe, sends nothing) ---
+L 11/23/2026 - 22:18:33: [freenova_panel.amxx] [PANEL-PROBE] target=0 kind=dashboard target_arg=path /dashboard.html auth=STEAM_0 lpm=unloaded url=http://192.168.1.5:18101/dashboard.html
+
+--- the chat commands as the loaded plugin registered them (server console, 'amxx cmds') ---
+ [191] say /dashboard                            client   freenova_panel.
+ [275] say /wfpanel                              client   freenova_panel.
+ [335] say_team /dashboard                       client   freenova_panel.
+ [415] say_team /wfpanel                         client   freenova_panel.
+ (captured from the server console during the 22:18 boot; wf-local.sh rotates
+  build/wf-local/server.log on every restart, so these four lines are quoted)
+
+--- the page itself, over HTTP, as the client fetches it ---
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+dashboard.png http=200 bytes=2417426 type=image/png
+  4e9ea10d2fc93059e72137d5c6dc4d5fb0a949e4435eacba4680b32aa40878af  /tmp/dash-check.png
+  4e9ea10d2fc93059e72137d5c6dc4d5fb0a949e4435eacba4680b32aa40878af  docs/design/refs/winterfest/01-dashboard.png

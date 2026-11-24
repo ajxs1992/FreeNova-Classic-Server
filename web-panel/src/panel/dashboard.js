@@ -1,207 +1,225 @@
-// FreeNova panel — the Winterfest dashboard, page 1 of 14.
+// FreeNova panel — the Winterfest dashboard (page 1 of the Winterfest UI).
 //
-// The owner approved this look (the plate: web-panel/assets/dashboard.png,
-// 1672x941). This page keeps it: the chrome is the plate photograph itself,
-// shown through CSS sprites (`background: url(/dashboard.png) -Xpx -Ypx`), and
-// only the data is drawn as text. The region table lives in
-// docs/panel/03-DASHBOARD.md and is repeated in SPRITES below; the harness
-// checks every box against the file's real dimensions so a typo cannot ship.
+// The owner approved this look: the plate, web-panel/assets/dashboard.png
+// (1672x941). This page keeps it — the plate photograph IS the chrome and the
+// page never redraws it — and only the data is drawn as text.
 //
-// HOW THE PLATE IS REUSED
-//   The plate paints its sample values INTO the chrome: the coin figure sits on
-//   the currency pill's own plate, the countdown sits on its panel, the reward
-//   labels sit on their frames. A sprite of that rectangle would bring the
-//   sample with it. So a region that has text in it is padded with the
-//   background colour sampled around it (PLATES[name][5] is that colour, taken
-//   by docs/panel/03-DASHBOARD.md §6) — a solid monochrome pad has no inner
-//   edges, so the panel's rounded border bleeds through it pixel for pixel, and
-//   the real value is printed on the pad at the plate's own text position and
-//   size. Regions the plate does have clean (the logo, the nav, the hero, the
-//   card layer, the artwork) are the bare rectangles.
+// HOW THE PAGE IS BUILT (one rule, no exceptions)
+//   #plate paints the plate ONCE, whole, at its own size. Every value then goes
+//   into a FIELD: a marked area on a panel, painted with clean CHROME cut from
+//   the plate itself — either a strip of that same panel (a slice with no
+//   sample glyph in it, stretched over the field) or a clean pane of the same
+//   surface — with the page's text on it. The plate's borders, glows, fairy
+//   lights and gradients stay whole, because a field is inset inside them.
 //
-// WHAT IS NOT FILLED
-//   Nothing below y = 646: the plate's left event card's Grinch art already
-//   overlaps its own "Active Winterfest Events" heading, and every event card's
-//   art runs up under its title, so no rectangle there is free of a sample
-//   string or would survive a real title of a different length. That row is
-//   drawn as text on the sampled navy instead (03-DASHBOARD.md §6 lists it, and
-//   the chrome diff in §9 shows the floor that costs).
+// WHAT IS NOT A FIELD
+//   Nothing above: the page has no opaque pads and no re-drawn chrome.
+//   The event row (y >= 704) is the one place the plate is not used directly:
+//   its cards carry art under their own titles and two glyphs of the heading sit
+//   on the Grinch, so the row is a uniform crop of the plate's background
+//   (ROW_BG) with the page's four cards on it. No sample title is ever shown.
+//
+// ONE SCREEN, NEVER A SCROLL
+//   A FIXED 1672x941 stage, scaled as a whole by min(vw/1672, vh/941) (capped
+//   at 1:1) and letterboxed. Not a responsive reflow, and must not become one:
+//   a player must never scroll a dashboard. A CSS `scale:` line carries the same
+//   formula for a no-script client.
 //
 // DATA
-//   Every number comes from getPlayer() (src/state.js) or src/query.js — never
-//   ad-hoc SQL in this file. A missing player has null coins/level and the page
-//   says "No player"; a counter the panel does not have prints an em dash, never
-//   a 0 pretending to be data. The query count per load is fixed (five reads,
-//   no N+1) and proven by the harness.
-//
-// JS OFF
-//   The page is complete without script. The only script is the countdown tick
-//   (it reads the server's own seconds from data-sec) and the fit-to-window
-//   scaler, so a GoldSrc MOTD sees the whole 1672x941 plate, never a crop.
+//   getPlayer() (src/state.js) and src/query.js only — never ad-hoc SQL in this
+//   file. A missing player says "No player"; a counter the panel does not have
+//   prints an em dash, never a 0 pretending to be data.
 import { getPlayer } from "../state.js"
 import { recentLedger, treeSlots, missionsFor } from "../query.js"
 import { loadSchedule } from "../schedule.js"
 import { parisParts, parisMidnight } from "../periods.js"
 import { esc, fmt } from "../top15/render.js"
 
-const PLATE_W = 1672, PLATE_H = 941
+export const PLATE_W = 1672, PLATE_H = 941
 
-// --------------------------------------------------------------- sprites ----
-// [name, x, y, w, h, pad, alt]
-//   pad === null  → the bare plate rectangle (nothing on it was a sample value)
-//   pad === "#hex" → the rectangle, padded with that sampled colour, with the
-//                    page's own value printed on top at the plate's own glyph
-//                    position (the matching `.txt-*` rule below).
-// The bare rectangles are first: where two overlap the padded one wins the
-// stack, the way the plate's own panel sits on the hero.
-export const SPRITES = [
-  ["logo", 0, 0, 294, 87, null],
-  ["nav", 0, 87, 292, 441, null],
-  ["navstrip", 0, 528, 292, 160, null],
-  ["navgift", 0, 688, 292, 84, null],
-  ["pill", 10, 90, 282, 60, null],
-  ["hero", 294, 87, 1378, 260, null],
-  ["cards", 306, 444, 1360, 202, null],
-  ["treeart", 308, 461, 328, 289, null],
-  ["tiles", 1235, 575, 420, 97, null],
-
-  ["tile_coins", 324, 17, 230, 57, "#1c1638"],
-  ["tile_gb", 576, 17, 230, 57, "#2a1730"],
-  ["tile_spins", 827, 17, 222, 57, "#1b1233"],
-  ["tile_missions", 1067, 17, 224, 57, "#171436"],
-  ["chip_bell", 1295, 17, 52, 57, null],
-  ["chip_envelope", 1352, 17, 52, 57, null],
-  ["profile", 1409, 17, 250, 57, "#211740"],
-
-  ["countdown", 770, 282, 388, 64, "#241f45"],
-  ["cap_tree", 328, 388, 730, 44, "#123a34"],
-  ["cap_pass", 850, 388, 240, 44, "#1c2959"],
-  ["cap_advent", 1110, 388, 240, 44, "#1e2b5f"],
-  ["cap_missions", 1338, 388, 257, 44, "#1e2c63"],
-  ["cap_events", 1600, 388, 68, 44, "#20336d"],
-
-  ["hdr_tree", 415, 467, 250, 60, "#1a3a52"],
-  ["hdr_prog", 853, 467, 200, 60, "#141a45"],
-  ["hdr_rew", 1288, 467, 180, 60, "#141a45"],
-  ["row_labels", 871, 534, 152, 142, "#0e173d"],
-  ["bar1", 872, 564, 310, 14, "#0e173d"],
-  ["bar2", 872, 602, 310, 14, "#0e173d"],
-  ["bar3", 872, 640, 310, 14, "#0e173d"],
-  ["bar4", 872, 678, 310, 14, "#0e173d"],
-  ["cta", 577, 673, 181, 38, null],
-  ["snow_outer", 306, 444, 1360, 6, null],
-  ["snow_inner", 306, 722, 1360, 24, null],
-  ["act_icons", 320, 726, 36, 30, null],
-  ["event_art", 320, 812, 1340, 80, null],
-  ["pill1", 464, 856, 132, 32, null]
+// ------------------------------------------------------------- chrome ------
+// A strip: a clean rectangle of plate chrome stretched into a field.
+//   [name, srcX, srcY, srcW, srcH, x, y, w, h]
+export const STRIPS = [
+  // currency chips: the clear band between the icon and the "+" button, over the
+  // chip's full inner height (the frame itself is never covered)
+  ["s_chip1", 420, 22, 72, 50, 418, 20, 76, 50],
+  ["s_chip2", 662, 22, 72, 50, 660, 20, 76, 50],
+  ["s_chip3", 930, 22, 52, 50, 928, 20, 56, 50],
+  ["s_chip4", 1152, 22, 72, 50, 1150, 20, 76, 50],
+  ["s_profile", 1640, 22, 20, 44, 1512, 22, 136, 44],
+  // the countdown panel's clear band, under its four cells
+  ["s_cd", 774, 326, 24, 14, 872, 264, 196, 24],
+  // capsules: each one's empty right end under its title
+  ["s_tree", 760, 386, 30, 48, 338, 386, 110, 48],
+  ["s_pass", 1024, 386, 30, 48, 986, 386, 116, 48],
+  ["s_adv", 1284, 386, 30, 48, 1250, 386, 100, 48],
+  ["s_mis", 1526, 386, 30, 48, 1492, 386, 114, 48],
+  ["s_evt", 1622, 386, 30, 48, 1620, 386, 46, 48],
+  // card headings: only the heading line and the line under it
+  ["s_card", 1236, 532, 40, 20, 404, 480, 330, 22],
+  ["s_card2", 1100, 532, 40, 20, 854, 480, 312, 22],
+  ["s_card3", 760, 532, 40, 20, 1294, 480, 206, 22],
+  // the captions under each heading
+  ["s_cap1", 1236, 532, 40, 20, 404, 504, 336, 20],
+  ["s_cap2", 1100, 532, 40, 20, 854, 504, 314, 20],
+  ["s_cap3", 760, 532, 40, 20, 1294, 504, 210, 20],
+  // the four progress rows: the card's empty middle between icon and bar
+  ["s_rows", 1090, 546, 30, 16, 866, 534, 206, 142],
+  // the tree art, slotted exactly where the plate's card had it
+  ["s_treeart", 308, 461, 328, 289, 313, 596, 328, 252],
+  // the tree progress line
+  ["s_tprog", 760, 532, 40, 20, 520, 540, 250, 20]
 ]
 
-function sprite([name, x, y, w, h, pad]) {
-  return `<div class="spr spr-${name}" style="` +
-    `left:${x}px;top:${y}px;width:${w}px;height:${h}px;` +
-    `background-position:-${x}px -${y}px` +
-    (pad ? `;background-color:${pad}` : "") +
-    `"></div>`
-}
-
-// ------------------------------------------------------------------- text ---
-// The page's own text boxes: [id, x, y, w, h, font-px, weight, colour, align].
-// Positions are the plate's own glyph boxes (measured, 03-DASHBOARD.md §6); a
-// value is left-aligned at its plate x, a centred value is centred on it.
-export const TEXTS = [
-  ["s-dash-t", 105, 96, 172, 26, 18, 800, "#ffffff", "left"],
-  ["s-dash-sub", 104, 124, 162, 14, 13, 600, "#cdc3e8", "left"],
-  ["coins-v", 430, 21, 112, 30, 27, 700, "#fdfdfd", "left"],
-  ["coins-l", 430, 49, 104, 22, 19, 600, "#eaedf7", "left"],
-  ["gb-v", 663, 21, 112, 30, 27, 700, "#fdfdfd", "left"],
-  ["gb-l", 663, 49, 98, 20, 19, 600, "#eaedf7", "left"],
-  ["spins-v", 933, 21, 60, 30, 27, 700, "#fdfdfd", "left"],
-  ["spins-l", 933, 49, 44, 20, 19, 600, "#eaedf7", "left"],
-  ["miss-v", 1155, 21, 60, 30, 27, 700, "#fdfdfd", "left"],
-  ["miss-l", 1155, 49, 92, 20, 19, 600, "#eaedf7", "left"],
-  ["who-n", 1507, 26, 144, 22, 16, 700, "#f4f7ff", "left"],
-  ["who-l", 1507, 45, 60, 18, 14, 600, "#dfe6f7", "left"],
-  ["cd-eyebrow", 778, 260, 372, 30, 19, 700, "#f1ecfa", "center"],
-  ["cd-dy", 808, 303, 36, 28, 28, 700, "#ffffff", "center"],
-  ["cd-dy-l", 808, 335, 40, 18, 13, 600, "#d3cbe6", "center"],
-  ["cd-hr", 904, 303, 36, 28, 28, 700, "#ffffff", "center"],
-  ["cd-hr-l", 900, 335, 44, 16, 13, 600, "#d3cbe6", "center"],
-  ["cd-mi", 998, 303, 36, 28, 28, 700, "#ffffff", "center"],
-  ["cd-mi-l", 990, 335, 50, 16, 13, 600, "#d3cbe6", "center"],
-  ["cd-se", 1094, 303, 36, 28, 28, 700, "#ffffff", "center"],
-  ["cd-se-l", 1044, 335, 92, 16, 13, 600, "#d3cbe6", "center"],
-  ["cap-tree-t", 478, 386, 120, 28, 17, 700, "#ffffff", "left"],
-  ["cap-tree-v", 478, 414, 70, 24, 20, 800, "#63e877", "left"],
-  ["cap-pass-t", 721, 386, 120, 24, 17, 700, "#ffffff", "left"],
-  ["cap-pass-v", 721, 414, 80, 20, 19, 800, "#f4d34b", "left"],
-  ["cap-adv-t", 971, 386, 120, 24, 17, 700, "#ffffff", "left"],
-  ["cap-adv-v", 971, 414, 122, 20, 19, 800, "#f4d34b", "left"],
-  ["cap-mis-t", 1178, 386, 120, 24, 17, 700, "#ffffff", "left"],
-  ["cap-mis-v", 1178, 414, 100, 22, 19, 800, "#f4d34b", "left"],
-  ["cap-evt-t", 1402, 386, 140, 24, 17, 700, "#ffffff", "left"],
-  ["cap-evt-v", 1402, 414, 152, 24, 19, 800, "#f4d34b", "left"],
-  ["h-tree", 415, 469, 248, 34, 23, 800, "#fdfdfd", "left"],
-  ["sub-tree", 419, 497, 380, 28, 15, 600, "#e6eaf6", "left"],
-  ["tp-label", 527, 541, 108, 22, 18, 700, "#f4f6ff", "left"],
-  ["tp-value", 692, 539, 60, 26, 32, 800, "#46e05a", "right"],
-  ["deco", 588, 680, 136, 14, 16, 800, "#ffffff", "left"],
-  ["h-prog", 853, 469, 190, 34, 23, 800, "#fdfdfd", "left"],
-  ["sub-prog", 857, 497, 320, 28, 15, 600, "#e6eaf6", "left"],
-  ["h-rew", 1288, 469, 175, 34, 23, 800, "#fdfdfd", "left"],
-  ["sub-rew", 1300, 497, 194, 26, 15, 600, "#e6eaf6", "left"],
-  ["row1-l", 873, 536, 140, 22, 16, 600, "#eef1fa", "left"],
-  ["row2-l", 873, 574, 140, 22, 16, 600, "#eef1fa", "left"],
-  ["row3-l", 873, 612, 150, 22, 16, 600, "#eef1fa", "left"],
-  ["row4-l", 873, 650, 150, 22, 16, 600, "#eef1fa", "left"],
-  ["row1-v", 1104, 536, 68, 18, 15, 700, "#fdfdfd", "right"],
-  ["row2-v", 1104, 574, 68, 18, 15, 700, "#fdfdfd", "right"],
-  ["row3-v", 1104, 612, 68, 18, 15, 700, "#fdfdfd", "right"],
-  ["row4-v", 1104, 650, 68, 18, 15, 700, "#fdfdfd", "right"],
-  ["rw1", 1246, 610, 86, 52, 12, 700, "#fdfdfd", "center"],
-  ["rw2", 1340, 610, 90, 52, 12, 700, "#fdfdfd", "center"],
-  ["rw3", 1444, 610, 84, 52, 12, 700, "#fdfdfd", "center"],
-  ["rw4", 1548, 610, 90, 52, 12, 700, "#fdfdfd", "center"],
-  ["h-act", 370, 730, 303, 26, 20, 800, "#fdfdfd", "left"]
+// Text boxes: where the page's value is printed. [id, x, y, w, h, tint]
+// The COVER for each id is its strip in STRIPS above; a field's cover is always
+// at least as big as this box, so no plate glyph can poke out around the text.
+export const FIELD_TEXT = [
+  ["f_coins", 431, 22, 104, 26, "white"],
+  ["f_coins_l", 431, 50, 62, 18, "white"],
+  ["f_gb", 664, 22, 104, 26, "white"],
+  ["f_gb_l", 664, 50, 96, 18, "white"],
+  ["f_spins", 934, 22, 40, 26, "white"],
+  ["f_spins_l", 934, 50, 38, 18, "white"],
+  ["f_miss", 1156, 25, 40, 24, "white"],
+  ["f_miss_l", 1156, 50, 52, 16, "white"],
+  ["f_who", 1512, 22, 136, 20, "white"],
+  ["f_lvl", 1512, 46, 70, 18, "white"],
+  ["f_cd_lbl", 872, 264, 196, 24, "white"],
+  ["f_cd_1", 806, 300, 40, 34, "white"],
+  ["f_cd_2", 902, 300, 40, 34, "white"],
+  ["f_cd_3", 996, 300, 40, 34, "white"],
+  ["f_cd_4", 1092, 300, 40, 34, "white"],
+  ["f_cap_tree", 477, 388, 100, 18, "white"],
+  ["f_cap_tree_v", 477, 414, 40, 18, "green"],
+  ["f_cap_pass", 721, 388, 100, 18, "white"],
+  ["f_cap_pass_v", 724, 416, 56, 15, "gold"],
+  ["f_cap_adv", 971, 388, 100, 18, "white"],
+  ["f_cap_adv_v", 974, 416, 92, 18, "gold"],
+  ["f_cap_mis", 1221, 388, 100, 18, "white"],
+  ["f_cap_mis_v", 1224, 416, 54, 18, "gold"],
+  ["f_cap_evt", 1479, 388, 60, 18, "white"],
+  ["f_cap_evt_v", 1482, 416, 66, 18, "gold"],
+  ["f_tree_hd", 408, 482, 196, 20, "white"],
+  ["f_tree_sub", 408, 506, 300, 18, "white"],
+  ["f_tree_lbl", 526, 541, 112, 20, "white"],
+  ["f_tree_pct", 690, 539, 62, 26, "green"],
+  ["f_prog_hd", 857, 482, 150, 20, "white"],
+  ["f_prog_sub", 857, 506, 300, 18, "white"],
+  ["f_rew_hd", 1298, 482, 160, 20, "white"],
+  ["f_rew_sub", 1298, 506, 190, 18, "white"],
+  ["f_row1_l", 872, 535, 140, 16, "white"],
+  ["f_row1_v", 1128, 535, 52, 16, "white"],
+  ["f_row2_l", 872, 575, 150, 16, "white"],
+  ["f_row2_v", 1128, 575, 52, 16, "white"],
+  ["f_row3_l", 872, 617, 150, 16, "white"],
+  ["f_row3_v", 1128, 617, 52, 16, "white"],
+  ["f_row4_l", 872, 659, 150, 16, "white"],
+  ["f_row4_v", 1128, 659, 52, 16, "white"]
 ]
 
-// ------------------------------------------------------------------- styles --
+// Type inside the fields: [id, font-px, weight, align]. Sizes are the plate's
+// own glyph heights, read off the OCR boxes (docs/panel/03-DASHBOARD.md §6).
+export const FONT_RULES = [
+  ["f_coins", 20, 700, "left"], ["f_coins_l", 15, 600, "left"],
+  ["f_gb", 20, 700, "left"], ["f_gb_l", 13.5, 600, "left"],
+  ["f_spins", 20, 700, "left"], ["f_spins_l", 13.5, 600, "left"],
+  ["f_miss", 20, 700, "left"], ["f_miss_l", 13, 600, "left"],
+  ["f_who", 14.5, 600, "left"], ["f_lvl", 12, 600, "left"],
+  ["f_cd_lbl", 18, 700, "left"],
+  ["f_cd_1", 22, 700, "center"], ["f_cd_2", 22, 700, "center"],
+  ["f_cd_3", 22, 700, "center"], ["f_cd_4", 22, 700, "center"],
+  ["f_cap_tree", 15, 600, "left"], ["f_cap_tree_v", 14, 700, "left"],
+  ["f_cap_pass", 13.5, 600, "left"], ["f_cap_pass_v", 13, 700, "left"],
+  ["f_cap_adv", 13.5, 600, "left"], ["f_cap_adv_v", 13, 700, "left"],
+  ["f_cap_mis", 13.5, 600, "left"], ["f_cap_mis_v", 13, 700, "left"],
+  ["f_cap_evt", 13.5, 600, "left"], ["f_cap_evt_v", 13, 700, "left"],
+  ["f_tree_hd", 15.5, 800, "left"], ["f_tree_sub", 10.5, 600, "left"],
+  ["f_tree_lbl", 13.5, 700, "left"], ["f_tree_pct", 19, 700, "left"],
+  ["f_prog_hd", 15, 600, "left"], ["f_prog_sub", 10.5, 400, "left"],
+  ["f_rew_hd", 14, 600, "left"], ["f_rew_sub", 10.5, 400, "left"],
+  ["f_row1_l", 11, 700, "left"], ["f_row1_v", 11, 700, "right"],
+  ["f_row2_l", 11, 700, "left"], ["f_row2_v", 11, 700, "right"],
+  ["f_row3_l", 11, 700, "left"], ["f_row3_v", 11, 700, "right"],
+  ["f_row4_l", 11, 700, "left"], ["f_row4_v", 11, 700, "right"]
+]
+
+// Where the four event cards sit when the row is rebuilt, and the plate's own
+// background crop that row is painted with (a clean rectangle of plate sky).
+export const EVENTS_POS = [
+  { x: 456, y: 786, w: 250 },
+  { x: 772, y: 786, w: 240 },
+  { x: 1064, y: 786, w: 250 },
+  { x: 1428, y: 786, w: 240 }
+]
+export const ROW_BG = { x: 1100, y: 730, w: 100, h: 60, x0: 306, y0: 704, x1: 1666, y1: 936 }
+
+// ------------------------------------------------------------------ styles --
 const CSS = `
+/* Nunito: the plate's face. Family Nunito, source github.com/google/fonts/ofl/nunito,
+   licence OFL-1.1 (assets/fonts/OFL.txt sits next to the font). One variable
+   file, weights 200-1000; font-display:swap so a slow font never hides a number. */
+@font-face{font-family:'Nunito';src:url('/assets/fonts/Nunito-Variable.ttf') format('truetype-variations');
+  font-weight:200 1000;font-display:swap}
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;height:100%;background:#0e0f30;overflow:hidden}
-body{font-family:Nunito,'Trebuchet MS','Segoe UI',Cantarell,'DejaVu Sans',Arial,sans-serif;
-  -webkit-font-smoothing:antialiased}
-#stage{position:relative;width:${PLATE_W}px;height:${PLATE_H}px;background:#0e0f30;
-  overflow:hidden;transform-origin:top left;color:#f6f8ff}
-.spr{position:absolute;left:0;top:0;background-image:url(/dashboard.png);background-repeat:no-repeat;
-  background-size:${PLATE_W}px ${PLATE_H}px}
-${SPRITES.map(([n, x, y, w, h, pad]) => `.spr-${n}{left:${x}px;top:${y}px;width:${w}px;height:${h}px;background-position:-${x}px -${y}px${pad ? `;background-color:${pad}` : ""}}`).join("\n")}
-${TEXTS.map(([id, x, y, w, h, fs, wt, col, al]) => `#${id}{left:${x}px;top:${y}px;width:${w}px;height:${h}px;font-size:${fs}px;line-height:${h}px;font-weight:${wt};color:${col};text-align:${al}}`).join("\n")}
-.txt{position:absolute;white-space:nowrap;letter-spacing:0;overflow:hidden}
-.num{font-variant-numeric:tabular-nums}
-/* the active-event row: text only, on the plate's own navy */
-.act-navy{position:absolute;left:306px;top:704px;width:1360px;height:237px;background:#0b1030}
-.ev{position:absolute;top:812px;width:320px;overflow:hidden}
-.ev b{display:block;font-size:19px;line-height:22px;font-weight:800;color:#ffffff;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ev span{display:block;margin-top:3px;font-size:14px;line-height:16px;font-weight:600;color:#e3e7f2;
-  height:32px;overflow:hidden}
-.ev em{display:inline-block;margin-top:5px;font-style:normal;font-size:13px;line-height:18px;
-  font-weight:800;padding:1px 12px;border-radius:9px;background:#1f9d46;color:#ffffff}
+html,body{margin:0;padding:0;width:100%;height:100%;background:#0d0b18;overflow:hidden}
+body{font-family:Nunito,'Trebuchet MS','Segoe UI',Cantarell,'Arial',sans-serif;-webkit-font-smoothing:antialiased}
+#stage{position:absolute;left:0;top:0;width:${PLATE_W}px;height:${PLATE_H}px;background:#0d0b18;
+  overflow:hidden;will-change:transform;transform-origin:0 0;color:#fff;
+  scale:min(calc(100vw / ${PLATE_W}), calc(100vh / ${PLATE_H}), 1)}
+#plate{position:absolute;left:0;top:0;width:${PLATE_W}px;height:${PLATE_H}px;
+  background-image:url(/dashboard.png);background-repeat:no-repeat;background-size:${PLATE_W}px ${PLATE_H}px}
+/* A field is transparent: whatever chrome shows through it is what the page
+   keeps. The plate itself paints no text (the glyphs on the PLATE are covered
+   by COVERS below, and they are covered before any field's own text is drawn).
+   The strips are those covers: each one a clean slice of its own panel. */
+.strip{position:absolute;background-image:url(/dashboard.png);background-repeat:no-repeat}
+${STRIPS.map(([n, sx, sy, sw, sh, x, y, w, h]) =>
+  `.strip-${n}{left:${x}px;top:${y}px;width:${w}px;height:${h}px;background-position:${-sx}px ${-sy}px;` +
+  `background-size:${sw}px ${sh}px}`).join("\n")}
+/* a field: transparent — the chrome strip behind it already shows the panel */
+.fld{position:absolute;margin:0;padding:0;background:transparent}
+${FIELD_TEXT.map(([id, x, y, w, h]) => `#${id}{left:${x}px;top:${y}px;width:${w}px;height:${h}px}`).join("\n")}
+/* the printed text: one white rule; a tint is a filter, never a second colour */
+.fld span{display:block;width:100%;height:100%;font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 2px rgba(0,0,0,.7);letter-spacing:0;color:#fff}
+${FONT_RULES.map(([id, fs, wt, al]) => `#${id} span{font-size:${fs}px;line-height:${fs * 1.25}px;font-weight:${wt};text-align:${al}}`).join("\n")}
+.tone-green{filter:brightness(1.34) sepia(1) hue-rotate(78deg) saturate(2.1) brightness(1.12)}
+.tone-gold{filter:brightness(1.33) sepia(1) saturate(5) hue-rotate(3deg) brightness(1.02)}
+#row_bg{position:absolute;left:${ROW_BG.x0}px;top:${ROW_BG.y0}px;width:${ROW_BG.x1 - ROW_BG.x0}px;` +
+  `height:${ROW_BG.y1 - ROW_BG.y0}px;background-image:url(/dashboard.png);background-repeat:no-repeat;` +
+  `background-position:-${ROW_BG.x}px -${ROW_BG.y}px;background-size:${ROW_BG.w}px ${ROW_BG.h}px}
+#act_hd{position:absolute;left:372px;top:734px;width:300px;height:20px;font-size:16px;line-height:20px;
+  font-weight:800;color:#fff;text-shadow:0 1px 2px #000}
+.rw{position:absolute;top:646px;width:100px;text-align:center;color:#fff;text-shadow:0 1px 2px #000}
+.rw b{display:block;font-size:11px;line-height:14px;font-weight:800}
+.rw i{display:block;font-style:normal;font-size:9px;line-height:11px;font-weight:700;color:#cfd6ea}
+.ev{position:absolute;overflow:hidden}
+.ev b{display:block;font-size:15px;line-height:20px;font-weight:800;color:#fff;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px #000}
+.ev span{display:block;margin-top:2px;height:32px;overflow:hidden;font-size:11.5px;line-height:16px;
+  font-weight:600;color:#e6eaf4;text-shadow:0 1px 2px #000}
+.ev em{display:inline-block;margin-top:4px;font-style:normal;font-size:11.5px;line-height:18px;
+  font-weight:800;padding:0 10px;border-radius:9px;background:#1f9d46;color:#fff}
 .ev em.wait{background:#7a5a12;color:#ffe9a8}
 .ev em.off{background:#3a3f55;color:#dfe4f0}
-#ev0{left:460px}#ev1{left:775px}#ev2{left:1065px}#ev3{left:1425px}
-#ev-sub2{display:block;margin-top:2px}
-.hidden{display:none}
 `.trim()
 
-// ------------------------------------------------------------------ helpers --
+// ----------------------------------------------------------------- helpers --
 function num(v) { return typeof v === "number" && Number.isFinite(v) ? v : null }
 function val(v, dash) { const n = num(v); return n == null ? esc(dash || "—") : esc(fmt(n)) }
 function pad2(n) { return n < 10 ? "0" + n : String(n) }
-function plural(n, one, many) { return n === 1 ? one : many }
+function relText(sec) {
+  const left = Math.max(0, Math.trunc(sec || 0))
+  const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600), m = Math.floor((left % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h`
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}
 
 /** The season window: the game's pushed one, else the documented default
- *  (1 Dec 00:00 → 24 Dec 23:59 Europe/Paris, owner decision §6.3). */
+ *  (1 Dec 00:00 → 24 Dec 23:59 Europe/Paris — docs/panel/03-DASHBOARD.md §6.3). */
 export function seasonWindow(metaRow, now) {
   let start = null, end = null
   if (metaRow && metaRow.value) {
@@ -219,7 +237,7 @@ export function seasonWindow(metaRow, now) {
   return { start, end }
 }
 
-/** The four countdown cells. Never negative: a closed window is all zeros. */
+/** The countdown cells. Never negative: a closed window is all zeros. */
 export function countdownCells(end, now) {
   const left = Math.max(0, Math.trunc(end - now))
   return {
@@ -232,22 +250,6 @@ export function countdownCells(end, now) {
   }
 }
 
-function relText(sec) {
-  const left = Math.max(0, Math.trunc(sec || 0))
-  const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600), m = Math.floor((left % 3600) / 60)
-  if (d > 0) return `${d}d ${h}h`
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
-}
-
-function rewardLabel(row) {
-  const cur = String(row.currency || "")
-  const long = cur === "coins" ? "Coins" : cur === "gingerbread" ? "Gingerbread" : cur === "spins" ? "Spin" : cur || "Grant"
-  const short = cur === "coins" ? "Coins" : cur === "gingerbread" ? "Gingerbread" : cur === "spins" ? "Spin" : cur.slice(0, 9) || "Grant"
-  const sign = row.delta > 0 ? "+" : ""
-  return { long, short, amount: sign + fmt(row.delta) }
-}
-
 // -------------------------------------------------------------------- page --
 export async function pageDashboard(env, url) {
   const now = Math.floor(Date.now() / 1000)
@@ -255,8 +257,7 @@ export async function pageDashboard(env, url) {
   const raw = (minted && String(minted)) || (url.searchParams.get("steamid") || "").trim()
   const sid = /^STEAM_[0-9]:[0-9]:\d+$/.test(raw) ? raw : ""
   const data = await loadDashboard(env, sid, now)
-  const doc = renderPlate(data)
-  return new Response(doc, {
+  return new Response(renderPlate(data), {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
@@ -266,9 +267,9 @@ export async function pageDashboard(env, url) {
   })
 }
 
-// Five reads, fixed: the schedule (cached per env), the pushed season row, and
-// for a known player getPlayer() (four statements), the last ledger lines, the
-// tree slots and the mission claims. No query inside a loop.
+// Fixed query count: the schedule (cached per env) + the pushed season row; for
+// a known player getPlayer() (its own fixed set), the last four ledger lines,
+// the tree slots and the mission claims. Nothing runs inside a loop.
 export async function loadDashboard(env, sid, now) {
   const schedule = await loadSchedule(env, now)
   const seasonRow = await env.DB.prepare("SELECT value FROM winter_meta WHERE key='season'").first().catch(() => null)
@@ -284,12 +285,10 @@ export async function loadDashboard(env, sid, now) {
     }
   }
   const known = !!(p && p.exists)
-  const live = (schedule || []).filter(e => e.state === "active")
-  const upcoming = (schedule || []).filter(e => e.state === "scheduled")
   return {
     sid, known, p, ledger, tree, missions, cd, window, now,
-    active: live.concat(upcoming).slice(0, 4),
-    usingSid: !!sid,
+    active: (schedule || []).filter(e => e.state === "active")
+      .concat((schedule || []).filter(e => e.state === "scheduled")).slice(0, 4),
     who: known ? String(p.name || "") : ""
   }
 }
@@ -300,141 +299,139 @@ export function renderPlate(d) {
   const counts = (p && p.counts) || {}
   const treePct = known && tree && tree.capacity ? Math.round((tree.filled / tree.capacity) * 100) : null
 
-  // Missions: the panel owns CLAIM state only (query.js missionsFor). "done" is
-  // the applied claims; the ladder size comes from the game's pushed count when
-  // the panel has one, otherwise the page shows the claims alone and never
-  // invents a denominator.
+  // The panel owns CLAIM state only (query.js missionsFor): "done" is the
+  // applied claims, and a denominator only when the game pushed one.
   const done = missions.filter(m => m.state === "applied").length
   const total = Number(counts.missions_total || 0) || (missions.length || 0)
+  const none = "No player"
 
-  const noPlayer = "No player"
-  const coinsText = known ? val(p.coins) : noPlayer
-  const gbText = known ? val(p.gingerbread) : noPlayer
-  const spinsText = known ? val(p.spins) : noPlayer
-  const missText = known ? val(done) : noPlayer
-  const passText = known ? "Lv. " + (num(p.pass && p.pass.tier) == null ? "—" : fmt(p.pass.tier)) : noPlayer
-  const treeText = treePct == null ? (known ? "—" : noPlayer) : treePct + "%"
-  const adventText = known ? `${esc(String(counts.advent_claimed || 0))} / 24` : noPlayer
-  const missionsText = known ? `${esc(String(done))} / ${esc(String(total || 0))}` : noPlayer
-  const eventCount = active.filter(e => e.state === "active").length
-  const eventsText = `Active: ${eventCount}`
-  const nameText = known && who ? esc(who) : esc(sid ? "Unknown player" : noPlayer)
-  const levelText = known && num(p.level) != null ? "Level " + esc(fmt(p.level)) : esc(sid ? "not synced yet" : "")
-
-  const cdCells = [["cd-dy", cd.days, "Day", "Days"], ["cd-hr", cd.hours, "Hour", "Hours"],
-                   ["cd-mi", cd.minutes, "Minute", "Minutes"], ["cd-se", cd.seconds, "Second", "Seconds"]]
-
+  // Field id -> the text printed in it. Every id here is a FIELD_TEXT row.
   const values = {
-    "s-dash-t": "Dashboard",
-    "s-dash-sub": "Winterfest overview &amp; countdown",
-    "coins-v": coinsText, "coins-l": "Coins",
-    "gb-v": gbText, "gb-l": "GingerBread",
-    "spins-v": spinsText, "spins-l": "Spins",
-    "miss-v": missText, "miss-l": "Missions",
-    "who-n": nameText, "who-l": levelText,
-    "cd-eyebrow": cd.closed ? "The event has ended" : "Event Ends In",
-    "cap-tree-t": "My Tree", "cap-tree-v": treeText,
-    "cap-pass-t": "Battle Pass", "cap-pass-v": passText,
-    "cap-adv-t": "Advent", "cap-adv-v": adventText,
-    "cap-mis-t": "Missions", "cap-mis-v": missionsText,
-    "cap-evt-t": "Events", "cap-evt-v": eventsText,
-    "h-tree": "Your Christmas Tree",
-    "sub-tree": "Collect ornaments and decorate your tree!",
-    "tp-label": "Tree Progress",
-    "tp-value": treeText,
-    "deco": "Decorate Tree →",
-    "h-prog": "Event Progress",
-    "sub-prog": "Complete Winterfest objectives for exclusive rewards!",
-    "h-rew": "Recent Rewards",
-    "sub-rew": "Your latest Christmas rewards!",
-    "h-act": "Active Winterfest Events"
-  }
-  for (const [id, n, one, many] of cdCells) {
-    values[id] = id === "cd-dy" ? String(n) : pad2(n)
-    values[id + "-l"] = plural(n, one, many)
+    f_coins: known ? val(p.coins) : none,
+    f_coins_l: "Coins",
+    f_gb: known ? val(p.gingerbread) : none,
+    f_gb_l: "GingerBread",
+    f_spins: known ? val(p.spins) : none,
+    f_spins_l: "Spins",
+    f_miss: known ? val(done) : none,
+    f_miss_l: "Missions",
+    f_who: known && who ? esc(who) : esc(none),
+    f_lvl: known && num(p.level) != null ? "Level " + esc(fmt(p.level)) : (sid ? "not synced" : ""),
+    f_cd_lbl: cd.closed ? "Ended" : "Event Ends In",
+    f_cd_1: String(cd.days),
+    f_cd_2: pad2(cd.hours),
+    f_cd_3: pad2(cd.minutes),
+    f_cd_4: pad2(cd.seconds),
+    f_cap_tree: "My Tree",
+    f_cap_tree_v: treePct == null ? (known ? "—" : none) : treePct + "%",
+    f_cap_pass: "Battle Pass",
+    f_cap_pass_v: known ? (num(p.pass && p.pass.tier) == null ? "—" : "Lv." + fmt(p.pass.tier)) : none,
+    f_cap_adv: "Advent",
+    f_cap_adv_v: known ? `${Number(counts.advent_claimed || 0)}/24` : none,
+    f_cap_mis: "Missions",
+    f_cap_mis_v: known ? `${done}/${total || 0}` : none,
+    f_cap_evt: "Events",
+    f_cap_evt_v: "Active: " + active.filter(e => e.state === "active").length,
+    f_tree_hd: "Your Christmas Tree",
+    f_tree_sub: "Collect ornaments and decorate your tree!",
+    f_tree_lbl: "Tree Progress",
+    f_tree_pct: treePct == null ? "—" : treePct + "%",
+    f_prog_hd: "Event Progress",
+    f_prog_sub: "Complete Winterfest objectives for exclusive rewards!",
+    f_rew_hd: "Recent Rewards",
+    f_rew_sub: "Your latest Christmas rewards!"
   }
 
-  // The four progress rows print only counters the panel really has today
-  // (03-DASHBOARD.md §7 says which and why); the rest is an em dash.
+  // Only counters the panel really has (03-DASHBOARD.md §7). "Gingerbread
+  // earned" has no counter anywhere in the schema: a dash, never a 0.
   const rows = [
     ["Gingerbread earned", null, null],
     ["Ornaments owned", known ? num(counts.ornaments_total) : null, null],
     ["Missions done", known ? done : null, total || null],
     ["Ornaments placed", tree ? tree.filled : null, tree ? tree.capacity : null]
   ]
-  rows.forEach(([label, v, target], i) => {
-    const n = i + 1
-    values["row" + n + "-l"] = label
-    values["row" + n + "-v"] = v == null ? "—" : (target ? `${fmt(v)} / ${fmt(target)}` : fmt(v))
+  rows.forEach(([label, n, target], i) => {
+    values[`f_row${i + 1}_l`] = label
+    values[`f_row${i + 1}_v`] = n == null ? "—" : (target ? `${fmt(n)}/${fmt(target)}` : fmt(n))
   })
 
-  // The three bars the panel can fill from real counters; "Gingerbread earned"
-  // has no counter anywhere, so its bar stays empty rather than faking 0.
-  const barPct = [
-    0,
-    rows[1][1] == null ? 0 : Math.min(100, rows[1][1]),
-    rows[2][1] == null || !total ? 0 : Math.min(100, Math.round(100 * rows[2][1] / total)),
-    rows[3][1] == null || !tree ? 0 : Math.min(100, Math.round(100 * rows[3][1] / tree.capacity))
-  ]
-
-  const texts = TEXTS.map(([id]) => `<div class="txt num" id="${id}">${values[id] == null ? "—" : values[id]}</div>`).join("\n")
-
-  const rewardCells = [0, 1, 2, 3].map(i => {
-    const r = ledger[i]
-    if (!r) return `<div class="txt num" id="rw${i + 1}">—</div>`
-    const lab = rewardLabel(r)
-    return `<div class="txt num" id="rw${i + 1}">${esc(lab.short)}<br>${esc(lab.amount)}</div>`
+  const fieldNodes = FIELD_TEXT.map(([id, x, y, w, h, tint]) => {
+    const text = values[id] == null ? "—" : values[id]
+    const cls = tint && tint !== "white" ? ` class="tone-${tint}"` : ""
+    return `<div class="fld" id="${id}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">` +
+      `<span${cls}>${text}</span></div>`
   }).join("\n")
 
-  const evCells = active.map((e, i) => {
+  // The chrome strips: each is one clean plate slice stretched over its field.
+  const stripNodes = STRIPS.map(([n]) => `<div class="strip strip-${n}"></div>`).join("\n")
+
+  // The reward tiles keep the plate's frames (already clean); the page's own
+  // ledger entries are printed underneath them.
+  const rewards = [0, 1, 2, 3].map(i => {
+    const r = ledger[i]
+    const x = 1240 + i * 105
+    const amt = r ? (r.delta > 0 ? "+" : "") + fmt(r.delta) : "—"
+    const cur = r ? String(r.currency || "grant") : ""
+    return `<div class="rw" style="left:${x}px"><b>${esc(amt)}</b><i>${esc(cur)}</i></div>`
+  }).join("\n")
+
+  // The four event cards: title, detail, state — no sample text anywhere.
+  const cards = [0, 1, 2, 3].map(i => {
+    const c = EVENTS_POS[i]
+    const e = active[i]
+    if (!e) {
+      return `<div class="ev" style="left:${c.x}px;top:${c.y}px;width:${c.w}px;height:120px">` +
+        `<b>No event</b><span>Nothing scheduled in this slot yet.</span></div>`
+    }
     const live = e.state === "active"
+    const cls = live ? "" : (e.starts_at > now ? " wait" : " off")
     const state = live ? "Active Now" : "Starts in " + relText(e.starts_at - now)
-    const cls = live ? "" : (e.starts_at > now ? "wait" : "off")
-    return `<div class="ev" id="ev${i}"><b>${esc(e.title)}</b><span>${esc(e.detail || "")}</span>` +
+    return `<div class="ev" style="left:${c.x}px;top:${c.y}px;width:${c.w}px;height:120px">` +
+      `<b>${esc(e.title)}</b><span>${esc(e.detail || "")}</span>` +
       `<em class="${cls}">${esc(state)}</em></div>`
   }).join("\n")
 
   const stage = `
 <div id="stage" data-cd-sec="${cd.left}">
-  <div class="act-navy"></div>
-  ${SPRITES.map(sprite).join("\n")}
-  ${texts}
-  ${rewardCells}
-  ${evCells}
-  ${active.length ? "" : `<div class="ev" id="ev0"><b>No Winterfest events scheduled yet</b></div>`}
-  <div class="spr spr-bars" style="left:872px;top:564px;width:310px;height:128px;background:none">
-    ${[0, 1, 2, 3].map(i => `<i style="position:absolute;left:4px;top:${i * 38 + 3}px;display:block;height:8px;border-radius:4px;background:#16dd66;width:${Math.round(284 * barPct[i] / 100)}px"></i>`).join("\n")}
-  </div>
-  <div class="spr spr-treebar" style="left:538px;top:574px;width:218px;height:12px;background:none">
-    <i style="display:block;height:12px;border-radius:6px;background:#16dd66;width:${treePct == null ? 0 : Math.round(218 * treePct / 100)}px"></i>
-  </div>
+  <div id="plate"></div>
+  <div id="row_bg"></div>
+  ${stripNodes}
+  ${fieldNodes}
+  ${rewards}
+  <div id="act_hd">Active Winterfest Events</div>
+  ${cards}
 </div>`
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FreeNova · Winterfest</title>
+<title>FreeNova · Winterfest dashboard</title>
 <style>${CSS}</style></head>
 <body>${stage}
 <script>
 (function(){
-  // Additive: the server's countdown is already in the markup.
+  // Additive only: the server's countdown is already in the markup.
   var st=document.getElementById('stage');if(!st)return;
   var left=parseInt(st.getAttribute('data-cd-sec'),10)||0;
   var f=function(n){return (n<10?'0':'')+n};
-  var set=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v};
+  var set=function(id,v){var e=document.getElementById(id);if(e&&e.firstChild)e.firstChild.textContent=v};
   setInterval(function(){
     if(left<=0)return;left--;
-    set('cd-dy',String(Math.floor(left/86400)));set('cd-hr',f(Math.floor(left%86400/3600)));
-    set('cd-mi',f(Math.floor(left%3600/60)));set('cd-se',f(left%60));
+    set('f_cd_1',String(Math.floor(left/86400)));set('f_cd_2',f(Math.floor(left%86400/3600)));
+    set('f_cd_3',f(Math.floor(left%3600/60)));set('f_cd_4',f(left%60));
   },1000);
-  // Fit the fixed plate into the client window: a GoldSrc MOTD (800x600) sees
-  // the whole page scaled, never a crop.
+  // ONE SCREEN: the fixed 1672x941 stage scaled to fit BOTH axes at the plate's
+  // exact ratio (min(vw/1672, vh/941)), never above 1:1, letterboxed evenly.
+  // One translate+scale on a composited layer: no reflow, nothing to scroll.
   var fit=function(){
-    var s=Math.min(window.innerWidth/${PLATE_W},window.innerHeight/${PLATE_H});
-    st.style.transform='scale('+s+')';
-    st.style.marginLeft=Math.max(0,(window.innerWidth-${PLATE_W}*s)/2)+'px';
-    st.style.marginTop=Math.max(0,(window.innerHeight-${PLATE_H}*s)/2)+'px';
+    var vw=window.innerWidth,vh=window.innerHeight;
+    var s=Math.min(vw/${PLATE_W},vh/${PLATE_H},1);
+    st.style.transform='translate('+((vw-${PLATE_W}*s)/2)+'px,'+((vh-${PLATE_H}*s)/2)+'px) scale('+s+')';
+    st.style.scale='1';
+    st.setAttribute('data-scale',s.toFixed(4));
+    st.setAttribute('data-noscroll', String(
+      document.documentElement.scrollWidth <= window.innerWidth &&
+      document.documentElement.scrollHeight <= window.innerHeight));
   };
   fit();window.addEventListener('resize',fit);
 })();

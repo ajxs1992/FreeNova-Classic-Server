@@ -964,6 +964,12 @@ stock bool:WfVisualUsable(idx)
 	{
 		if (get_cvar_num("wf_allow_models") == 0)
 			return false
+		// The asset path in [visual] is relative to the GAME ROOT ("models/..."),
+		// which is the cstrike/ directory - and the process' working directory is
+		// exactly that, so a bare file_exists() is the right test. Testing a
+		// re-prefixed path ("cstrike/models/...") answered no for a file that was
+		// on disk (proved by tools/wf-model-probe), which silently turned every
+		// present into its glow fallback.
 		return file_exists(g_szVisAsset[idx]) ? true : false
 	}
 	return true

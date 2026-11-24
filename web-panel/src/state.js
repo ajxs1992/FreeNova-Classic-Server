@@ -44,6 +44,13 @@
 // (PRAGMA table_info first). ensureStateSchema() is lazy and memoised per DB
 // object, the same pattern as src/boards.js — do not move it to boot only.
 
+// The owner's advent date law lives in exactly one place (src/panel/advent.js);
+// this layer only enforces it, at apply time, inside the transaction.
+// The advent calendar's clock and its date law, moved to src/periods.js: the
+// page (src/panel/advent.js) and this apply step must read ONE implementation,
+// and state.js must not import a page for it.
+import { adventClock, claimRefusal } from "./panel/advent.js"
+
 export const SEASON = "2026"                 // one season per Winterfest; a rollover changes this one line
 export const MAX_TREE_SLOT = 24
 export const MAX_ADVENT_DAY = 24
@@ -52,7 +59,7 @@ export const PREMIUM_PRODUCT = "bp_premium_2026"
 export const ADVENT_PRODUCT = "advent_pass_2026"
 
 export const ACTION_KINDS = Object.freeze([
-  "claim_mission", "claim_advent", "plant_ornament", "buy", "equip", "grant"
+  "claim_mission", "claim_advent", "plant_ornament", "place_ornament", "buy", "equip", "grant"
 ])
 export const ENTITLEMENTS = Object.freeze([PREMIUM_PRODUCT, ADVENT_PRODUCT])
 export const ITEM_KINDS = Object.freeze(["ornament", "title", "model", "skin", "badge", "cosmetic"])
@@ -226,6 +233,15 @@ async function migrateStateSchema(db) {
   for (const [name, ddl] of WINTER_COLUMNS) {
     if (have.has(name)) continue
     await db.prepare(`ALTER TABLE winter_players ADD COLUMN ${name} ${ddl}`).run()
+  }
+  // Page-driven addition (docs/panel/01-DATA.md §11): players.hits_at, the
+  // snapshot that last stamped a row (src/sync.js writes it beside last_seen).
+  // Same guarded pattern as the columns above - PRAGMA first, ALTER only when
+  // the column is missing - so a live database gains it once and never twice.
+  const pInfo = await db.prepare("PRAGMA table_info(players)").all()
+  const pHave = new Set(((pInfo && pInfo.results) || []).map(r => r.name))
+  if (pHave.size && !pHave.has("hits_at")) {
+    await db.prepare(`ALTER TABLE players ADD COLUMN hits_at INTEGER NOT NULL DEFAULT 0`).run()
   }
   return true
 }
@@ -411,7 +427,31 @@ function validatePayload(kind, raw) {
     case "claim_advent": {
       const day = intField(p, "day", 1, MAX_ADVENT_DAY)
       if (day == null) throw new Refusal("advent day required")
-      return { day, ...rewardFields(p) }
+      // `now` is the SERVER's clock (only a test passes one). The date verdicts -
+      // today only, a missed day is gone, the Advent Pass reopens them after 24
+      // December - live in src/panel/advent.js and are enforced again at apply
+      // time, inside the transaction.
+      // An ornament day carries its slot, and the panel places it in the same
+      // action that grants it (see payReward's `placed`).
+      const slot = intField(p, "slot", 1, MAX_TREE_SLOT)
+      const out = slot == null ? { day, ...rewardFields(p) } : { day, slot, ...rewardFields(p) }
+      const when = intField(p, "now", 0, 4000000000)
+      if (when) out.now = when
+      // The label the ledger line carries ("advent-day-9"), so "recent rewards"
+      // reads as a day rather than as the generic kind name.
+      const reason = keyField(p, "reason", KEY_TEXT, "reason")
+      if (reason) out.reason = reason
+      return out
+    }
+    case "place_ornament": {
+      // The GAME's own tree primitive (winterfest_core's place path) without the
+      // ownership requirement of plant_ornament: used by the panel when it grants
+      // an ornament and wants it on the tree in the same action.
+      const slot = intField(p, "slot", 1, MAX_TREE_SLOT)
+      const ornament = intField(p, "ornament", 1, 9999)
+      if (slot == null) throw new Refusal("tree slot required (1..24)")
+      if (ornament == null) throw new Refusal("ornament id required")
+      return { slot, ornament }
     }
     case "plant_ornament": {
       const slot = intField(p, "slot", 1, MAX_TREE_SLOT)
@@ -461,6 +501,7 @@ function subjectOf(kind, p) {
     case "claim_mission": return `mission:${p.mission}`
     case "claim_advent": return `advent:${p.day}`
     case "plant_ornament": return `tree:${p.slot}`
+    case "place_ornament": return `tree:${p.slot}`
     case "buy": return `buy:${p.item || p.product}`
     case "equip": return `equip:${p.item}`
     case "grant": return `grant:${p.reason || "manual"}`
@@ -477,6 +518,7 @@ async function defaultIdem(kind, p) {
     case "claim_mission": return `mission:${p.mission}`
     case "claim_advent": return `advent:${p.day}`
     case "plant_ornament": return `tree:${p.slot}:${p.ornament}`
+    case "place_ornament": return `tree:${p.slot}:${p.ornament}`
     case "buy": return `buy:${p.item || p.product}`
     case "equip": return `equip:${p.item}`
     default: return `grant:` + (await sha256Hex(JSON.stringify(p))).slice(0, 24)
@@ -546,6 +588,35 @@ async function addItem(tx, steamid, item, kind, now) {
     [steamid, item, kind || "cosmetic", now])
 }
 
+/**
+ * Put one ornament in one tree slot. Shared by plant_ornament (which requires
+ * the player to own it first) and place_ornament (the panel's own grant path, in
+ * the same action as the award). One ornament per slot and one slot per ornament
+ * (schema.sql's unique index): the ornament is taken out of any other slot first,
+ * then this slot is claimed. `level` is only written when the caller has one.
+ */
+async function placeOnTree(tx, steamid, slot, ornament, level, now) {
+  await tx.run(
+    `DELETE FROM winter_tree WHERE steamid=?1 AND ornament=?2 AND slot<>?3`,
+    [steamid, ornament, slot])
+  await tx.run(
+    `INSERT INTO winter_tree (steamid, slot, ornament, moved_at) VALUES (?1,?2,?3,?4)
+     ON CONFLICT(steamid, slot) DO UPDATE SET ornament=?3, moved_at=?4`,
+    [steamid, slot, ornament, now])
+  if (level != null) {
+    await tx.run(
+      `UPDATE winter_players
+          SET ornaments_total = (SELECT COUNT(*) FROM winter_tree WHERE steamid=?1), tree_level=?2
+        WHERE steamid=?1`, [steamid, level])
+  } else {
+    await tx.run(
+      `UPDATE winter_players
+          SET ornaments_total = (SELECT COUNT(*) FROM winter_tree WHERE steamid=?1)
+        WHERE steamid=?1`, [steamid])
+  }
+  return { slot, ornament }
+}
+
 async function addEntitlement(tx, steamid, product, source, now) {
   await tx.run(
     `INSERT INTO winter_entitlements (steamid, product, source, granted_at) VALUES (?1,?2,?3,?4)
@@ -568,6 +639,13 @@ async function payReward(tx, steamid, p, meta, now) {
   if (p.pass_xp) out.pass_xp = await addPassXp(tx, steamid, p.pass_xp, now)
   if (p.item) { await addItem(tx, steamid, p.item, p.item_kind, now); out.item = p.item }
   if (p.product) { await addEntitlement(tx, steamid, p.product, meta.reason, now); out.product = p.product }
+  // An ornament that arrives WITH a slot goes straight onto the tree: the same
+  // action grants it and places it, so a claim player cannot lose the placement
+  // if their second action fails. Only an ornament item takes a slot.
+  if (p.item && p.slot && String(p.item).startsWith("ornament:")) {
+    const ord = Number(String(p.item).slice("ornament:".length))
+    if (ord > 0) out.placed = await placeOnTree(tx, steamid, p.slot, ord, null, now)
+  }
   return out
 }
 
@@ -697,7 +775,9 @@ export async function applyAction(db, action, opts) {
 async function applyOne(tx, row, now) {
   const steamid = row.steamid
   const p = row.payload
-  const meta = { reason: row.kind, ref: subjectOf(row.kind, p), action_id: row.id }
+  // A claim may carry its own label ("advent day 7"); every other kind keeps the
+  // one-word reason and the subject as the ledger line.
+  const meta = { reason: p.reason || row.kind, ref: subjectOf(row.kind, p), action_id: row.id }
   switch (row.kind) {
     case "claim_mission": {
       const out = await payReward(tx, steamid, p, meta, now)
@@ -709,6 +789,19 @@ async function applyOne(tx, row, now) {
         `SELECT day FROM winter_advent WHERE steamid=?1 AND season=?2 AND day=?3`,
         [steamid, SEASON, p.day])
       if (already) throw new Refusal(`advent day ${p.day} already claimed`)
+      // THE OWNER'S DATE LAW, enforced where it cannot be skipped: at APPLY time,
+      // inside the transaction, on the server's clock (p.now when the caller passes
+      // one, so a test can freeze it). Today's day only; a missed day is gone; after
+      // 24 December only an Advent Pass owner, and only until 31 December.
+      const clock = adventClock(p.now || now, { season: Number(SEASON) })
+      const owned = await tx.first(
+        `SELECT product FROM winter_entitlements WHERE steamid=?1 AND product=?2`,
+        [steamid, ADVENT_PRODUCT])
+      const claimedDays = new Set((await tx.all(
+        `SELECT day FROM winter_advent WHERE steamid=?1 AND season=?2`, [steamid, SEASON])
+        .catch(() => []) || []).map(r => Number(r.day)))
+      const refusal = claimRefusal(p.day, clock, claimedDays, !!owned)
+      if (refusal) throw new Refusal(refusal)
       const out = await payReward(tx, steamid, p, meta, now)
       await tx.run(
         `INSERT INTO winter_advent (steamid, season, day, claimed_at, claim_key) VALUES (?1,?2,?3,?4,?5)`,
@@ -727,27 +820,11 @@ async function applyOne(tx, row, now) {
         `SELECT item FROM winter_inventory WHERE steamid=?1 AND item=?2`,
         [steamid, `ornament:${p.ornament}`])
       if (!owned) throw new Refusal(`ornament ${p.ornament} is not owned`)
-      // One ornament per slot and one slot per ornament (schema.sql unique index):
-      // take the ornament out of any other slot first, then claim this one.
-      await tx.run(
-        `DELETE FROM winter_tree WHERE steamid=?1 AND ornament=?2 AND slot<>?3`,
-        [steamid, p.ornament, p.slot])
-      await tx.run(
-        `INSERT INTO winter_tree (steamid, slot, ornament, moved_at) VALUES (?1,?2,?3,?4)
-         ON CONFLICT(steamid, slot) DO UPDATE SET ornament=?3, moved_at=?4`,
-        [steamid, p.slot, p.ornament, now])
-      if (p.level != null) {
-        await tx.run(
-          `UPDATE winter_players
-              SET ornaments_total = (SELECT COUNT(*) FROM winter_tree WHERE steamid=?1), tree_level=?2
-            WHERE steamid=?1`, [steamid, p.level])
-      } else {
-        await tx.run(
-          `UPDATE winter_players
-              SET ornaments_total = (SELECT COUNT(*) FROM winter_tree WHERE steamid=?1)
-            WHERE steamid=?1`, [steamid])
-      }
-      return { slot: p.slot, ornament: p.ornament }
+      return await placeOnTree(tx, steamid, p.slot, p.ornament, p.level, now)
+    }
+    case "place_ornament": {
+      await ensureWinterRow(tx, steamid, now)
+      return await placeOnTree(tx, steamid, p.slot, p.ornament, null, now)
     }
     case "buy": {
       if (p.item) {
@@ -802,7 +879,12 @@ export async function getPlayer(db, steamid) {
   const sid = String(steamid || "")
   if (!validSteamid(sid)) throw new Refusal("bad steamid")
   const p = await firstOn(db,
-    `SELECT name, coins, xp, level, last_seen FROM players WHERE steamid=?1`, [sid])
+    // page-driven addition (docs/panel/01-DATA.md §11), the WHOLE row is read:
+    // rank_id, eq_model, cc and the career counters ride along for the profile and
+    // the leaderboards. A named list would bake this file to schema.sql's columns -
+    // and a D1 / test database migrated without them answers "no such column"
+    // instead of a page. `SELECT *` cannot go stale.
+    `SELECT * FROM players WHERE steamid=?1`, [sid])
   const w = await firstOn(db,
     `SELECT season, snowflakes, spins, tree_level, ornaments_total, advent_claimed,
             pass_xp, pass_tier, premium, seen_at
@@ -833,6 +915,18 @@ export async function getPlayer(db, steamid) {
     spins: Number((w && w.spins) || 0),
     level: p ? Number(p.level || 0) : null,
     xp: p ? Number(p.xp || 0) : null,
+    rank_id: p ? Number(p.rank_id || 0) : null,
+    cc: p ? String(p.cc || "") : "",
+    eq_model: p ? String(p.eq_model || "") : "",
+    // Career counters, straight from the game's snapshot; null when the panel has
+    // never heard from this player (never 0 - see the note above).
+    career: {
+      kills: p ? Number(p.kills || 0) : null,
+      deaths: p ? Number(p.deaths || 0) : null,
+      wins: p ? Number(p.wins || 0) : null,
+      losses: p ? Number(p.losses || 0) : null,
+      playtime_minutes: p ? Number(p.playtime_minutes || 0) : null
+    },
     pass: {
       xp,
       tier,

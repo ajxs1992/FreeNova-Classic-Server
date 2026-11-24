@@ -61,6 +61,8 @@ import {
   PLATE_W, PLATE_H,
 } from "./src/panel/dashboard.js"
 import { TEXT_BLOCKS, PLATE_SHA256, ocrPlate } from "./test_plate_census.mjs"
+// The Battle Pass plate page (page 5 of the Winterfest UI).
+import { pageBattlepass, renderBattlepass, battlepassGeometry } from "./src/panel/battlepass.js"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const root = mkdtempSync(join(tmpdir(), "freenova-panel-test-"))
@@ -349,6 +351,111 @@ try {
       !/24,500|1,320|Lv\.12|Day 8 \/ 24|3\/10|Active: 4/.test(doc), "")
 
     ok("dashboard suite")
+  }
+
+  // Declared before the Battle Pass suite: that suite uses it, and the signed-push
+  // suite below declares its own `steamA` - reaching forward to that one is the
+  // string a TDZ ReferenceError is made of.
+  const steamF = "STEAM_0:0:101F"
+
+  // -------------------------------- 1c. the Battle Pass plate (/panel/battlepass)
+  // The page is a fixed 1672x941 stage of its own plate (assets/battlepass-plate.png)
+  // with every value printed on clean CHROME cut from that plate. These checks
+  // assert the three rules the page promises, plus the data contract: the sample
+  // figures of the plate never survive, an unknown player gets words and never a
+  // zero, and a claim goes through the queue and comes back as QUEUED.
+  {
+    const stripCount = (doc) => (doc.match(/class="strip"/g) || []).length
+    const anon = await pageBattlepass({ DB: null }, new URL("http://x/panel/battlepass"))
+    const anonDoc = await anon.text()
+    check("battlepass: an anonymous visit answers 200 html",
+      anon.status === 200 && /text\/html/.test(anon.headers.get("content-type") || ""), String(anon.status))
+    check("battlepass: live page is no-store", anon.headers.get("cache-control") === "no-store", "")
+    check("battlepass: no hard-coded viewport height", !/height:\s*\d+vh/.test(anonDoc), "")
+    check("battlepass: scaled as one stage, not a reflow",
+      /scale:min\(calc\(100vw/.test(anonDoc) && /id="stage"/.test(anonDoc), "")
+    check("battlepass: the plate is painted once and its own crops cover it",
+      /#plate\{[^}]*battlepass-plate\.png/.test(anonDoc) && stripCount(anonDoc) > 20, "strips=" + stripCount(anonDoc))
+    check("battlepass: an anonymous visit says No player, never a zero",
+      anonDoc.includes("No player") && !/>0<\/span>/.test(anonDoc), "")
+
+    // The rendered page, with a real tier list: the plate's sample figures and
+    // its sample mission titles must NOT be in it — they are its sample, not data.
+    const ladder = [
+      { tier: 1, xp: 0, kind: "snow", item_id: 0, amount: 100 },
+      { tier: 2, xp: 300, kind: "snow", item_id: 0, amount: 110 },
+      { tier: 3, xp: 600, kind: "snow", item_id: 0, amount: 120 },
+      { tier: 4, xp: 900, kind: "ornament", item_id: 1, amount: 0 }
+    ]
+    const doc = renderBattlepass({
+      sid: "STEAM_0:0:101", known: true,
+      p: { exists: true, pass: { tier: 2, xp: 420, tier_xp: 300, next_tier: 3, next_tier_xp: 600, into_tier: 120, needed: 180 } },
+      ladder, queue: [], token: ""
+    })
+    const geo = battlepassGeometry(doc)
+    check("battlepass: every field is inside the 1672x941 stage", geo.out.length === 0, JSON.stringify(geo.out))
+    check("battlepass: every field sits on chrome cut from the plate", geo.bare.length === 0, JSON.stringify(geo.bare))
+    check("battlepass: no two fields overlap", geo.clash.length === 0, geo.clash.join(" "))
+    check("battlepass: the plate's sample numbers are gone",
+      !/9,500\|\|4,000|24,500|1,320/.test(doc), "")
+    check("battlepass: the plate's sample missions are gone",
+      !/Play 10 matches|Get 50 kills|Collect 20 gifts/.test(doc), "")
+    check("battlepass: the plate's sample premium copy is gone",
+      !/Unlock 30 exclusive rewards|24\.99 EUR/.test(doc), "")
+    check("battlepass: the player's own XP is printed", doc.includes("420 / 600 XP"), "")
+    check("battlepass: the next tier is named", doc.includes("Claim tier 3") === false && doc.includes("Tier 2 of 30"), "")
+    check("battlepass: a published tier's reward is read off the ladder",
+      doc.includes("100 GingerBread") && doc.includes("Ornament #1"), "")
+    check("battlepass: the claim button is offered as a QUEUED action when the game minted a token",
+      renderBattlepass({ sid: "STEAM_0:0:101", known: true, token: "abc", ladder,
+        p: { exists: true, pass: { tier: 2, xp: 420, into_tier: 120, needed: 180 } }, queue: [] })
+        .includes('method="post" action="/panel/battlepass"'), "")
+    check("battlepass: a queued verdict is said in words, never as done",
+      renderBattlepass({ sid: "x", known: true, token: "abc", ladder, queue: [], queued: "ok",
+        p: { exists: true, pass: { tier: 2, xp: 420, into_tier: 120, needed: 180 } } }).includes("Queued"))
+    check("battlepass: no ladder published says so instead of inventing tiers",
+      renderBattlepass({ sid: "x", known: true, ladder: [], queue: [], token: "" }).includes("No tier list published yet"), "")
+
+    // The live route, over the real panel: the page, and the claim it queues.
+    const bpPage = await fetch(panel.base + "/panel/battlepass")
+    const bpDoc = await bpPage.text()
+    check("battlepass: the route answers the plate page", bpPage.status === 200 && bpDoc.includes('id="stage"'),
+      "-> " + bpPage.status)
+    await push(trusted, { players: [// steamF, not steamA: steamA is declared later in this same scope (a TDZ
+      // ReferenceError that skipped the rest of the suite).
+      { ...player(steamF), xp: 5000, coins: 777, last_seen: Math.floor(Date.now() / 1000) }] })
+    const claimTier = await fetch(trusted.base + "/panel/battlepass?steamid=" + encodeURIComponent(steamF), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "tier=2",
+      redirect: "manual"
+    })
+    check("battlepass: a claim is a 303 back to the page",
+      claimTier.status === 303 && /queued=/.test(claimTier.headers.get("location") || ""),
+      `-> ${claimTier.status} ${claimTier.headers.get("location")}`)
+    const queuedRow = trusted.first(
+      `SELECT kind, state, payload FROM winter_actions WHERE steamid=?1 AND idem='pass:2'`, steamF)
+    check("battlepass: the claim landed in the queue, pending, as claim_mission",
+      !!queuedRow && queuedRow.state === "pending" && queuedRow.kind === "claim_mission",
+      JSON.stringify(queuedRow))
+    const replay = await fetch(trusted.base + "/panel/battlepass?steamid=" + encodeURIComponent(steamF), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "tier=2", redirect: "manual"
+    })
+    const count = trusted.first(
+      `SELECT COUNT(*) AS n FROM winter_actions WHERE steamid=?1 AND idem='pass:2'`, steamF)
+    check("battlepass: a replayed claim queues nothing a second time",
+      replay.status === 303 && Number(count.n) === 1, `rows=${count.n}`)
+    const stale = await fetch(trusted.base + "/panel/battlepass?steamid=" + encodeURIComponent(steamF), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "tier=9", redirect: "manual"
+    })
+    check("battlepass: a claim for a tier the player does not hold is refused, not queued",
+      (stale.headers.get("location") || "").includes("queued=stale"), stale.headers.get("location") || "")
+
+    ok("battlepass suite")
   }
 
   // ------------------------------------------------ 2. signed game push ----
@@ -1375,6 +1482,153 @@ try {
   check("the ack never pays a balance again", gPlayer.gingerbread === 10, String(gPlayer.gingerbread))
   const badAck = await gameCall(panel, "POST", "/api/game/ack", { body: JSON.stringify({ id: gq.action.id, state: "nonsense" }) })
   check("an ack with an unknown state is refused", badAck.status === 400, "-> " + badAck.status)
+
+  // =============================================== 12. the shop (page 11) ====
+  // /panel/shop is the first transactional page: a Buy is a POST that queues one
+  // `buy` through queueAction and renders the row back as QUEUED. The checks here
+  // are the ones the contract promises: one row per double submit, nothing queued
+  // when the player cannot pay, and — after applyAction — one charge, one ledger
+  // line, and the item in the inventory.
+  {
+    const { shopCatalog, ownedItems, actionsOfKind } = await import("./src/query.js")
+    const shop = await import("./src/panel/shop.js")
+    const sdb = openLocalD1(panel.dbFile)
+    const SHELF = await shopCatalog(sdb)
+    check("shop: the catalogue is seeded and every row is deliverable-shaped",
+      SHELF.length >= 30 && SHELF.every(r =>
+        (r.kind === "product" ? !!r.product : /^(ornament|title):/.test(r.item)) &&
+        (r.price.coins > 0 || r.price.gingerbread > 0)),
+      `${SHELF.length} rows`)
+    check("shop: nothing on the shelf is a skin/model/badge/bundle (the game cannot grant them)",
+      SHELF.every(r => ["ornament", "title", "product"].includes(r.kind)),
+      [...new Set(SHELF.map(r => r.kind))].join(","))
+    check("shop: the six collector titles and the thirty ornaments are all shelved",
+      SHELF.filter(r => r.kind === "title").length === 6 && SHELF.filter(r => r.kind === "ornament").length === 30,
+      `${SHELF.filter(r => r.kind === "title").length}/${SHELF.filter(r => r.kind === "ornament").length}`)
+
+    // The page itself: 200, one fixed stage, no scrollbars, the plate as its pictures.
+    const shopPage = await fetch(panel.base + "/panel/shop")
+    const shopDoc = await shopPage.text()
+    check("shop: answers 200 html", shopPage.status === 200 && /text\/html/.test(shopPage.headers.get("content-type") || ""),
+      "-> " + shopPage.status)
+    check("shop: the plate is the only picture source (plus generated product art)",
+      shopDoc.includes("/plates/10-shop.png") && !/background-image:url\(\/(?!plates\/10-shop\.png)/.test(shopDoc),
+      "")
+    check("shop: one fixed stage, scaled by min(vw/W, vh/H), never a reflow",
+      /width:1670px;height:941px/.test(shopDoc) && /Math\.min\(vw\/W,vh\/H,1\)/.test(shopDoc) &&
+      /overflow:hidden/.test(shopDoc), "")
+    check("shop: the cards the plate draws but this shop cannot sell say why",
+      shopDoc.includes("Not available yet") && /cannot|no path|pull/i.test(shopDoc), "")
+
+    // A player with a wallet: a known player row, coins and gingerbread granted
+    // through the queue (never a direct write in the test either).
+    const BSID = "STEAM_0:0:712"
+    await push(panel, player(BSID, { xp: 500, coins: 900, kills: 0 }))
+    const grantRow = await queueAction(sdb, {
+      steamid: BSID, kind: "grant", payload: { reason: "test", gingerbread: 2000 }, idem: "grant:test-shop",
+    })
+    await applyAction(sdb, grantRow.action.id)
+
+    // Offer A: an ornament the player can afford at one GB price (2 500 GB is too
+    // dear, so the affordable one is a common ornament at 60 GB).
+    const cheap = SHELF.find(r => r.kind === "ornament" && r.price.gingerbread > 0 && r.price.gingerbread <= 2000)
+
+    // DOUBLE SUBMIT: two identical POSTs, one after the other, exactly what a
+    // double-clicked Buy button does.
+    const post = () => fetch(panel.base + "/panel/shop", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ s: BSID, sku: cheap.sku }).toString(),
+    })
+    const r1 = await post()
+    const doc1 = await r1.text()
+    const r2 = await post()
+    const doc2 = await r2.text()
+    const day = shop.parisDay(Math.floor(Date.now() / 1000))
+    const rows = (await actionsOfKind(sdb, BSID, "buy", { limit: 50 }))
+      .filter(x => x.idem === shop.buyIdem(cheap.sku, day))
+    check("shop: a double submit queues exactly ONE row", rows.length === 1,
+      `${rows.length} rows for idem ${shop.buyIdem(cheap.sku, day)}`)
+    check("shop: the idem key is buy:<sku>:<paris day>", rows[0] && rows[0].idem === `buy:${cheap.sku}:${day}`,
+      rows[0] ? rows[0].idem : "no row")
+    check("shop: the first POST says Queued and the second says it already exists",
+      doc1.includes("Queued:") && /Already queued today/.test(doc2), "")
+    check("shop: the page shows the row as queued, never as paid",
+      doc1.includes("Queued") && !/chip paid[^>]*>Paid/.test(doc1), "")
+    const before = await balancesOf(sdb, BSID)
+    check("shop: nothing is charged while the row is pending", before.gingerbread === 2000,
+      JSON.stringify(before))
+
+    // The apply step (what the game's pull triggers) pays it exactly once.
+    const a1 = await applyAction(sdb, rows[0].action_id)
+    const a2 = await applyAction(sdb, rows[0].action_id)
+    const afterApply = await balancesOf(sdb, BSID)
+    const ledger = await recentLedger(sdb, BSID, { limit: 20 })
+    const charges = ledger.filter(l => l.reason === "buy" && l.ref === `buy:${cheap.sku}`)
+    const ownedAfter = await ownedItems(sdb, BSID)
+    check("shop: applying the purchase pays it once", a1.ok && a1.state === "applied" &&
+      afterApply.gingerbread === 2000 - cheap.price.gingerbread, JSON.stringify(afterApply))
+    check("shop: a second apply changes nothing (already applied)", a2.already === true &&
+      afterApply.gingerbread === 2000 - cheap.price.gingerbread, JSON.stringify(a2))
+    check("shop: exactly ONE ledger line carries the charge", charges.length === 1,
+      `${charges.length} ledger rows`)
+    check("shop: the item is in the inventory afterwards", ownedAfter.items.some(i => i.item === cheap.item),
+      JSON.stringify(ownedAfter.items.map(i => i.item)))
+
+    // UNOWNED CARD / OWNED CARD: a second POST of the same sku is still one row,
+    // and the page now prints Owned instead of a Buy button for that card.
+    await post()
+    const rows2 = (await actionsOfKind(sdb, BSID, "buy", { limit: 50 }))
+      .filter(x => x.idem === shop.buyIdem(cheap.sku, day))
+    const ownedDoc = await (await fetch(panel.base + `/panel/shop?steamid=${encodeURIComponent(BSID)}`)).text()
+    check("shop: a third submit still leaves ONE row", rows2.length === 1, `${rows2.length} rows`)
+    check("shop: the owned card says Owned on a GET", ownedDoc.includes("Owned"), "")
+    check("shop: the invented plate prices are not printed as the page's own",
+      !/2,500\s*GB/.test(ownedDoc) && !ownedDoc.includes("12,800") && !ownedDoc.includes("8,960"), "")
+
+    // INSUFFICIENT CURRENCY: a title costs 2 500 GB, the player has the rest.
+    const dear = SHELF.find(r => r.kind === "title")
+    const affordableBefore = (await balancesOf(sdb, BSID)).gingerbread
+    const r3 = await fetch(panel.base + "/panel/shop", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ s: BSID, sku: dear.sku }).toString(),
+    })
+    const doc3 = await r3.text()
+    const rows3 = (await actionsOfKind(sdb, BSID, "buy", { limit: 50 }))
+      .filter(x => x.idem === shop.buyIdem(dear.sku, day))
+    // The refusal happens at APPLY time (the queue only queues), so the page must
+    // still say "queued" — and the apply must refuse, with the queue's own words.
+    check("shop: an unaffordable purchase is never charged by the page itself",
+      (await balancesOf(sdb, BSID)).gingerbread === affordableBefore, "")
+    check("shop: the unaffordable buy queued ONE pending row (the queue cannot know the balance yet)",
+      rows3.length === 1 && rows3[0].state === "pending", JSON.stringify(rows3.map(x => x.state)))
+    const a3 = await applyAction(sdb, rows3[0].action_id)
+    check("shop: the apply REFUSES it and writes nothing", a3.ok === false && a3.state === "refused" &&
+      (await balancesOf(sdb, BSID)).gingerbread === affordableBefore, JSON.stringify(a3))
+    check("shop: the refusal reason is the queue's own sentence, verbatim",
+      /^not enough gingerbread \(have \d+, need \d+\)$/.test(a3.error), JSON.stringify(a3.error))
+    const docRefused = await (await fetch(panel.base + `/panel/shop?steamid=${encodeURIComponent(BSID)}`)).text()
+    check("shop: the page prints that refusal verbatim after the game/apply refused it",
+      docRefused.includes(a3.error), a3.error)
+
+    // A refusal the QUEUE itself makes (bad payload) is printed verbatim too.
+    const badForm = new URLSearchParams({ s: BSID, sku: "ornament:999" }).toString()
+    const r4 = await fetch(panel.base + "/panel/shop", {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: badForm,
+    })
+    const doc4 = await r4.text()
+    check("shop: an unknown sku is refused by the page verbatim and queues nothing",
+      doc4.includes('the shelf has no product "ornament:999"') &&
+      !(await actionsOfKind(sdb, BSID, "buy", { limit: 50 })).some(x => (x.payload || {}).item === "ornament:999"),
+      "")
+
+    // One ledger line per paid purchase, and only for it.
+    const ledger2 = await recentLedger(sdb, BSID, { limit: 50 })
+    check("shop: no purchase charged a balance it did not also record",
+      ledger2.filter(l => l.reason === "buy").length === 1, `${ledger2.filter(l => l.reason === "buy").length} buy lines`)
+    sdb.raw.close()
+  }
   sd.raw.close()
 } catch (e) {
   bad("suite", e && e.stack ? e.stack : String(e))

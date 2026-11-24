@@ -32,6 +32,12 @@ import { handlePublicApi } from "./publicapi.js"
 import { pageMotdV2 } from "./motd.js"
 import { pageBoards } from "./boards_page.js"
 import { pageDashboard } from "./panel/dashboard.js"
+import { pageProfile as pageProfilePanel } from "./panel/profile.js"
+import { pageShop } from "./panel/shop.js"
+import { pageBattlepass, handleBattlepassPost } from "./panel/battlepass.js"
+import { pageAdvent, handleAdventClaim } from "./panel/advent_page.js"
+import { pageLevels } from "./panel/levels_page.js"
+import { pageAdminPanel } from "./panel/admin_page.js"
 
 export default {
   async fetch(request, env, ctx) {
@@ -86,6 +92,11 @@ async function routeRequest(request, env, ctx) {
         return await handleRegister(request, env)
       if (request.method === "GET" && path === "/api/game/v1/health")
         return await handleRegHealth(request, env)
+
+      // The Winterfest shop (page 11) is POST-aware: a Buy submits a form back to
+      // the same route, so it is dispatched BEFORE the GET-only gate below.
+      if (path === "/panel/shop")
+        return await pageShop(env, url, request)
 
       // The Winterfest action pump (contract §Layers). Same SECRET as the ingest,
       // same signature formula with the method word swapped; the POST goes here so
@@ -184,8 +195,30 @@ async function routeRequest(request, env, ctx) {
       // document the game is sent. It is answered BEFORE the /panel alias table
       // below (which is what the in-game /panel command opens), so /panel/dashboard
       // is this page and every other /panel path keeps its alias.
+      // The Winterfest pages that paint the owner's plate whole
+      // (docs/design/PAGE-KIT.md): one route each, answered before the /panel
+      // alias table so the alias can never shadow them.
+      if (path === "/panel/advent")
+        return await pageAdvent(env, url)
+      if (request.method === "POST" && path === "/panel/advent/claim")
+        return await handleAdventClaim(request, env)
+      if (path === "/panel/levels")
+        return await pageLevels(env, url)
+      if (path === "/panel/admin")
+        return await pageAdminPanel(request, env, url)
       if (path === "/panel/dashboard")
         return await pageDashboard(env, url)
+      // The rebuilt profile (/panel/profile, docs/design/refs/winterfest/
+      // 02-profile.png). Answered before the alias table for the same reason as
+      // the dashboard above: /panel/profile is the PLAIN id-lookup view, not this page.
+      if (path === "/panel/profile")
+        return await pageProfilePanel(env, url)
+      // The Battle Pass plate page (docs/panel/05-BATTLEPASS.md). Its claim is a
+      // FORM POST, routed here so it is not 405'd by the GET-only gate below.
+      if (path === "/panel/battlepass") {
+        if (request.method === "POST") return await handleBattlepassPost(env, url, request)
+        return await pageBattlepass(env, url)
+      }
       if (path === "/panel" || path.startsWith("/panel/")) {
         const rest = path.replace(/^\/panel\/?/, "")
         const alias = {
@@ -236,7 +269,7 @@ async function routeRequest(request, env, ctx) {
         }
       }
       // Rank emblems, processed medals, badges, /i icons from ./assets
-      if (env.ASSETS && (path === "/logo.png" || path.startsWith("/ranks/") || path.startsWith("/badges/") || path.startsWith("/medals/") || path.startsWith("/i/") || path.startsWith("/missions/") || path.startsWith("/bp/"))) {
+      if (env.ASSETS && (path === "/logo.png" || path.startsWith("/ranks/") || path.startsWith("/badges/") || path.startsWith("/medals/") || path.startsWith("/i/") || path.startsWith("/missions/") || path.startsWith("/bp/") || path.startsWith("/plates/") || path === "/dashboard.png")) {
         const res = await env.ASSETS.fetch(request)
         if (res && res.status !== 404) return res
       }

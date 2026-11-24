@@ -328,6 +328,12 @@ public plugin_init()
 	// 33 slots and saves only the dirty ones.
 	set_task(30.0, "Task_AutoSave", TASK_AUTOSAVE, _, _, "b")
 
+	// The [open] table is what an OPENED present rolls. Without a row for a
+	// rarity, WfOpenGift() falls through to a flat 15 GingerBread - a legal
+	// configuration, so it is said once here instead of per open.
+	log_amx("[WF] open table: %d/%d/%d reward row(s) for rarity 0/1/2%s",
+		g_iPoolCount[0], g_iPoolCount[1], g_iPoolCount[2],
+		(g_iPoolCount[0] + g_iPoolCount[1] + g_iPoolCount[2]) ? "" : " - every opened present pays the 15 gb fallback")
 	log_amx("[WF] config: %d rarities, %d ornaments, %d sets, %d advent days, %d pass tiers",
 		g_iRarCount, g_iOrnCount, g_iSetCount, g_iAdvCount, g_iTierCount)
 	log_amx("[WF] spins: %s, %d free per day", g_bSpinsEnabled ? "enabled" : "disabled", g_iSpinsFree)

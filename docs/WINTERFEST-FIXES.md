@@ -269,6 +269,30 @@ presents they had.
 presents - open one first"); return false` block; the bag-full reward is lost
 again.
 
+
+## F7 — the load never said whether opened presents could pay anything
+
+**Symptom.** Two playtests read `[WF] config: 3 rarities, 30 ornaments, …`,
+`[WF] spins: enabled …` and concluded the module was healthy. Nothing in the
+boot log says how many `[open]` rows (what an OPENED present rolls) actually
+loaded; when that table is empty or mis-typed, `WfOpenGift()` silently falls
+through to a flat 15 GingerBread for every present.
+
+**Root cause.** `winterfest_core.sma` logged the `[rarity]`, `[ornament]`,
+`[set]`, `[advent]` and `[pass]` counts at load but never `g_iPoolCount[]`, so a
+`[open]` table that failed to parse was indistinguishable from one that parsed.
+
+**Change.** One line at load:
+`[WF] open table: %d/%d/%d reward row(s) for rarity 0/1/2`, with
+`- every opened present pays the 15 gb fallback` appended when all three counts
+are zero.
+
+**Verification.** Local stack:
+`[WF] open table: 4/4/4 reward row(s) for rarity 0/1/2` — the table parses, and
+a probe that opens presents reaches the roll instead of the fallback.
+
+**Revert.** Delete the `log_amx("[WF] open table: …")` line in `plugin_init()`.
+
 <!-- FIXES CONTINUE BELOW -->
 
 ---

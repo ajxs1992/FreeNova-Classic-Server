@@ -31,6 +31,7 @@ import { pageGameSurface, pageSettings, pageRules } from "./gamepages.js"
 import { handlePublicApi } from "./publicapi.js"
 import { pageMotdV2 } from "./motd.js"
 import { pageBoards } from "./boards_page.js"
+import { pageDashboard } from "./panel/dashboard.js"
 
 export default {
   async fetch(request, env, ctx) {
@@ -178,6 +179,13 @@ async function routeRequest(request, env, ctx) {
         }
       }
 
+      // The LIVE Winterfest dashboard (docs/panel/03-DASHBOARD.md). A route of
+      // its own, never /dashboard: that URL belongs to the approved plate
+      // document the game is sent. It is answered BEFORE the /panel alias table
+      // below (which is what the in-game /panel command opens), so /panel/dashboard
+      // is this page and every other /panel path keeps its alias.
+      if (path === "/panel/dashboard")
+        return await pageDashboard(env, url)
       if (path === "/panel" || path.startsWith("/panel/")) {
         const rest = path.replace(/^\/panel\/?/, "")
         const alias = {
@@ -210,6 +218,23 @@ async function routeRequest(request, env, ctx) {
       if (looksLikeMotd && url.searchParams.get("compact") !== "1")
         url.searchParams.set("compact", "1")
 
+      // /assets/* - the live Winterfest page's own font
+      // (/assets/fonts/Nunito-Variable.ttf). The asset binding is rooted at
+      // ./assets, so the prefix is stripped for the lookup; a miss falls through
+      // to the routes below and ends as a 404. Nothing else is served this way.
+      if (env.ASSETS && path.startsWith("/assets/")) {
+        const assetUrl = new URL(request.url)
+        assetUrl.pathname = path.slice("/assets".length) || "/"
+        const res = await env.ASSETS.fetch(new Request(assetUrl, { method: "GET", headers: request.headers }))
+        if (res && res.status !== 404) {
+          // A font must be announced as a font, whatever the runner guesses
+          // (server_local says application/octet-stream; cf. font/ttf).
+          const headers = new Headers(res.headers)
+          if (path.startsWith("/assets/fonts/")) headers.set("content-type", "font/ttf")
+          headers.set("cache-control", "public, max-age=86400")
+          return new Response(res.body, { status: 200, headers })
+        }
+      }
       // Rank emblems, processed medals, badges, /i icons from ./assets
       if (env.ASSETS && (path === "/logo.png" || path.startsWith("/ranks/") || path.startsWith("/badges/") || path.startsWith("/medals/") || path.startsWith("/i/") || path.startsWith("/missions/") || path.startsWith("/bp/"))) {
         const res = await env.ASSETS.fetch(request)
@@ -283,6 +308,21 @@ async function routeRequest(request, env, ctx) {
         case "/cosmetics":   return await pageGameSurface(env, url, "cosmetics")
         case "/settings":    return await pageSettings(env, url)
         case "/rules":       return await pageRules(env, url)
+        // The Winterfest dashboard MOTD: the owner's plate, no data, no script.
+        // The document is the static ./assets/dashboard.html, and that .html URL
+        // is the one the game is sent (<base>/dashboard.html - a GoldSrc MOTD
+        // needs a file extension, see freenova_web.inc). These cases exist so the
+        // same page also answers the extension-free /dashboard a person types in
+        // a browser. Both serve the one file, so the two cannot drift apart.
+        case "/dashboard":
+        case "/winter/dashboard": {
+          if (!env.ASSETS) return page404()
+          const assetUrl = new URL(request.url)
+          assetUrl.pathname = "/dashboard.html"
+          assetUrl.search = ""
+          const res = await env.ASSETS.fetch(new Request(assetUrl, { method: "GET", headers: request.headers }))
+          return (res && res.status !== 404) ? res : page404()
+        }
         case "/discord":     return new Response(null, { status: 302, headers: { location: "https://discord.gg/vuGaWjuX" } })
         case "/events":      return await pageEvents(env, url)
         case "/vip":         return await pageVip(env, url)

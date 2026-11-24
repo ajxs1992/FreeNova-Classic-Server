@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FreeNova</title>
+<!--
+  /dashboard.html - the FreeNova Winterfest 2026 dashboard MOTD, opened by
+  /dashboard in chat (freenova_panel.sma -> fn_open_panel / FN_PANEL_DASHBOARD).
+
+  This page is the owner's plate and nothing else. dashboard.png next to it is a
+  byte-identical copy of docs/design/refs/winterfest/01-dashboard.png
+  (1672x941, sha256 4e9ea10d2fc93059e72137d5c6dc4d5fb0a949e4435eacba4680b32aa40878af).
+  No data, no script, no state, no second page.
+
+  ONE SCREEN, ALWAYS - the owner's rule: a player must never scroll a dashboard.
+  The plate keeps its own 1672x941 box and is scaled as a WHOLE:
+
+      scale = min(viewportWidth / 1672, viewportHeight / 941)      (capped at 1)
+
+  * SHORT viewport (800x600, 640x480, 1366x768): the HEIGHT binds, so the plate
+    is narrower than the window and letterboxed left/right. This is the case the
+    old width-only rule got wrong - `width:100%;height:auto` overflowed the
+    height and produced a scrollbar.
+  * LARGE viewport: it stops at 1:1 (1672x941). Never upscaled, so never soft.
+  * The scale is computed in two places on purpose, and they agree: the script
+    (which also reports it in data-scale) and, when the client's engine has no
+    script at all, the CSS `scale:` line underneath.
+  * Centring is done by offsetting the transform origin to the middle of the
+    viewport, so the letterbox is split evenly and the stage never needs a
+    negative offset that could create a scroll area.
+
+  LEGIBILITY FLOOR: at 640x480 the factor is 0.44 and the plate's 14-20 px text
+  is 6-9 px on screen - a poster, not prose. Accepted on purpose (owner: one
+  screen matters more than a big page on a tiny MOTD); the live page (/panel) is
+  where a player reads the numbers at a comfortable size.
+-->
+<style>
+  html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;                 /* no scrollbar on any axis, ever */
+    background: #0d0b18;
+  }
+  #stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1672px;
+    height: 941px;
+    transform-origin: 0 0;
+    transform: scale(1);
+    /* Fallback for an engine that runs no script: the same formula in CSS. */
+    scale: min(calc(100vw / 1672), calc(100vh / 941), 1);
+  }
+  #stage img.plate {
+    display: block;
+    width: 1672px;
+    height: 941px;
+    border: 0;
+    image-rendering: auto;            /* let the browser downsample, never nearest */
+    -ms-interpolation-mode: bicubic;
+  }
+</style>
+</head>
+<body>
+<div id="stage"><img class="plate" src="/dashboard.png" alt="FreeNova Winterfest 2026 dashboard" width="1672" height="941"></div>
+<script>
+(function () {
+  // One transform on a fixed box: the whole plate, both axes, exact ratio.
+  var st = document.getElementById('stage');
+  var W = 1672, H = 941;
+  function fit() {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var s = Math.min(vw / W, vh / H, 1);
+    // centre: scale about the top-left, then shift by half the spare room
+    st.style.transform = 'translate(' + ((vw - W * s) / 2) + 'px,' + ((vh - H * s) / 2) + 'px) scale(' + s + ')';
+    st.style.scale = '1';             /* the explicit transform wins; drop the CSS one */
+    st.setAttribute('data-scale', s.toFixed(4));
+  }
+  fit();
+  window.addEventListener('resize', fit);
+})();
+</script>
+</body>
+</html>

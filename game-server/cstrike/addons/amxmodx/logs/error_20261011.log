@@ -1,9 +1,0 @@
-L 10/11/2026 - 12:36:10: Start of error session.
-L 10/11/2026 - 12:36:10: Info (map "cs_backalley") (file "addons/amxmodx/logs/error_20261011.log")
-L 10/11/2026 - 12:36:10: [AMXX] Plugin file open error (plugin "postgres_engine.amxx")
-L 10/11/2026 - 12:36:10: [AMXX] Plugin file open error (plugin "cban_screenshots.amxx")
-L 10/11/2026 - 12:36:10: [AMXX] Plugin file open error (plugin "bypass_guard.amxx")
-L 10/11/2026 - 12:36:10: [AMXX] Plugin file open error (plugin "ab_bypass_bridge.amxx")
-L 10/11/2026 - 12:36:10: [AMXX] Plugin file open error (plugin "freenova_rank.amxx")
-L 10/11/2026 - 12:36:10: [AMXX] Plugin file open error (plugin "freenova_rank_api.amxx")
-L 10/11/2026 - 12:36:10: [AMXX] Plugin file open error (plugin "country_welcome.amxx")

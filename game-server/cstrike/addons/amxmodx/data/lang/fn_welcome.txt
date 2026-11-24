@@ -1,6 +1,0 @@
-[en]
-WELCOME_NEW = Welcome to %s! Type /help for commands, /rules info in chat.
-WELCOME_BACK = Welcome back to %s! Good to see you again.
-WELCOME_BACK_DAYS = Welcome back to %s! %d days since your last visit.
-WELCOME_RULES = Rules: respect players, no cheats, no spam. Admins: /admin.
-WELCOME_HINTS = Hints: /servers for community, /settings for preferences.

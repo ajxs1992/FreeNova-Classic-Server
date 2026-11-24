@@ -38,3 +38,19 @@ askpass.sh
 # web-panel/relay/relay.log are part of the snapshot, and the AMXX log files are
 # the only record of runtime errors on the live server. Ignore a specific noisy
 # file by name if one is added later; do not add a blanket *.log rule.
+
+# Handover snapshot dropped into cstrike by the owner (2026-11-24): source tree plus a
+# full git bundle. 1.1 GB. Never commit it - restore with
+#   git clone "game-server/cstrike/Christmas Progress/git/freenova-classic-winterfest.bundle" .
+game-server/cstrike/Christmas Progress/
+
+# ── runtime state and player identity — never published ──────────────────────
+# These were tracked before the repo was made public. They contain real players'
+# SteamIDs, nicknames, bans and admin credentials. Untracked 2026-11-24; the files
+# stay on disk. A fresh clone recreates them by running the server.
+web-panel/data/
+game-server/cstrike/addons/amxmodx/data/
+game-server/cstrike/addons/amxmodx/logs/*.log
+*.sq3
+*.sq3-shm
+*.sq3-wal

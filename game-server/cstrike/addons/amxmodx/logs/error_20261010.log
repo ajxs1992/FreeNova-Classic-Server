@@ -1,5 +1,0 @@
-L 10/10/2026 - 17:20:39: Start of error session.
-L 10/10/2026 - 17:20:39: Info (map "de_dust2") (file "addons/amxmodx/logs/error_20261010.log")
-L 10/10/2026 - 17:20:39: Player 1 is not in game.
-L 10/10/2026 - 17:20:39: [AMXX] Run time error 10 (plugin "weapon_models.amxx") (native "menu_display") - debug not enabled!
-L 10/10/2026 - 17:20:39: [AMXX] To enable debug mode, add "debug" after the plugin name in plugins.ini (without quotes).

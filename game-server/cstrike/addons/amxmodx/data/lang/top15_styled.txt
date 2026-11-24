@@ -1,8 +1,0 @@
-[en]
-TOP15_HEADER = FreeNova Top15 - Best Players
-TOP15_NOT_AVAILABLE = Leaderboard is not available right now
-TOP15_NO_DATA = No player data yet
-TOP15_ORDER = Order: %d
-TOP15_POSITION = #%d
-TOP15_TABLE = Table: %s
-TOP15_ERROR = Top15 service is temporarily unavailable

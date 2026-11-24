@@ -1,9 +1,0 @@
-L 10/26/2026 - 13:12:52: Log file started (file "cstrike/addons/amxmodx/logs/BAN_HISTORY_10262026.log") (game "cstrike") (amx "1.10.0.5467")
-L 10/26/2026 - 13:12:52: ajxs <STEAM_0:0:683671116> banned npc_known <STEAM_0:0:611856215 / 90.142.201.238> || Reason: "Cheating" || Ban Length: 1 minute
-L 10/26/2026 - 13:13:54: Ban time is up for: npc_known [S]
-L 10/26/2026 - 13:14:17: ajxs <STEAM_0:0:683671116> banned npc_known <STEAM_0:0:611856215 / 90.142.201.238> || Reason: "Exploiting" || Ban Length: 6 hours
-L 10/26/2026 - 19:14:20: Ban time is up for: npc_known [S]
-L 10/26/2026 - 22:09:55: SERVER <SERVER> banned UnbanTest <STEAM_0:1:99999999> || Reason: "unban-test" || Ban Length: 1 minute
-L 10/26/2026 - 22:10:11: SERVER <SERVER> unbanned UnbanTest <STEAM_0:1:99999999> || Ban Reason: "unban-test"
-L 10/26/2026 - 22:11:06: SERVER <SERVER> banned IdTest <STEAM_0:1:77777777> || Reason: "id-test" || Ban Length: 1 minute
-L 10/26/2026 - 22:11:35: SERVER <SERVER> unbanned IdTest <STEAM_0:1:77777777> id #2 || Ban Reason: "id-test"

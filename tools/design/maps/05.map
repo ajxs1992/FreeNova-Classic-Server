@@ -1,0 +1,12 @@
+# 05-battlepass.png - the rectangles the Battle Pass page prints into.
+# One probe per line: the point is inside the rectangle we want; tools/design/
+# plate_map.py walks out to its border and draws the result. Check the PNG.
+c0    530,515    # reward cell, column 1, free row
+c4    1030,515   # reward cell, column 5, free row
+c9   1620,600    # reward cell, column 10 (right edge of the frame)
+card1 420,800    # bottom card, left ("Battle Pass Missions")
+card2 900,800    # bottom card, middle ("Premium Pass Benefits")
+card3 1500,800   # bottom card, right (the upsell card)
+pg1   1050,662   # the "1 - 15" pill
+upbt  1500,320   # the upsell button's face
+crow1 400,755    # a row label inside card 1

@@ -3111,9 +3111,33 @@ stock WfRewardText(type, rid, out[], len)
 // ============================================================
 // Operator commands
 // ============================================================
-// Target resolution: "#<userid>", "all"/"*" (every connected client, bots
-// included - a bot is a valid vault record and the test harness has no humans),
-// or a case-insensitive name/authid substring (first match).
+// Target resolution, all four forms an operator types at the console:
+//
+//   all | *        every connected client, bots included (a bot is a valid vault
+//                  record and the harness has no humans)
+//   <id>           the CLIENT SLOT number - what every other FreeNova admin
+//                  command takes, and what an operator reads off amx_who
+//   #<userid>      the per-session userid (differs from the slot after a
+//                  reconnect, so both are supported)
+//   <text>         case-insensitive name / authid substring, first match
+//
+// The bare-number form was missing: `wf_give 1 gingerbread 0 5` fell through to
+// the substring branch, found no name containing "1", and answered
+// "no client matched '1'" - which is why wf_give/wf_state/wf_reset/wf_ent had
+// to be driven with "all".
+// true when the whole argument is decimal digits (and not empty)
+stock bool:WfIsDigits(const s[])
+{
+	if (!s[0])
+		return false
+	for (new i = 0; s[i]; i++)
+	{
+		if (s[i] < '0' || s[i] > '9')
+			return false
+	}
+	return true
+}
+
 stock WfResolveTargets(const arg[], players[], &num, max)
 {
 	num = 0
@@ -3143,6 +3167,14 @@ stock WfResolveTargets(const arg[], players[], &num, max)
 				break
 			}
 		}
+	}
+	else if (WfIsDigits(arg))
+	{
+		// A bare slot number. Bounded and range-checked: "0" and "17" match
+		// nobody rather than reading past the target list.
+		new slot = str_to_num(arg)
+		if (slot >= 1 && slot <= MaxClients && is_user_connected(slot) && !is_user_hltv(slot))
+			p = slot
 	}
 	else
 	{

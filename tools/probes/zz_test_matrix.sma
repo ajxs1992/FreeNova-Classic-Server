@@ -38,7 +38,10 @@
 
 new const g_szCommands[][] =
 {
-	// chat commands (one per line in commands.txt, in the same order)
+	// Chat commands, issued once each with server_cmd("say ..."). A command
+	// registered by a plugin answers here (Server say -> the plugin's own
+	// reply/refusal in the log); a command NOBODY registered stays unhandled
+	// here, which is the only way this probe can tell the two apart.
 	"say /christmas",
 	"say /xmas",
 	"say /winter",
@@ -159,5 +162,73 @@ public TaskReport()
 	if (!n)
 		server_print("[WF-MATRIX] no humans connected - the chat half of this matrix cannot be answered")
 
-	server_print("[WF-MATRIX] === done ===")
+	server_print("[WF-MATRIX] === chat matrix done; starting the money walk ===")
+	set_task(2.0, "TaskMoney")
+}
+
+// ============================================================
+// The money walk
+// ============================================================
+// Two bots, the same action on both, and a read-back of the ledger-backed
+// counters after each one. A duplicate or a double-pay shows here as a counter
+// that is twice what the action was worth, or as a second player whose identical
+// action paid nothing.
+new g_iMoneyStep
+new g_iMoneyA
+new g_iMoneyB
+new g_iGbA0
+new g_iGbB0
+
+public TaskMoney()
+{
+	new players[32], n
+	get_players(players, n, "dh")
+	g_iMoneyA = (n > 0) ? players[0] : 0
+	g_iMoneyB = (n > 1) ? players[1] : 0
+	g_iGbA0 = g_iMoneyA ? wf_get_gingerbread(g_iMoneyA) : 0
+	g_iGbB0 = g_iMoneyB ? wf_get_gingerbread(g_iMoneyB) : 0
+	g_iMoneyStep = 0
+	server_print("[WF-MATRIX] money walk: A=id %d (gb %d) B=id %d (gb %d)",
+		g_iMoneyA, g_iGbA0, g_iMoneyB, g_iGbB0)
+	TaskMoneyStep()
+}
+
+public TaskMoneyStep()
+{
+	new step = g_iMoneyStep++
+
+	switch (step)
+	{
+		case 0:
+		{
+			// A pouch: the same slot number can be used by two different players
+			// in the same map, and each of them has to be paid.
+			server_print("[WF-MATRIX] pouch: A grants slot 0, B grants slot 0 (same map, same round)")
+			server_print("[WF-MATRIX]   A -> %d", wf_grant(g_iMoneyA, WF_REWARD_SNOWFLAKES, 5, "pouch#0"))
+			server_print("[WF-MATRIX]   B -> %d", wf_grant(g_iMoneyB, WF_REWARD_SNOWFLAKES, 5, "pouch#0"))
+		}
+		case 1:
+		{
+			server_print("[WF-MATRIX] pouch result: A gb %d -> %d, B gb %d -> %d (both must have risen by 5)",
+				g_iGbA0, wf_get_gingerbread(g_iMoneyA), g_iGbB0, wf_get_gingerbread(g_iMoneyB))
+		}
+		case 2:
+		{
+			// A present spot: the claim key names the map and the round, so a
+			// RECONNECT in the same round cannot pay twice - and a new round must.
+			new gbA = wf_get_gingerbread(g_iMoneyA)
+			server_print("[WF-MATRIX] spot: A claims spot#<map>#3#<round> twice (second must be refused)")
+			server_print("[WF-MATRIX]   first  -> %d", wf_grant(g_iMoneyA, WF_REWARD_SNOWFLAKES, 10, "spot#probe#3#1"))
+			server_print("[WF-MATRIX]   second -> %d", wf_grant(g_iMoneyA, WF_REWARD_SNOWFLAKES, 10, "spot#probe#3#1"))
+			server_print("[WF-MATRIX] spot: A gb %d -> %d (must rise by 10, not 20)", gbA, wf_get_gingerbread(g_iMoneyA))
+		}
+		case 3:
+		{
+			// A bag that is full, and the same present twice: the second call must
+			// not pay again even though the first one paid in GingerBread.
+			server_print("[WF-MATRIX] === money walk done ===")
+			return
+		}
+	}
+	set_task(1.0, "TaskMoneyStep")
 }

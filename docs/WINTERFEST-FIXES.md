@@ -293,6 +293,47 @@ a probe that opens presents reaches the roll instead of the fallback.
 
 **Revert.** Delete the `log_amx("[WF] open table: …")` line in `plugin_init()`.
 
+
+## F8 — every Winterfest admin command refused a plain client number
+
+**Symptom.** On the console, with five bots connected and `amx_who` listing
+`1 Ranger`, `2 Drift`, …:
+
+```
+> wf_state 1
+[WF] no client matched '1'
+> wf_give 1 gingerbread 0 5
+[WF] no client matched '1'
+```
+
+Only `wf_give all …` worked, so a single player could not be paid or inspected —
+and `wf_give all` then exposed F9 below.
+
+**Root cause.** `winterfest_core.sma` `WfResolveTargets()` accepted exactly three
+forms: `all`/`*`, `#<userid>`, and a name/authid **substring**. A bare slot
+number fell into the substring branch, matched no name, and returned "no client
+matched" — for `wf_give`, `wf_state`, `wf_reset` and `wf_ent`, all four of which
+go through it (`winterfest_core.sma:3179/3248/3288/3361`).
+
+**Change.** A fourth form: a whole-argument decimal number is the **client slot**
+(`1..MaxClients`, connected, not HLTV) — the same number every other FreeNova
+admin command takes and the one `amx_who` prints. `#<userid>` still works (it
+differs from the slot after a reconnect); `all`/`*` and the substring are
+unchanged.
+
+**Verification.**
+
+```
+> wf_state 1        -> [WF] Ranger (1) loaded=yes gb=545 …
+> wf_state #1       -> [WF] Ranger (1) loaded=yes gb=545 …
+> wf_state Ranger   -> [WF] Ranger (1) loaded=yes gb=545 …
+```
+
+All three forms reach the same player; before the change the first one answered
+"no client matched '1'".
+
+**Revert.** Delete the `else if (WfIsDigits(arg))` branch and `WfIsDigits()`.
+
 <!-- FIXES CONTINUE BELOW -->
 
 ---
